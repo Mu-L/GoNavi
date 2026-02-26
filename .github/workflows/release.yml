@@ -203,7 +203,9 @@ jobs:
           APP_NAME=$(basename "$APP_PATH")
           
           echo "🔏 正在进行 Ad-hoc 签名..."
-          codesign --force --options runtime --deep --sign - "$APP_NAME"
+          # 注意：Ad-hoc + hardened runtime（--options runtime）在未配置 entitlements 时，
+          # 可能导致部分 macOS 机型上应用双击无响应。这里保持 Ad-hoc 深签名但禁用 runtime hardened。
+          codesign --force --deep --sign - "$APP_NAME"
           
           DMG_NAME="${{ matrix.build_name }}.dmg"
           FINAL_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.dmg"
