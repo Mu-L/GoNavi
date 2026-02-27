@@ -1061,6 +1061,7 @@ const ConnectionModal: React.FC<{
           });
       } else if (type !== 'custom') {
           form.setFieldsValue({
+              database: '',
               port: defaultPort,
               mysqlTopology: 'single',
               mongoTopology: 'single',
@@ -1199,6 +1200,7 @@ const ConnectionModal: React.FC<{
             type: 'mysql',
             host: 'localhost',
             port: 3306,
+            database: '',
             user: 'root',
             useSSH: false,
             sshPort: 22,
@@ -1337,6 +1339,16 @@ const ConnectionModal: React.FC<{
             </Form.Item>
             )}
         </div>
+
+        {(dbType === 'postgres' || dbType === 'kingbase' || dbType === 'highgo' || dbType === 'vastbase') && (
+        <Form.Item
+            name="database"
+            label="默认连接数据库（可选）"
+            help="留空会自动尝试 postgres、template1、与当前用户名同名数据库"
+        >
+            <Input placeholder="例如：appdb" />
+        </Form.Item>
+        )}
 
         {(dbType === 'mysql' || dbType === 'mariadb' || dbType === 'diros' || dbType === 'sphinx') && (
         <>

@@ -82,10 +82,6 @@ func getCacheKey(config connection.ConnectionConfig) string {
 	if !config.UseProxy {
 		config.Proxy = connection.ProxyConfig{}
 	}
-	// 保持与驱动默认一致，避免同一连接被重复缓存
-	if config.Type == "postgres" && config.Database == "" {
-		config.Database = "postgres"
-	}
 
 	b, _ := json.Marshal(config)
 	sum := sha256.Sum256(b)

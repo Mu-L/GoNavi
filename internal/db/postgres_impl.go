@@ -24,6 +24,30 @@ type PostgresDB struct {
 	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
 
+func resolvePostgresConnectDatabases(config connection.ConnectionConfig) []string {
+	explicit := strings.TrimSpace(config.Database)
+	if explicit != "" {
+		return []string{explicit}
+	}
+
+	candidates := []string{"postgres", "template1", strings.TrimSpace(config.User)}
+	seen := make(map[string]struct{}, len(candidates))
+	result := make([]string, 0, len(candidates))
+	for _, name := range candidates {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		normalized := strings.ToLower(trimmed)
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
 func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	// postgres://user:password@host:port/dbname?sslmode=disable
 	dbname := config.Database
@@ -53,8 +77,23 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 		return fmt.Errorf("%s", reason)
 	}
 
-	var dsn string
-	var err error
+	runConfig := config
+	p.pingTimeout = getConnectTimeout(config)
+
+	cleanupOnFailure := true
+	defer func() {
+		if !cleanupOnFailure {
+			return
+		}
+		if p.conn != nil {
+			_ = p.conn.Close()
+			p.conn = nil
+		}
+		if p.forwarder != nil {
+			_ = p.forwarder.Close()
+			p.forwarder = nil
+		}
+	}()
 
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding
@@ -83,24 +122,44 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Port = port
 		localConfig.UseSSH = false // Disable SSH flag for DSN generation
 
-		dsn = p.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("PostgreSQL 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = p.getDSN(config)
 	}
 
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
-	}
-	p.conn = db
-	p.pingTimeout = getConnectTimeout(config)
+	attemptDBs := resolvePostgresConnectDatabases(runConfig)
+	var failures []string
+	for _, dbName := range attemptDBs {
+		attemptConfig := runConfig
+		attemptConfig.Database = dbName
+		dsn := p.getDSN(attemptConfig)
 
-	// Force verification
-	if err := p.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+		dbConn, err := sql.Open("postgres", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("数据库=%s 打开连接失败: %v", dbName, err))
+			continue
+		}
+		p.conn = dbConn
+
+		// Force verification
+		if err := p.Ping(); err != nil {
+			failures = append(failures, fmt.Sprintf("数据库=%s 验证失败: %v", dbName, err))
+			_ = dbConn.Close()
+			p.conn = nil
+			continue
+		}
+
+		if strings.TrimSpace(config.Database) == "" && !strings.EqualFold(dbName, "postgres") {
+			logger.Infof("PostgreSQL 自动选择连接数据库：%s", dbName)
+		}
+
+		cleanupOnFailure = false
+		return nil
 	}
-	return nil
+
+	if len(failures) == 0 {
+		return fmt.Errorf("连接建立后验证失败：未找到可用的连接数据库")
+	}
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (p *PostgresDB) Close() error {

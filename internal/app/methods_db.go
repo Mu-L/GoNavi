@@ -190,9 +190,6 @@ func (a *App) RenameDatabase(config connection.ConnectionConfig, oldName string,
 			return connection.QueryResult{Success: false, Message: "当前连接正在使用目标数据库，请先连接到其他数据库后再重命名"}
 		}
 		runConfig := config
-		if strings.TrimSpace(runConfig.Database) == "" {
-			runConfig.Database = "postgres"
-		}
 		dbInst, err := a.getDatabase(runConfig)
 		if err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
@@ -228,9 +225,6 @@ func (a *App) DropDatabase(config connection.ConnectionConfig, dbName string) co
 			return connection.QueryResult{Success: false, Message: "当前连接正在使用目标数据库，请先连接到其他数据库后再删除"}
 		}
 		runConfig = config
-		if strings.TrimSpace(runConfig.Database) == "" {
-			runConfig.Database = "postgres"
-		}
 		sql = fmt.Sprintf("DROP DATABASE %s", quoteIdentByType(dbType, dbName))
 	default:
 		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源(%s)暂不支持删除数据库", dbType)}
