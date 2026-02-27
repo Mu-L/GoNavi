@@ -41,6 +41,7 @@ func main() {
 			BackdropType:                      windows.Acrylic,
 			DisableWindowIcon:                 false,
 			DisableFramelessWindowDecorations: false,
+			WebviewUserDataPath:               resolveWindowsWebviewUserDataPath(),
 		},
 		Mac: &mac.Options{
 			WebviewIsTransparent: true,

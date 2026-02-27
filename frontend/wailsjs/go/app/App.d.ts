@@ -6,6 +6,8 @@ import {redis} from '../models';
 
 export function ApplyChanges(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:connection.ChangeSet):Promise<connection.QueryResult>;
 
+export function CheckDriverNetworkStatus():Promise<connection.QueryResult>;
+
 export function CheckForUpdates():Promise<connection.QueryResult>;
 
 export function ConfigureDriverRuntimeDirectory(arg1:string):Promise<connection.QueryResult>;

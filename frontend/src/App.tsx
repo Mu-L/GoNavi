@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress } from 'antd';
+import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress, Switch } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
-import { Environment, EventsOn } from '../wailsjs/runtime/runtime';
+import { Environment, EventsOn, WindowFullscreen, WindowIsFullscreen, WindowIsMaximised, WindowMaximise } from '../wailsjs/runtime/runtime';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -26,6 +26,8 @@ function App() {
   const setTheme = useStore(state => state.setTheme);
   const appearance = useStore(state => state.appearance);
   const setAppearance = useStore(state => state.setAppearance);
+  const startupFullscreen = useStore(state => state.startupFullscreen);
+  const setStartupFullscreen = useStore(state => state.setStartupFullscreen);
   const darkMode = themeMode === 'dark';
   const effectiveOpacity = normalizeOpacityForPlatform(appearance.opacity);
   const effectiveBlur = normalizeBlurForPlatform(appearance.blur);
@@ -53,6 +55,84 @@ function App() {
           });
       return () => {
           cancelled = true;
+      };
+  }, []);
+
+  useEffect(() => {
+      let cancelled = false;
+      let startupWindowTimer: number | null = null;
+      const maxApplyAttempts = 6;
+      const applyRetryDelayMs = 400;
+      const settleDelayMs = 160;
+
+      const checkStartupPreferenceApplied = async (): Promise<boolean> => {
+          try {
+              if (await WindowIsFullscreen()) {
+                  return true;
+              }
+          } catch (_) {
+              // ignore
+          }
+          try {
+              if (await WindowIsMaximised()) {
+                  return true;
+              }
+          } catch (_) {
+              // ignore
+          }
+          return false;
+      };
+
+      const applyStartupWindowPreference = (attempt: number) => {
+          if (startupWindowTimer !== null) {
+              window.clearTimeout(startupWindowTimer);
+          }
+          startupWindowTimer = window.setTimeout(() => {
+              if (cancelled) {
+                  return;
+              }
+              if (!useStore.getState().startupFullscreen) {
+                  return;
+              }
+              Promise.resolve()
+                  .then(async () => {
+                      if (await checkStartupPreferenceApplied()) {
+                          return;
+                      }
+                      // 优先尝试全屏，若当前平台/时机不生效，后续走最大化兜底。
+                      WindowFullscreen();
+                      await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+                      if (await checkStartupPreferenceApplied()) {
+                          return;
+                      }
+                      WindowMaximise();
+                      await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+                      if (await checkStartupPreferenceApplied()) {
+                          return;
+                      }
+                      if (attempt < maxApplyAttempts) {
+                          applyStartupWindowPreference(attempt + 1);
+                      }
+                  });
+          }, 300);
+      };
+
+      if (useStore.persist.hasHydrated()) {
+          applyStartupWindowPreference(1);
+      }
+      const unsubscribeHydration = useStore.persist.onFinishHydration(() => {
+          if (cancelled) {
+              return;
+          }
+          applyStartupWindowPreference(1);
+      });
+
+      return () => {
+          cancelled = true;
+          if (startupWindowTimer !== null) {
+              window.clearTimeout(startupWindowTimer);
+          }
+          unsubscribeHydration();
       };
   }, []);
 
@@ -914,6 +994,16 @@ function App() {
                               </div>
                           </>
                       )}
+                  </div>
+                  <div>
+                      <div style={{ marginBottom: 8, fontWeight: 500 }}>启动窗口</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                          <span>启动时全屏</span>
+                          <Switch checked={startupFullscreen} onChange={(checked) => setStartupFullscreen(checked)} />
+                      </div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                          * 修改后下次启动生效
+                      </div>
                   </div>
               </div>
           </Modal>

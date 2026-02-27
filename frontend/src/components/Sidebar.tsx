@@ -47,6 +47,8 @@ interface TreeNode {
 
 type BatchTableExportMode = 'schema' | 'backup' | 'dataOnly';
 type BatchObjectType = 'table' | 'view';
+type BatchObjectFilterType = 'all' | BatchObjectType;
+type BatchSelectionScope = 'filtered' | 'all';
 
 interface BatchObjectItem {
   title: string;
@@ -133,11 +135,47 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const [selectedConnection, setSelectedConnection] = useState<string>('');
   const [selectedDatabase, setSelectedDatabase] = useState<string>('');
   const [availableDatabases, setAvailableDatabases] = useState<any[]>([]);
+  const [batchFilterKeyword, setBatchFilterKeyword] = useState<string>('');
+  const [batchFilterType, setBatchFilterType] = useState<BatchObjectFilterType>('all');
+  const [batchSelectionScope, setBatchSelectionScope] = useState<BatchSelectionScope>('filtered');
+  const filteredBatchObjects = useMemo(() => {
+      const keyword = batchFilterKeyword.trim().toLowerCase();
+      return batchTables.filter((item) => {
+          if (batchFilterType !== 'all' && item.objectType !== batchFilterType) {
+              return false;
+          }
+          if (!keyword) {
+              return true;
+          }
+          return item.title.toLowerCase().includes(keyword) || item.objectName.toLowerCase().includes(keyword);
+      });
+  }, [batchFilterKeyword, batchFilterType, batchTables]);
   const groupedBatchObjects = useMemo(() => {
-      const tables = batchTables.filter(item => item.objectType === 'table');
-      const views = batchTables.filter(item => item.objectType === 'view');
+      const tables = filteredBatchObjects.filter(item => item.objectType === 'table');
+      const views = filteredBatchObjects.filter(item => item.objectType === 'view');
       return { tables, views };
-  }, [batchTables]);
+  }, [filteredBatchObjects]);
+  const allBatchObjectKeys = useMemo(() => batchTables.map(item => item.key), [batchTables]);
+  const allBatchObjectKeysByType = useMemo(() => {
+      if (batchFilterType === 'all') {
+          return allBatchObjectKeys;
+      }
+      return batchTables
+          .filter((item) => item.objectType === batchFilterType)
+          .map((item) => item.key);
+  }, [allBatchObjectKeys, batchFilterType, batchTables]);
+  const filteredBatchObjectKeys = useMemo(() => filteredBatchObjects.map(item => item.key), [filteredBatchObjects]);
+  const selectionScopeTargetKeys = useMemo(
+      () => (batchSelectionScope === 'filtered' ? filteredBatchObjectKeys : allBatchObjectKeysByType),
+      [allBatchObjectKeysByType, batchSelectionScope, filteredBatchObjectKeys]
+  );
+  useEffect(() => {
+      if (batchFilterType === 'all') {
+          return;
+      }
+      const allowed = new Set(allBatchObjectKeysByType);
+      setCheckedTableKeys((prev) => prev.filter((key) => allowed.has(key)));
+  }, [allBatchObjectKeysByType, batchFilterType]);
 
   // Batch Database Operations Modal
   const [isBatchDbModalOpen, setIsBatchDbModalOpen] = useState(false);
@@ -1313,6 +1351,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       setBatchTables([]);
       setCheckedTableKeys([]);
       setAvailableDatabases([]);
+      setBatchFilterKeyword('');
+      setBatchFilterType('all');
+      setBatchSelectionScope('filtered');
 
       if (connId) {
           const conn = connections.find(c => c.id === connId);
@@ -1413,6 +1454,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       setSelectedDatabase('');
       setBatchTables([]);
       setCheckedTableKeys([]);
+      setBatchFilterKeyword('');
+      setBatchFilterType('all');
+      setBatchSelectionScope('filtered');
 
       const conn = connections.find(c => c.id === connId);
       if (conn) {
@@ -1422,6 +1466,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
   const handleDatabaseChange = async (dbName: string) => {
       setSelectedDatabase(dbName);
+      setBatchFilterKeyword('');
+      setBatchFilterType('all');
+      setBatchSelectionScope('filtered');
 
       const conn = connections.find(c => c.id === selectedConnection);
       if (conn && dbName) {
@@ -1470,17 +1517,44 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   };
 
   const handleCheckAll = (checked: boolean) => {
-      if (checked) {
-          setCheckedTableKeys(batchTables.map(t => t.key));
-      } else {
-          setCheckedTableKeys([]);
+      if (batchSelectionScope === 'all') {
+          setCheckedTableKeys(checked ? allBatchObjectKeys : []);
+          return;
       }
+      if (filteredBatchObjectKeys.length === 0) {
+          return;
+      }
+      if (checked) {
+          setCheckedTableKeys(prev => {
+              const nextSet = new Set(prev);
+              filteredBatchObjectKeys.forEach((key) => nextSet.add(key));
+              return allBatchObjectKeys.filter((key) => nextSet.has(key));
+          });
+          return;
+      }
+      const filteredKeySet = new Set(filteredBatchObjectKeys);
+      setCheckedTableKeys(prev => prev.filter((key) => !filteredKeySet.has(key)));
   };
 
   const handleInvertSelection = () => {
-      const allKeys = batchTables.map(t => t.key);
-      const newChecked = allKeys.filter(k => !checkedTableKeys.includes(k));
-      setCheckedTableKeys(newChecked);
+      if (batchSelectionScope === 'all') {
+          setCheckedTableKeys(prev => allBatchObjectKeys.filter((key) => !prev.includes(key)));
+          return;
+      }
+      if (filteredBatchObjectKeys.length === 0) {
+          return;
+      }
+      setCheckedTableKeys(prev => {
+          const nextSet = new Set(prev);
+          filteredBatchObjectKeys.forEach((key) => {
+              if (nextSet.has(key)) {
+                  nextSet.delete(key);
+              } else {
+                  nextSet.add(key);
+              }
+          });
+          return allBatchObjectKeys.filter((key) => nextSet.has(key));
+      });
   };
 
   const openBatchDatabaseModal = async () => {
@@ -2875,24 +2949,64 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
             </div>
 
             {batchTables.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                    <Space wrap size={8} style={{ width: '100%' }}>
+                        <Input
+                            allowClear
+                            value={batchFilterKeyword}
+                            onChange={(e) => setBatchFilterKeyword(e.target.value)}
+                            placeholder="筛选表/视图名称"
+                            prefix={<SearchOutlined />}
+                            style={{ width: 260 }}
+                        />
+                        <Select
+                            value={batchFilterType}
+                            onChange={(value) => setBatchFilterType(value as BatchObjectFilterType)}
+                            style={{ width: 140 }}
+                            options={[
+                                { label: '全部对象', value: 'all' },
+                                { label: '仅表', value: 'table' },
+                                { label: '仅视图', value: 'view' },
+                            ]}
+                        />
+                        <Select
+                            value={batchSelectionScope}
+                            onChange={(value) => setBatchSelectionScope(value as BatchSelectionScope)}
+                            style={{ width: 220 }}
+                            options={[
+                                { label: '勾选作用于：当前筛选结果', value: 'filtered' },
+                                { label: '勾选作用于：全部对象', value: 'all' },
+                            ]}
+                        />
+                    </Space>
+                    <div style={{ marginTop: 6, color: '#999', fontSize: 12 }}>
+                        当前筛选命中 {filteredBatchObjects.length} / {batchTables.length} 个对象
+                    </div>
+                </div>
+            )}
+
+            {batchTables.length > 0 && (
                 <>
                     <div style={{ marginBottom: 16 }}>
                         <Space>
                             <Button
                                 size="small"
                                 onClick={() => handleCheckAll(true)}
+                                disabled={selectionScopeTargetKeys.length === 0}
                             >
                                 全选
                             </Button>
                             <Button
                                 size="small"
                                 onClick={() => handleCheckAll(false)}
+                                disabled={selectionScopeTargetKeys.length === 0}
                             >
                                 取消全选
                             </Button>
                             <Button
                                 size="small"
                                 onClick={handleInvertSelection}
+                                disabled={selectionScopeTargetKeys.length === 0}
                             >
                                 反选
                             </Button>
@@ -2936,6 +3050,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                                                 </Checkbox>
                                             ))}
                                         </Space>
+                                    </div>
+                                )}
+                                {groupedBatchObjects.tables.length === 0 && groupedBatchObjects.views.length === 0 && (
+                                    <div style={{ color: '#999', padding: '8px 0' }}>
+                                        无匹配对象
                                     </div>
                                 )}
                             </div>

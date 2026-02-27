@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { ConnectionConfig, SavedConnection, TabData, SavedQuery } from './types';
 
 const DEFAULT_APPEARANCE = { opacity: 1.0, blur: 0 };
+const DEFAULT_STARTUP_FULLSCREEN = false;
 const LEGACY_DEFAULT_OPACITY = 0.95;
 const OPACITY_EPSILON = 1e-6;
 const MAX_URI_LENGTH = 4096;
@@ -206,10 +207,27 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
   return safeConfig;
 };
 
+const resolveConnectionConfigPayload = (raw: Record<string, unknown>): unknown => {
+  if (raw.config && typeof raw.config === 'object') {
+    return raw.config;
+  }
+  // 兼容历史/导入场景：连接对象可能是扁平结构（无 config 包装）。
+  const hasLegacyFlatConfig =
+    raw.type !== undefined ||
+    raw.host !== undefined ||
+    raw.port !== undefined ||
+    raw.user !== undefined ||
+    raw.database !== undefined;
+  if (hasLegacyFlatConfig) {
+    return raw;
+  }
+  return undefined;
+};
+
 const sanitizeSavedConnection = (value: unknown, index: number): SavedConnection | null => {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  const config = sanitizeConnectionConfig(raw.config);
+  const config = sanitizeConnectionConfig(resolveConnectionConfigPayload(raw));
   const id = toTrimmedString(raw.id, `conn-${index + 1}`) || `conn-${index + 1}`;
   const fallbackName = config.host ? `${config.type}-${config.host}` : `连接-${index + 1}`;
   const name = toTrimmedString(raw.name, fallbackName) || fallbackName;
@@ -278,6 +296,7 @@ interface AppState {
   savedQueries: SavedQuery[];
   theme: 'light' | 'dark';
   appearance: { opacity: number; blur: number };
+  startupFullscreen: boolean;
   sqlFormatOptions: { keywordCase: 'upper' | 'lower' };
   queryOptions: QueryOptions;
   sqlLogs: SqlLog[];
@@ -304,6 +323,7 @@ interface AppState {
 
   setTheme: (theme: 'light' | 'dark') => void;
   setAppearance: (appearance: Partial<{ opacity: number; blur: number }>) => void;
+  setStartupFullscreen: (enabled: boolean) => void;
   setSqlFormatOptions: (options: { keywordCase: 'upper' | 'lower' }) => void;
   setQueryOptions: (options: Partial<QueryOptions>) => void;
 
@@ -392,6 +412,21 @@ const sanitizeAppearance = (
   return nextAppearance;
 };
 
+const sanitizeStartupFullscreen = (value: unknown): boolean => {
+  return value === true;
+};
+
+const unwrapPersistedAppState = (persistedState: unknown): Record<string, unknown> => {
+  if (!persistedState || typeof persistedState !== 'object') {
+    return {};
+  }
+  const raw = persistedState as Record<string, unknown>;
+  if (raw.state && typeof raw.state === 'object') {
+    return raw.state as Record<string, unknown>;
+  }
+  return raw;
+};
+
 export const useStore = create<AppState>()(
   persist(
     (set) => ({
@@ -402,6 +437,7 @@ export const useStore = create<AppState>()(
       savedQueries: [],
       theme: 'light',
       appearance: { ...DEFAULT_APPEARANCE },
+      startupFullscreen: DEFAULT_STARTUP_FULLSCREEN,
       sqlFormatOptions: { keywordCase: 'upper' },
       queryOptions: { maxRows: 5000, showColumnComment: true, showColumnType: true },
       sqlLogs: [],
@@ -513,6 +549,7 @@ export const useStore = create<AppState>()(
 
       setTheme: (theme) => set({ theme }),
       setAppearance: (appearance) => set((state) => ({ appearance: { ...state.appearance, ...appearance } })),
+      setStartupFullscreen: (enabled) => set({ startupFullscreen: !!enabled }),
       setSqlFormatOptions: (options) => set({ sqlFormatOptions: options }),
       setQueryOptions: (options) => set((state) => ({ queryOptions: { ...state.queryOptions, ...options } })),
 
@@ -544,15 +581,13 @@ export const useStore = create<AppState>()(
       name: 'lite-db-storage', // name of the item in the storage (must be unique)
       version: 3,
       migrate: (persistedState: unknown, version: number) => {
-        if (!persistedState || typeof persistedState !== 'object') {
-          return persistedState as AppState;
-        }
-        const state = persistedState as Partial<AppState>;
+        const state = unwrapPersistedAppState(persistedState) as Partial<AppState>;
         const nextState: Partial<AppState> = { ...state };
         nextState.connections = sanitizeConnections(state.connections);
         nextState.savedQueries = sanitizeSavedQueries(state.savedQueries);
         nextState.theme = sanitizeTheme(state.theme);
         nextState.appearance = sanitizeAppearance(state.appearance, version);
+        nextState.startupFullscreen = sanitizeStartupFullscreen(state.startupFullscreen);
         nextState.sqlFormatOptions = sanitizeSqlFormatOptions(state.sqlFormatOptions);
         nextState.queryOptions = sanitizeQueryOptions(state.queryOptions);
         nextState.tableAccessCount = sanitizeTableAccessCount(state.tableAccessCount);
@@ -560,9 +595,7 @@ export const useStore = create<AppState>()(
         return nextState as AppState;
       },
       merge: (persistedState, currentState) => {
-        const state = (persistedState && typeof persistedState === 'object')
-          ? persistedState as Partial<AppState>
-          : {};
+        const state = unwrapPersistedAppState(persistedState) as Partial<AppState>;
         return {
           ...currentState,
           ...state,
@@ -570,6 +603,7 @@ export const useStore = create<AppState>()(
           savedQueries: sanitizeSavedQueries(state.savedQueries),
           theme: sanitizeTheme(state.theme),
           appearance: sanitizeAppearance(state.appearance, 3),
+          startupFullscreen: sanitizeStartupFullscreen(state.startupFullscreen),
           sqlFormatOptions: sanitizeSqlFormatOptions(state.sqlFormatOptions),
           queryOptions: sanitizeQueryOptions(state.queryOptions),
           tableAccessCount: sanitizeTableAccessCount(state.tableAccessCount),
@@ -581,6 +615,7 @@ export const useStore = create<AppState>()(
         savedQueries: state.savedQueries,
         theme: state.theme,
         appearance: state.appearance,
+        startupFullscreen: state.startupFullscreen,
         sqlFormatOptions: state.sqlFormatOptions,
         queryOptions: state.queryOptions,
         tableAccessCount: state.tableAccessCount,

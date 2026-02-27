@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +22,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/mod/semver"
@@ -77,6 +79,15 @@ type driverDownloadProgressPayload struct {
 	Downloaded int64   `json:"downloaded"`
 	Total      int64   `json:"total"`
 	Message    string  `json:"message,omitempty"`
+}
+
+type driverNetworkProbeItem struct {
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Reachable  bool   `json:"reachable"`
+	HTTPStatus int    `json:"httpStatus,omitempty"`
+	LatencyMs  int64  `json:"latencyMs,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type pinnedDriverPackage struct {
@@ -188,6 +199,7 @@ const (
 	driverVersionWarmupMinInterval      = 30 * time.Second
 	driverBundleIndexMaxSize            = 1 << 20
 	driverManifestMaxSize               = 2 << 20
+	driverNetworkProbeTimeout           = 4 * time.Second
 	driverChecksumPolicyStrict          = "strict"
 	driverChecksumPolicyWarn            = "warn"
 	driverChecksumPolicyOff             = "off"
@@ -592,6 +604,59 @@ func (a *App) GetDriverStatusList(downloadDir string, manifestURL string) connec
 	}
 }
 
+func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
+	checks := []driverNetworkProbeItem{
+		{
+			Name: "GitHub API",
+			URL:  "https://api.github.com/rate_limit",
+		},
+		{
+			Name: "GitHub 驱动发布",
+			URL:  fmt.Sprintf("https://github.com/%s/releases/latest/download/%s", updateRepo, optionalDriverBundleAssetName),
+		},
+		{
+			Name: "Go 模块代理",
+			URL:  "https://proxy.golang.org/github.com/go-sql-driver/mysql/@v/list",
+		},
+	}
+
+	allReachable := true
+	for index := range checks {
+		checks[index] = probeDriverNetworkEndpoint(checks[index])
+		if !checks[index].Reachable {
+			allReachable = false
+		}
+	}
+
+	proxyEnv := collectDriverProxyEnv()
+	proxyConfigured := len(proxyEnv) > 0
+	summary := "驱动下载网络检测通过，可直接安装驱动。"
+	if !allReachable {
+		if proxyConfigured {
+			summary = "检测到部分驱动下载地址不可达，请确认系统代理配置有效后重试。"
+		} else {
+			summary = "检测到部分驱动下载地址不可达，建议先配置 HTTP/HTTPS/SOCKS5 代理后再安装驱动。"
+		}
+	}
+
+	data := map[string]interface{}{
+		"reachable":        allReachable,
+		"summary":          summary,
+		"recommendedProxy": !allReachable,
+		"proxyConfigured":  proxyConfigured,
+		"proxyEnv":         proxyEnv,
+		"checkedAt":        time.Now().Format(time.RFC3339),
+		"checks":           checks,
+	}
+	if logPath := strings.TrimSpace(logger.Path()); logPath != "" {
+		data["logPath"] = logPath
+	}
+	return connection.QueryResult{
+		Success: true,
+		Data:    data,
+	}
+}
+
 func (a *App) InstallLocalDriverPackage(driverType string, filePath string, downloadDir string) connection.QueryResult {
 	definition, ok := resolveDriverDefinition(driverType)
 	if !ok {
@@ -614,28 +679,27 @@ func (a *App) InstallLocalDriverPackage(driverType string, filePath string, down
 	}
 	db.SetExternalDriverDownloadDirectory(resolvedDir)
 
-	hash := ""
-	if pathText := strings.TrimSpace(filePath); pathText != "" {
-		if fileHash, hashErr := hashFileSHA256(pathText); hashErr == nil {
-			hash = fileHash
+	a.emitDriverDownloadProgress(definition.Type, "start", 0, 100, "开始安装本地驱动包")
+	selectedVersion := resolveDriverInstallVersion(definition.PinnedVersion, "local://manual", definition)
+	meta, installErr := installOptionalDriverAgentFromLocalFile(definition, filePath, resolvedDir, selectedVersion)
+	if installErr != nil {
+		errText := normalizeErrorMessage(installErr)
+		a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, errText)
+		return connection.QueryResult{
+			Success: false,
+			Message: logDriverOperationError(installErr, "导入本地驱动包失败，driver=%s file=%s", definition.Type, strings.TrimSpace(filePath)),
 		}
 	}
-
-	a.emitDriverDownloadProgress(definition.Type, "start", 0, 0, "开始安装")
-	meta := installedDriverPackage{
-		DriverType:   definition.Type,
-		Version:      resolveDriverInstallVersion(definition.PinnedVersion, "local://activate", definition),
-		FilePath:     "",
-		FileName:     "embedded-go-driver",
-		DownloadURL:  "local://activate",
-		SHA256:       hash,
-		DownloadedAt: time.Now().Format(time.RFC3339),
-	}
+	a.emitDriverDownloadProgress(definition.Type, "downloading", 90, 100, "写入驱动元数据")
 	if err := writeInstalledDriverPackage(resolvedDir, definition.Type, meta); err != nil {
-		a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, err.Error())
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		errText := normalizeErrorMessage(err)
+		a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, errText)
+		return connection.QueryResult{
+			Success: false,
+			Message: logDriverOperationError(err, "写入本地驱动元数据失败，driver=%s", definition.Type),
+		}
 	}
-	a.emitDriverDownloadProgress(definition.Type, "done", 1, 1, "安装完成（纯 Go 驱动已启用）")
+	a.emitDriverDownloadProgress(definition.Type, "done", 100, 100, "本地驱动包导入完成")
 
 	return connection.QueryResult{Success: true, Message: "驱动安装成功", Data: map[string]interface{}{
 		"driverType": definition.Type,
@@ -683,13 +747,21 @@ func (a *App) DownloadDriverPackage(driverType string, version string, downloadU
 		a.emitDriverDownloadProgress(definition.Type, "start", 0, 100, fmt.Sprintf("开始安装 %s 驱动代理", displayName))
 		meta, installErr := installOptionalDriverAgentPackage(a, definition, selectedVersion, resolvedDir, urlText)
 		if installErr != nil {
-			a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, installErr.Error())
-			return connection.QueryResult{Success: false, Message: installErr.Error()}
+			errText := normalizeErrorMessage(installErr)
+			a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, errText)
+			return connection.QueryResult{
+				Success: false,
+				Message: logDriverOperationError(installErr, "驱动下载安装失败，driver=%s version=%s url=%s", definition.Type, selectedVersion, urlText),
+			}
 		}
 		a.emitDriverDownloadProgress(definition.Type, "downloading", 95, 100, "写入驱动元数据")
 		if writeErr := writeInstalledDriverPackage(resolvedDir, definition.Type, meta); writeErr != nil {
-			a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, writeErr.Error())
-			return connection.QueryResult{Success: false, Message: writeErr.Error()}
+			errText := normalizeErrorMessage(writeErr)
+			a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, errText)
+			return connection.QueryResult{
+				Success: false,
+				Message: logDriverOperationError(writeErr, "写入驱动元数据失败，driver=%s version=%s", definition.Type, selectedVersion),
+			}
 		}
 		a.emitDriverDownloadProgress(definition.Type, "done", 100, 100, fmt.Sprintf("%s 驱动代理安装完成", displayName))
 		return connection.QueryResult{Success: true, Message: "驱动安装成功", Data: map[string]interface{}{
@@ -710,8 +782,12 @@ func (a *App) DownloadDriverPackage(driverType string, version string, downloadU
 		DownloadedAt: time.Now().Format(time.RFC3339),
 	}
 	if err := writeInstalledDriverPackage(resolvedDir, definition.Type, meta); err != nil {
-		a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, err.Error())
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		errText := normalizeErrorMessage(err)
+		a.emitDriverDownloadProgress(definition.Type, "error", 0, 0, errText)
+		return connection.QueryResult{
+			Success: false,
+			Message: logDriverOperationError(err, "写入驱动元数据失败，driver=%s version=%s", definition.Type, selectedVersion),
+		}
 	}
 	a.emitDriverDownloadProgress(definition.Type, "done", 1, 1, "安装完成（纯 Go 驱动已启用）")
 
@@ -779,6 +855,100 @@ func (a *App) emitDriverDownloadProgress(driverType string, status string, downl
 		payload.Percent = 100
 	}
 	runtime.EventsEmit(a.ctx, driverDownloadProgressEvent, payload)
+}
+
+func probeDriverNetworkEndpoint(item driverNetworkProbeItem) driverNetworkProbeItem {
+	probed := item
+	probed.Reachable = false
+	probed.HTTPStatus = 0
+	probed.Error = ""
+	probed.LatencyMs = 0
+
+	urlText := strings.TrimSpace(item.URL)
+	if urlText == "" {
+		probed.Error = "检测地址为空"
+		return probed
+	}
+
+	client := &http.Client{Timeout: driverNetworkProbeTimeout}
+	start := time.Now()
+	req, err := http.NewRequest(http.MethodHead, urlText, nil)
+	if err != nil {
+		probed.Error = normalizeErrorMessage(err)
+		return probed
+	}
+	req.Header.Set("User-Agent", "GoNavi-DriverManager")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// 某些网关不支持 HEAD，请回退为 GET（不读取正文）。
+		reqGet, reqErr := http.NewRequest(http.MethodGet, urlText, nil)
+		if reqErr != nil {
+			probed.Error = normalizeErrorMessage(reqErr)
+			probed.LatencyMs = time.Since(start).Milliseconds()
+			return probed
+		}
+		reqGet.Header.Set("User-Agent", "GoNavi-DriverManager")
+		resp, err = client.Do(reqGet)
+	}
+	probed.LatencyMs = time.Since(start).Milliseconds()
+	if err != nil {
+		probed.Error = normalizeDriverNetworkError(err)
+		return probed
+	}
+	defer resp.Body.Close()
+
+	probed.HTTPStatus = resp.StatusCode
+	if resp.StatusCode >= 500 {
+		probed.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		return probed
+	}
+	probed.Reachable = true
+	return probed
+}
+
+func normalizeDriverNetworkError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "网络连接超时"
+	}
+	return normalizeErrorMessage(err)
+}
+
+func collectDriverProxyEnv() map[string]string {
+	keys := []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+		"http_proxy", "https_proxy", "all_proxy", "no_proxy",
+	}
+	result := make(map[string]string)
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			continue
+		}
+		result[key] = value
+	}
+	return result
+}
+
+func driverLogHint() string {
+	path := strings.TrimSpace(logger.Path())
+	if path == "" {
+		return ""
+	}
+	return fmt.Sprintf("（详细日志：%s）", path)
+}
+
+func logDriverOperationError(err error, format string, args ...interface{}) string {
+	message := normalizeErrorMessage(err)
+	if strings.TrimSpace(message) == "" {
+		message = "未知错误"
+	}
+	logger.Error(err, format, args...)
+	return strings.TrimSpace(message) + driverLogHint()
 }
 
 func defaultDriverDownloadDirectory() string {
@@ -1378,12 +1548,7 @@ func fetchGoModuleVersionMetas(modulePath string) ([]goModuleVersionMeta, error)
 	}
 
 	endpoint := fmt.Sprintf("https://proxy.golang.org/%s/@v/list", escapeGoModulePathForProxy(trimmed))
-	client := &http.Client{
-		Timeout: driverModuleLatestProbeTimeout,
-		Transport: &http.Transport{
-			Proxy: nil,
-		},
-	}
+	client := &http.Client{Timeout: driverModuleLatestProbeTimeout}
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -2023,6 +2188,141 @@ func installOptionalDriverAgentPackage(a *App, definition driverDefinition, sele
 		SHA256:         hash,
 		DownloadedAt:   time.Now().Format(time.RFC3339),
 	}, nil
+}
+
+func installOptionalDriverAgentFromLocalFile(definition driverDefinition, filePath string, resolvedDir string, selectedVersion string) (installedDriverPackage, error) {
+	driverType := normalizeDriverType(definition.Type)
+	displayName := resolveDriverDisplayName(definition)
+	pathText := strings.TrimSpace(filePath)
+	if pathText == "" {
+		return installedDriverPackage{}, fmt.Errorf("本地驱动包路径为空")
+	}
+	if absPath, absErr := filepath.Abs(pathText); absErr == nil {
+		pathText = absPath
+	}
+	info, statErr := os.Stat(pathText)
+	if statErr != nil {
+		return installedDriverPackage{}, fmt.Errorf("读取本地驱动包失败：%w", statErr)
+	}
+	if info.IsDir() {
+		return installedDriverPackage{}, fmt.Errorf("本地驱动包路径为目录：%s", pathText)
+	}
+
+	executablePath, err := db.ResolveOptionalDriverAgentExecutablePath(resolvedDir, driverType)
+	if err != nil {
+		return installedDriverPackage{}, err
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(executablePath), 0o755); mkErr != nil {
+		return installedDriverPackage{}, fmt.Errorf("创建 %s 驱动目录失败：%w", displayName, mkErr)
+	}
+
+	downloadSource := fmt.Sprintf("local://manual/%s", filepath.Base(pathText))
+	if strings.EqualFold(filepath.Ext(pathText), ".zip") {
+		entryName, extractErr := installOptionalDriverAgentFromLocalZip(pathText, definition, executablePath)
+		if extractErr != nil {
+			return installedDriverPackage{}, extractErr
+		}
+		if strings.TrimSpace(entryName) != "" {
+			downloadSource = downloadSource + "#" + entryName
+		}
+	} else {
+		if copyErr := copyAgentBinary(pathText, executablePath); copyErr != nil {
+			return installedDriverPackage{}, fmt.Errorf("导入本地驱动代理失败：%w", copyErr)
+		}
+	}
+
+	hash, hashErr := hashFileSHA256(executablePath)
+	if hashErr != nil {
+		return installedDriverPackage{}, fmt.Errorf("计算 %s 驱动代理摘要失败：%w", displayName, hashErr)
+	}
+	return installedDriverPackage{
+		DriverType:     driverType,
+		Version:        strings.TrimSpace(selectedVersion),
+		FilePath:       pathText,
+		FileName:       filepath.Base(pathText),
+		ExecutablePath: executablePath,
+		DownloadURL:    downloadSource,
+		SHA256:         hash,
+		DownloadedAt:   time.Now().Format(time.RFC3339),
+	}, nil
+}
+
+func installOptionalDriverAgentFromLocalZip(zipPath string, definition driverDefinition, executablePath string) (string, error) {
+	driverType := normalizeDriverType(definition.Type)
+	displayName := resolveDriverDisplayName(definition)
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return "", fmt.Errorf("打开本地驱动包失败：%w", err)
+	}
+	defer reader.Close()
+
+	entryPath := optionalDriverBundleEntryPath(driverType)
+	expectedBaseName := optionalDriverReleaseAssetName(driverType)
+	findEntry := func() *zip.File {
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if name == entryPath {
+				return file
+			}
+		}
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if strings.EqualFold(name, entryPath) {
+				return file
+			}
+		}
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if strings.EqualFold(filepath.Base(name), expectedBaseName) {
+				return file
+			}
+		}
+		return nil
+	}
+
+	entry := findEntry()
+	if entry == nil {
+		return "", fmt.Errorf("本地驱动包内未找到 %s 代理文件（期望路径 %s）", displayName, entryPath)
+	}
+
+	src, err := entry.Open()
+	if err != nil {
+		return "", fmt.Errorf("读取本地驱动包条目失败：%w", err)
+	}
+	defer src.Close()
+
+	tempPath := executablePath + ".tmp"
+	_ = os.Remove(tempPath)
+	dst, err := os.Create(tempPath)
+	if err != nil {
+		return "", fmt.Errorf("创建驱动代理临时文件失败：%w", err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("写入驱动代理失败：%w", err)
+	}
+	if err := dst.Sync(); err != nil {
+		dst.Close()
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("落盘驱动代理失败：%w", err)
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("关闭驱动代理文件失败：%w", err)
+	}
+	if chmodErr := os.Chmod(tempPath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("设置驱动代理权限失败：%w", chmodErr)
+	}
+	if err := os.Rename(tempPath, executablePath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", fmt.Errorf("替换驱动代理失败：%w", err)
+	}
+	if chmodErr := os.Chmod(executablePath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
+		return "", fmt.Errorf("设置驱动代理权限失败：%w", chmodErr)
+	}
+	return filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(entry.Name), "./")), nil
 }
 
 func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, executablePath string, downloadURL string) (string, string, error) {

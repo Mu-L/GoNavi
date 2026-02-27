@@ -619,6 +619,8 @@ const DataGrid: React.FC<DataGridProps> = ({
   // 使用 ref 来优化拖拽性能，完全避免状态更新
   const cellSelectionRafRef = useRef<number | null>(null);
   const cellSelectionScrollRafRef = useRef<number | null>(null);
+  const cellSelectionAutoScrollRafRef = useRef<number | null>(null);
+  const cellSelectionPointerRef = useRef<{ x: number; y: number } | null>(null);
   const isDraggingRef = useRef(false);
 
   // 导入预览 Modal 状态
@@ -1102,6 +1104,11 @@ const DataGrid: React.FC<DataGridProps> = ({
     currentSelectionRef.current = new Set();
     selectionStartRef.current = null;
     isDraggingRef.current = false;
+    cellSelectionPointerRef.current = null;
+    if (cellSelectionAutoScrollRafRef.current !== null) {
+      cancelAnimationFrame(cellSelectionAutoScrollRafRef.current);
+      cellSelectionAutoScrollRafRef.current = null;
+    }
     updateCellSelection(new Set());
   }, [batchEditValue, batchEditSetNull, addedRows, modifiedRows, rowKeyStr, updateCellSelection]);
 
@@ -1111,8 +1118,12 @@ const DataGrid: React.FC<DataGridProps> = ({
 
     const container = containerRef.current;
     if (!container) return;
+    const EDGE_THRESHOLD_PX = 28;
+    const MIN_SCROLL_STEP = 8;
+    const MAX_SCROLL_STEP = 24;
 
-    const getCellInfo = (target: HTMLElement): { rowKey: string; colName: string } | null => {
+    const getCellInfo = (target: HTMLElement | null): { rowKey: string; colName: string } | null => {
+      if (!target) return null;
       const td = target.closest('td[data-row-key][data-col-name]') as HTMLElement;
       if (!td) return null;
       const rowKey = td.getAttribute('data-row-key');
@@ -1121,35 +1132,12 @@ const DataGrid: React.FC<DataGridProps> = ({
       return { rowKey, colName };
     };
 
-    const onMouseDown = (e: MouseEvent) => {
-      const cellInfo = getCellInfo(e.target as HTMLElement);
-      if (!cellInfo) return;
-
-      e.preventDefault();
-      isDraggingRef.current = true;
-      const currentData = displayDataRef.current;
-      const nextRowIndexMap = new Map<string, number>();
-      currentData.forEach((r, idx) => {
-        const k = r?.[GONAVI_ROW_KEY];
-        if (k === undefined) return;
-        nextRowIndexMap.set(String(k), idx);
-      });
-      rowIndexMapRef.current = nextRowIndexMap;
-
-      const startRowIndex = nextRowIndexMap.get(cellInfo.rowKey) ?? -1;
-      const startColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
-      selectionStartRef.current = { rowKey: cellInfo.rowKey, colName: cellInfo.colName, rowIndex: startRowIndex, colIndex: startColIndex };
-      currentSelectionRef.current = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
-      updateCellSelection(currentSelectionRef.current);
+    const getCellInfoFromPoint = (x: number, y: number): { rowKey: string; colName: string } | null => {
+      const target = document.elementFromPoint(x, y) as HTMLElement | null;
+      return getCellInfo(target);
     };
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current || !selectionStartRef.current) return;
-
-      const cellInfo = getCellInfo(e.target as HTMLElement);
-      if (!cellInfo) return;
-
-      // 使用 RAF 节流
+    const scheduleSelectionUpdate = (cellInfo: { rowKey: string; colName: string }) => {
       if (cellSelectionRafRef.current !== null) {
         cancelAnimationFrame(cellSelectionRafRef.current);
       }
@@ -1188,9 +1176,124 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
     };
 
+    const stopAutoScroll = () => {
+      if (cellSelectionAutoScrollRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionAutoScrollRafRef.current);
+        cellSelectionAutoScrollRafRef.current = null;
+      }
+    };
+
+    const getScrollStep = (distanceToEdge: number): number => {
+      const ratio = Math.min(1, Math.max(0, distanceToEdge / EDGE_THRESHOLD_PX));
+      return Math.round(MIN_SCROLL_STEP + (MAX_SCROLL_STEP - MIN_SCROLL_STEP) * ratio);
+    };
+
+    const autoScrollTick = () => {
+      if (!isDraggingRef.current || !selectionStartRef.current) {
+        stopAutoScroll();
+        return;
+      }
+
+      const pointer = cellSelectionPointerRef.current;
+      const tableBody = container.querySelector('.ant-table-body') as HTMLElement | null;
+      if (!pointer || !tableBody) {
+        cellSelectionAutoScrollRafRef.current = requestAnimationFrame(autoScrollTick);
+        return;
+      }
+
+      const rect = tableBody.getBoundingClientRect();
+      const maxScrollTop = Math.max(0, tableBody.scrollHeight - tableBody.clientHeight);
+      const maxScrollLeft = Math.max(0, tableBody.scrollWidth - tableBody.clientWidth);
+      let deltaY = 0;
+      let deltaX = 0;
+
+      if (pointer.y < rect.top + EDGE_THRESHOLD_PX && tableBody.scrollTop > 0) {
+        const distance = rect.top + EDGE_THRESHOLD_PX - pointer.y;
+        deltaY = -getScrollStep(distance);
+      } else if (pointer.y > rect.bottom - EDGE_THRESHOLD_PX && tableBody.scrollTop < maxScrollTop) {
+        const distance = pointer.y - (rect.bottom - EDGE_THRESHOLD_PX);
+        deltaY = getScrollStep(distance);
+      }
+
+      if (pointer.x < rect.left + EDGE_THRESHOLD_PX && tableBody.scrollLeft > 0) {
+        const distance = rect.left + EDGE_THRESHOLD_PX - pointer.x;
+        deltaX = -getScrollStep(distance);
+      } else if (pointer.x > rect.right - EDGE_THRESHOLD_PX && tableBody.scrollLeft < maxScrollLeft) {
+        const distance = pointer.x - (rect.right - EDGE_THRESHOLD_PX);
+        deltaX = getScrollStep(distance);
+      }
+
+      let didScroll = false;
+      if (deltaY !== 0) {
+        const nextTop = Math.max(0, Math.min(maxScrollTop, tableBody.scrollTop + deltaY));
+        if (nextTop !== tableBody.scrollTop) {
+          tableBody.scrollTop = nextTop;
+          didScroll = true;
+        }
+      }
+
+      if (deltaX !== 0) {
+        const nextLeft = Math.max(0, Math.min(maxScrollLeft, tableBody.scrollLeft + deltaX));
+        if (nextLeft !== tableBody.scrollLeft) {
+          tableBody.scrollLeft = nextLeft;
+          didScroll = true;
+        }
+      }
+
+      if (didScroll) {
+        const cellInfo = getCellInfoFromPoint(pointer.x, pointer.y);
+        if (cellInfo) scheduleSelectionUpdate(cellInfo);
+      }
+
+      cellSelectionAutoScrollRafRef.current = requestAnimationFrame(autoScrollTick);
+    };
+
+    const ensureAutoScroll = () => {
+      if (cellSelectionAutoScrollRafRef.current !== null) return;
+      cellSelectionAutoScrollRafRef.current = requestAnimationFrame(autoScrollTick);
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const cellInfo = getCellInfo(target);
+      if (!cellInfo) return;
+
+      e.preventDefault();
+      isDraggingRef.current = true;
+      cellSelectionPointerRef.current = { x: e.clientX, y: e.clientY };
+      const currentData = displayDataRef.current;
+      const nextRowIndexMap = new Map<string, number>();
+      currentData.forEach((r, idx) => {
+        const k = r?.[GONAVI_ROW_KEY];
+        if (k === undefined) return;
+        nextRowIndexMap.set(String(k), idx);
+      });
+      rowIndexMapRef.current = nextRowIndexMap;
+
+      const startRowIndex = nextRowIndexMap.get(cellInfo.rowKey) ?? -1;
+      const startColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
+      selectionStartRef.current = { rowKey: cellInfo.rowKey, colName: cellInfo.colName, rowIndex: startRowIndex, colIndex: startColIndex };
+      currentSelectionRef.current = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
+      updateCellSelection(currentSelectionRef.current);
+      ensureAutoScroll();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !selectionStartRef.current) return;
+      cellSelectionPointerRef.current = { x: e.clientX, y: e.clientY };
+      ensureAutoScroll();
+
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const cellInfo = getCellInfo(target) || getCellInfoFromPoint(e.clientX, e.clientY);
+      if (!cellInfo) return;
+      scheduleSelectionUpdate(cellInfo);
+    };
+
     const onMouseUp = () => {
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      cellSelectionPointerRef.current = null;
+      stopAutoScroll();
 
       if (cellSelectionRafRef.current !== null) {
         cancelAnimationFrame(cellSelectionRafRef.current);
@@ -1231,6 +1334,8 @@ const DataGrid: React.FC<DataGridProps> = ({
         cancelAnimationFrame(cellSelectionScrollRafRef.current);
         cellSelectionScrollRafRef.current = null;
       }
+      stopAutoScroll();
+      cellSelectionPointerRef.current = null;
       isDraggingRef.current = false;
     };
   }, [cellEditMode, columnNames, columnIndexMap, updateCellSelection]);
@@ -2332,6 +2437,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                                 currentSelectionRef.current = new Set();
                                 selectionStartRef.current = null;
                                 isDraggingRef.current = false;
+                                cellSelectionPointerRef.current = null;
                                 if (cellSelectionRafRef.current !== null) {
                                     cancelAnimationFrame(cellSelectionRafRef.current);
                                     cellSelectionRafRef.current = null;
@@ -2339,6 +2445,10 @@ const DataGrid: React.FC<DataGridProps> = ({
                                 if (cellSelectionScrollRafRef.current !== null) {
                                     cancelAnimationFrame(cellSelectionScrollRafRef.current);
                                     cellSelectionScrollRafRef.current = null;
+                                }
+                                if (cellSelectionAutoScrollRafRef.current !== null) {
+                                    cancelAnimationFrame(cellSelectionAutoScrollRafRef.current);
+                                    cellSelectionAutoScrollRafRef.current = null;
                                 }
                                 updateCellSelection(new Set());
                                 if (!next) setBatchEditModalOpen(false);
@@ -2403,12 +2513,26 @@ const DataGrid: React.FC<DataGridProps> = ({
 	                   onChange={(val) => {
 	                       const nextMode = String(val) as GridViewMode;
 	                       if (nextMode === 'json' && cellEditMode) {
-	                           setCellEditMode(false);
-	                           setSelectedCells(new Set());
-	                           currentSelectionRef.current = new Set();
-	                           selectionStartRef.current = null;
-	                           updateCellSelection(new Set());
-	                       }
+                           setCellEditMode(false);
+                           setSelectedCells(new Set());
+                           currentSelectionRef.current = new Set();
+                           selectionStartRef.current = null;
+                           isDraggingRef.current = false;
+                           cellSelectionPointerRef.current = null;
+                           if (cellSelectionRafRef.current !== null) {
+                               cancelAnimationFrame(cellSelectionRafRef.current);
+                               cellSelectionRafRef.current = null;
+                           }
+                           if (cellSelectionScrollRafRef.current !== null) {
+                               cancelAnimationFrame(cellSelectionScrollRafRef.current);
+                               cellSelectionScrollRafRef.current = null;
+                           }
+                           if (cellSelectionAutoScrollRafRef.current !== null) {
+                               cancelAnimationFrame(cellSelectionAutoScrollRafRef.current);
+                               cellSelectionAutoScrollRafRef.current = null;
+                           }
+                           updateCellSelection(new Set());
+                       }
 	                       if (nextMode === 'text') {
 	                           const selectedKey = selectedRowKeys[0];
 	                           if (selectedKey !== undefined) {

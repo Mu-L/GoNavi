@@ -6,6 +6,10 @@ export function ApplyChanges(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ApplyChanges'](arg1, arg2, arg3, arg4);
 }
 
+export function CheckDriverNetworkStatus() {
+  return window['go']['app']['App']['CheckDriverNetworkStatus']();
+}
+
 export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
 }

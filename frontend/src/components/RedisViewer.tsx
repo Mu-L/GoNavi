@@ -14,6 +14,8 @@ const REDIS_TREE_KEY_TYPE_WIDTH = 92;
 const REDIS_TREE_KEY_TYPE_WIDTH_NARROW = 84;
 const REDIS_TREE_KEY_TTL_WIDTH = 92;
 const REDIS_TREE_HIDE_TTL_THRESHOLD = 460;
+const REDIS_KEY_INITIAL_LOAD_COUNT = 2000;
+const REDIS_KEY_LOAD_MORE_COUNT = 2000;
 
 interface RedisViewerProps {
     connectionId: string;
@@ -462,27 +464,34 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         };
     }, [connection, redisDB]);
 
-    const loadKeys = useCallback(async (pattern: string = '*', fromCursor: number = 0, append: boolean = false) => {
+    const loadKeys = useCallback(async (
+        pattern: string = '*',
+        fromCursor: number = 0,
+        append: boolean = false,
+        targetCount: number = REDIS_KEY_INITIAL_LOAD_COUNT
+    ) => {
         const config = getConfig();
         if (!config) return;
 
         setLoading(true);
         try {
-            const res = await (window as any).go.app.App.RedisScanKeys(config, pattern, fromCursor, 100);
+            const res = await (window as any).go.app.App.RedisScanKeys(config, pattern, fromCursor, targetCount);
             if (res.success) {
                 const result = res.data;
+                const scannedKeys = Array.isArray(result?.keys) ? result.keys : [];
+                const nextCursor = Number(result?.cursor || 0);
                 if (append) {
                     setKeys(prev => {
                         const keyMap = new Map<string, RedisKeyInfo>();
                         prev.forEach(item => keyMap.set(item.key, item));
-                        result.keys.forEach((item: RedisKeyInfo) => keyMap.set(item.key, item));
+                        scannedKeys.forEach((item: RedisKeyInfo) => keyMap.set(item.key, item));
                         return Array.from(keyMap.values());
                     });
                 } else {
-                    setKeys(result.keys);
+                    setKeys(scannedKeys);
                 }
-                setCursor(result.cursor);
-                setHasMore(result.cursor !== 0);
+                setCursor(nextCursor);
+                setHasMore(nextCursor !== 0);
             } else {
                 message.error('加载 Key 失败: ' + res.message);
             }
@@ -494,23 +503,26 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
     }, [getConfig]);
 
     useEffect(() => {
-        loadKeys(searchPattern, 0, false);
+        loadKeys(searchPattern, 0, false, REDIS_KEY_INITIAL_LOAD_COUNT);
     }, [redisDB]);
 
     const handleSearch = (value: string) => {
         const pattern = value.trim() || '*';
         setSearchPattern(pattern);
         setCursor(0);
-        loadKeys(pattern, 0, false);
+        loadKeys(pattern, 0, false, REDIS_KEY_INITIAL_LOAD_COUNT);
     };
 
     const handleLoadMore = () => {
-        loadKeys(searchPattern, cursor, true);
+        if (!hasMore || loading) {
+            return;
+        }
+        loadKeys(searchPattern, cursor, true, REDIS_KEY_LOAD_MORE_COUNT);
     };
 
     const handleRefresh = () => {
         setCursor(0);
-        loadKeys(searchPattern, 0, false);
+        loadKeys(searchPattern, 0, false, REDIS_KEY_INITIAL_LOAD_COUNT);
     };
 
     const loadKeyValue = async (key: string) => {
@@ -1777,7 +1789,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                     </Spin>
                     {hasMore && (
                         <div style={{ padding: 8, textAlign: 'center' }}>
-                            <Button onClick={handleLoadMore} loading={loading}>加载更多</Button>
+                            <Button onClick={handleLoadMore} loading={loading} disabled={!hasMore || loading}>加载更多</Button>
                         </div>
                     )}
                 </div>

@@ -22,6 +22,14 @@ type RedisClientImpl struct {
 	forwarder *ssh.LocalForwarder
 }
 
+const (
+	redisScanDefaultTargetCount int64 = 2000
+	redisScanMaxTargetCount     int64 = 10000
+	redisScanMinStepCount       int64 = 200
+	redisScanMaxStepCount       int64 = 2000
+	redisScanMaxRounds                = 64
+)
+
 // NewRedisClient creates a new Redis client instance
 func NewRedisClient() RedisClient {
 	return &RedisClientImpl{}
@@ -108,21 +116,70 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 	if pattern == "" {
 		pattern = "*"
 	}
+	targetCount := normalizeRedisScanTargetCount(count)
+	scanStepCount := normalizeRedisScanStepCount(targetCount)
+	currentCursor := cursor
+	round := 0
+
+	keys := make([]string, 0, int(targetCount))
+	seen := make(map[string]struct{}, int(targetCount))
+
+	for len(keys) < int(targetCount) {
+		batch, nextCursor, err := r.client.Scan(ctx, currentCursor, pattern, scanStepCount).Result()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, key := range batch {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+			if len(keys) >= int(targetCount) {
+				break
+			}
+		}
+
+		currentCursor = nextCursor
+		round++
+		if currentCursor == 0 || round >= redisScanMaxRounds {
+			break
+		}
+	}
+
+	return &RedisScanResult{
+		Keys:   r.loadRedisKeyInfos(ctx, keys),
+		Cursor: currentCursor,
+	}, nil
+}
+
+func normalizeRedisScanTargetCount(count int64) int64 {
 	if count <= 0 {
-		count = 100
+		return redisScanDefaultTargetCount
+	}
+	if count > redisScanMaxTargetCount {
+		return redisScanMaxTargetCount
+	}
+	return count
+}
+
+func normalizeRedisScanStepCount(targetCount int64) int64 {
+	if targetCount < redisScanMinStepCount {
+		return redisScanMinStepCount
+	}
+	if targetCount > redisScanMaxStepCount {
+		return redisScanMaxStepCount
+	}
+	return targetCount
+}
+
+func (r *RedisClientImpl) loadRedisKeyInfos(ctx context.Context, keys []string) []RedisKeyInfo {
+	result := make([]RedisKeyInfo, 0, len(keys))
+	if len(keys) == 0 {
+		return result
 	}
 
-	keys, nextCursor, err := r.client.Scan(ctx, cursor, pattern, count).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	result := &RedisScanResult{
-		Keys:   make([]RedisKeyInfo, 0, len(keys)),
-		Cursor: nextCursor,
-	}
-
-	// Get type and TTL for each key
 	pipe := r.client.Pipeline()
 	typeResults := make([]*redis.StatusCmd, len(keys))
 	ttlResults := make([]*redis.DurationCmd, len(keys))
@@ -132,37 +189,44 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 		ttlResults[i] = pipe.TTL(ctx, key)
 	}
 
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
-		// Fallback: get info one by one
 		for _, key := range keys {
-			keyType, _ := r.GetKeyType(key)
-			ttl, _ := r.GetTTL(key)
-			result.Keys = append(result.Keys, RedisKeyInfo{
+			keyType, typeErr := r.client.Type(ctx, key).Result()
+			if typeErr != nil && typeErr != redis.Nil {
+				keyType = ""
+			}
+			ttlValue, ttlErr := r.client.TTL(ctx, key).Result()
+			if ttlErr != nil && ttlErr != redis.Nil {
+				ttlValue = -2
+			}
+			result = append(result, RedisKeyInfo{
 				Key:  key,
 				Type: keyType,
-				TTL:  ttl,
+				TTL:  toRedisTTLSeconds(ttlValue),
 			})
 		}
-		return result, nil
+		return result
 	}
 
 	for i, key := range keys {
-		keyType := typeResults[i].Val()
-		ttl := int64(ttlResults[i].Val().Seconds())
-		if ttlResults[i].Val() == -1 {
-			ttl = -1
-		} else if ttlResults[i].Val() == -2 {
-			ttl = -2
-		}
-		result.Keys = append(result.Keys, RedisKeyInfo{
+		result = append(result, RedisKeyInfo{
 			Key:  key,
-			Type: keyType,
-			TTL:  ttl,
+			Type: typeResults[i].Val(),
+			TTL:  toRedisTTLSeconds(ttlResults[i].Val()),
 		})
 	}
+	return result
+}
 
-	return result, nil
+func toRedisTTLSeconds(ttl time.Duration) int64 {
+	if ttl == -1 {
+		return -1
+	}
+	if ttl == -2 {
+		return -2
+	}
+	return int64(ttl.Seconds())
 }
 
 // GetKeyType returns the type of a key
