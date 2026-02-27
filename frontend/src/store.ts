@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { ConnectionConfig, SavedConnection, TabData, SavedQuery } from './types';
 
 const DEFAULT_APPEARANCE = { opacity: 1.0, blur: 0 };
+const DEFAULT_STARTUP_FULLSCREEN = false;
 const LEGACY_DEFAULT_OPACITY = 0.95;
 const OPACITY_EPSILON = 1e-6;
 const MAX_URI_LENGTH = 4096;
@@ -295,6 +296,7 @@ interface AppState {
   savedQueries: SavedQuery[];
   theme: 'light' | 'dark';
   appearance: { opacity: number; blur: number };
+  startupFullscreen: boolean;
   sqlFormatOptions: { keywordCase: 'upper' | 'lower' };
   queryOptions: QueryOptions;
   sqlLogs: SqlLog[];
@@ -321,6 +323,7 @@ interface AppState {
 
   setTheme: (theme: 'light' | 'dark') => void;
   setAppearance: (appearance: Partial<{ opacity: number; blur: number }>) => void;
+  setStartupFullscreen: (enabled: boolean) => void;
   setSqlFormatOptions: (options: { keywordCase: 'upper' | 'lower' }) => void;
   setQueryOptions: (options: Partial<QueryOptions>) => void;
 
@@ -409,6 +412,10 @@ const sanitizeAppearance = (
   return nextAppearance;
 };
 
+const sanitizeStartupFullscreen = (value: unknown): boolean => {
+  return value === true;
+};
+
 const unwrapPersistedAppState = (persistedState: unknown): Record<string, unknown> => {
   if (!persistedState || typeof persistedState !== 'object') {
     return {};
@@ -430,6 +437,7 @@ export const useStore = create<AppState>()(
       savedQueries: [],
       theme: 'light',
       appearance: { ...DEFAULT_APPEARANCE },
+      startupFullscreen: DEFAULT_STARTUP_FULLSCREEN,
       sqlFormatOptions: { keywordCase: 'upper' },
       queryOptions: { maxRows: 5000, showColumnComment: true, showColumnType: true },
       sqlLogs: [],
@@ -541,6 +549,7 @@ export const useStore = create<AppState>()(
 
       setTheme: (theme) => set({ theme }),
       setAppearance: (appearance) => set((state) => ({ appearance: { ...state.appearance, ...appearance } })),
+      setStartupFullscreen: (enabled) => set({ startupFullscreen: !!enabled }),
       setSqlFormatOptions: (options) => set({ sqlFormatOptions: options }),
       setQueryOptions: (options) => set((state) => ({ queryOptions: { ...state.queryOptions, ...options } })),
 
@@ -578,6 +587,7 @@ export const useStore = create<AppState>()(
         nextState.savedQueries = sanitizeSavedQueries(state.savedQueries);
         nextState.theme = sanitizeTheme(state.theme);
         nextState.appearance = sanitizeAppearance(state.appearance, version);
+        nextState.startupFullscreen = sanitizeStartupFullscreen(state.startupFullscreen);
         nextState.sqlFormatOptions = sanitizeSqlFormatOptions(state.sqlFormatOptions);
         nextState.queryOptions = sanitizeQueryOptions(state.queryOptions);
         nextState.tableAccessCount = sanitizeTableAccessCount(state.tableAccessCount);
@@ -593,6 +603,7 @@ export const useStore = create<AppState>()(
           savedQueries: sanitizeSavedQueries(state.savedQueries),
           theme: sanitizeTheme(state.theme),
           appearance: sanitizeAppearance(state.appearance, 3),
+          startupFullscreen: sanitizeStartupFullscreen(state.startupFullscreen),
           sqlFormatOptions: sanitizeSqlFormatOptions(state.sqlFormatOptions),
           queryOptions: sanitizeQueryOptions(state.queryOptions),
           tableAccessCount: sanitizeTableAccessCount(state.tableAccessCount),
@@ -604,6 +615,7 @@ export const useStore = create<AppState>()(
         savedQueries: state.savedQueries,
         theme: state.theme,
         appearance: state.appearance,
+        startupFullscreen: state.startupFullscreen,
         sqlFormatOptions: state.sqlFormatOptions,
         queryOptions: state.queryOptions,
         tableAccessCount: state.tableAccessCount,
