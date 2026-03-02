@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Collapse, Modal, Progress, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Collapse, Input, Modal, Progress, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { DeleteOutlined, DownloadOutlined, FileSearchOutlined, FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useStore } from '../store';
@@ -90,6 +90,7 @@ type DriverVersionOption = {
 const buildVersionOptionKey = (option: DriverVersionOption) => `${option.version}@@${option.downloadUrl}`;
 const buildVersionSizeLoadingKey = (driverType: string, optionKey: string) => `${driverType}@@${optionKey}`;
 const DRIVER_TABLE_SCROLL_X = 1450;
+const normalizeDriverSearchText = (value: string) => String(value || '').trim().toLowerCase();
 
 const buildVersionSelectOptions = (options: DriverVersionOption[]) => {
   type SelectOption = { value: string; label: string };
@@ -151,6 +152,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
   const [downloadDir, setDownloadDir] = useState('');
   const [networkChecking, setNetworkChecking] = useState(false);
   const [networkStatus, setNetworkStatus] = useState<DriverNetworkStatus | null>(null);
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [rows, setRows] = useState<DriverStatusRow[]>([]);
   const [actionState, setActionState] = useState<{ driverType: string; kind: DriverActionKind }>({ driverType: '', kind: '' });
   const [progressMap, setProgressMap] = useState<Record<string, ProgressState>>({});
@@ -1075,6 +1077,31 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
     }
     return rows.find((item) => item.type === logDriverType);
   }, [logDriverType, rows]);
+  const normalizedSearchKeyword = useMemo(() => normalizeDriverSearchText(searchKeyword), [searchKeyword]);
+  const filteredRows = useMemo(() => {
+    if (!normalizedSearchKeyword) {
+      return rows;
+    }
+    return rows.filter((row) => {
+      const searchableParts = [
+        row.name,
+        row.type,
+        row.pinnedVersion,
+        row.installedVersion,
+        row.message,
+        row.builtIn ? '内置' : '外置',
+        row.connectable ? '已启用' : row.packageInstalled ? '已安装' : '未启用',
+      ];
+      const searchableText = normalizeDriverSearchText(searchableParts.filter(Boolean).join(' '));
+      return searchableText.includes(normalizedSearchKeyword);
+    });
+  }, [normalizedSearchKeyword, rows]);
+  const filterSummaryText = useMemo(() => {
+    if (normalizedSearchKeyword) {
+      return `匹配 ${filteredRows.length} / ${rows.length}`;
+    }
+    return `共 ${rows.length} 个驱动`;
+  }, [filteredRows.length, normalizedSearchKeyword, rows.length]);
 
   const activeDriverLogs = operationLogMap[logDriverType] || [];
   const activeDriverLogLines = activeDriverLogs.map((item) => `[${item.time}] ${item.text}`);
@@ -1190,7 +1217,14 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
           )}
         />
 
-        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+        <div style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <Input.Search
+            allowClear
+            placeholder="搜索驱动名称/类型（如 DuckDB、clickhouse）"
+            value={searchKeyword}
+            onChange={(event) => setSearchKeyword(event.target.value)}
+            style={{ minWidth: 300, flex: '1 1 360px' }}
+          />
           <Space size={8}>
             <Text type="secondary">覆盖已安装</Text>
             <Switch
@@ -1198,15 +1232,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
               onChange={(checked) => setForceOverwriteInstalled(checked)}
               disabled={batchDirectoryImporting}
             />
+            <Button
+              icon={<FolderOpenOutlined />}
+              loading={batchDirectoryImporting}
+              onClick={() => void installDriversFromDirectory()}
+            >
+              导入驱动目录
+            </Button>
           </Space>
-          <Button
-            icon={<FolderOpenOutlined />}
-            loading={batchDirectoryImporting}
-            onClick={() => void installDriversFromDirectory()}
-          >
-            导入驱动目录
-          </Button>
-        </Space>
+        </div>
+        <Text type="secondary">{filterSummaryText}</Text>
 
         <div
           ref={tableContainerRef}
@@ -1217,11 +1252,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
             rowKey="type"
             loading={loading}
             columns={columns as any}
-            dataSource={rows}
+            dataSource={filteredRows}
             pagination={false}
             size="middle"
             sticky={false}
             scroll={{ x: DRIVER_TABLE_SCROLL_X }}
+            locale={{
+              emptyText: normalizedSearchKeyword
+                ? `未找到匹配“${String(searchKeyword || '').trim()}”的驱动`
+                : '暂无驱动数据',
+            }}
           />
         </div>
       </Space>
