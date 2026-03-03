@@ -32,7 +32,7 @@ export interface ConnectionConfig {
   redisDB?: number; // Redis database index (0-15)
   uri?: string; // Connection URI for copy/paste
   hosts?: string[]; // Multi-host addresses: host:port
-  topology?: 'single' | 'replica';
+  topology?: 'single' | 'replica' | 'cluster';
   mysqlReplicaUser?: string;
   mysqlReplicaPassword?: string;
   replicaSet?: string;

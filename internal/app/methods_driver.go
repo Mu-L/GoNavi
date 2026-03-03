@@ -83,12 +83,15 @@ type driverDownloadProgressPayload struct {
 }
 
 type driverNetworkProbeItem struct {
-	Name       string `json:"name"`
-	URL        string `json:"url"`
-	Reachable  bool   `json:"reachable"`
-	HTTPStatus int    `json:"httpStatus,omitempty"`
-	LatencyMs  int64  `json:"latencyMs,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Reachable   bool   `json:"reachable"`
+	HTTPStatus  int    `json:"httpStatus,omitempty"`
+	LatencyMs   int64  `json:"latencyMs,omitempty"`
+	TCPLatency  int64  `json:"tcpLatencyMs,omitempty"`
+	HTTPLatency int64  `json:"httpLatencyMs,omitempty"`
+	Method      string `json:"method,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type pinnedDriverPackage struct {
@@ -201,6 +204,7 @@ const (
 	driverBundleIndexMaxSize            = 1 << 20
 	driverManifestMaxSize               = 2 << 20
 	driverNetworkProbeTimeout           = 4 * time.Second
+	driverNetworkProbeTCPTimeout        = 3 * time.Second
 	localDriverDirectoryScanMaxEntries  = 20000
 	driverChecksumPolicyStrict          = "strict"
 	driverChecksumPolicyWarn            = "warn"
@@ -218,14 +222,14 @@ const builtinDriverManifestJSON = `{
     "sphinx":    { "engine": "go", "version": "1.9.3", "checksumPolicy": "off", "downloadUrl": "builtin://activate/sphinx" },
     "sqlserver": { "engine": "go", "version": "1.9.6", "checksumPolicy": "off", "downloadUrl": "builtin://activate/sqlserver" },
     "sqlite":    { "engine": "go", "version": "1.44.3", "checksumPolicy": "off", "downloadUrl": "builtin://activate/sqlite" },
-    "duckdb":    { "engine": "go", "version": "2.5.5", "checksumPolicy": "off", "downloadUrl": "builtin://activate/duckdb" },
+    "duckdb":    { "engine": "go", "version": "2.5.6", "checksumPolicy": "off", "downloadUrl": "builtin://activate/duckdb" },
     "dameng":    { "engine": "go", "version": "1.8.22", "checksumPolicy": "off", "downloadUrl": "builtin://activate/dameng" },
     "kingbase":  { "engine": "go", "version": "0.0.0-20201021123113-29bd62a876c3", "checksumPolicy": "off", "downloadUrl": "builtin://activate/kingbase" },
     "highgo":    { "engine": "go", "version": "0.0.0-local", "checksumPolicy": "off", "downloadUrl": "builtin://activate/highgo" },
     "vastbase":  { "engine": "go", "version": "1.11.1", "checksumPolicy": "off", "downloadUrl": "builtin://activate/vastbase" },
     "mongodb":   { "engine": "go", "version": "2.5.0", "checksumPolicy": "off", "downloadUrl": "builtin://activate/mongodb" },
     "tdengine":  { "engine": "go", "version": "3.7.8", "checksumPolicy": "off", "downloadUrl": "builtin://activate/tdengine" },
-    "clickhouse": { "engine": "go", "version": "2.43.0", "checksumPolicy": "off", "downloadUrl": "builtin://activate/clickhouse" }
+    "clickhouse": { "engine": "go", "version": "2.43.1", "checksumPolicy": "off", "downloadUrl": "builtin://activate/clickhouse" }
   }
 }`
 
@@ -271,14 +275,14 @@ var latestDriverVersionMap = map[string]string{
 	"sphinx":     "1.9.3",
 	"sqlserver":  "1.9.6",
 	"sqlite":     "1.46.1",
-	"duckdb":     "2.5.5",
+	"duckdb":     "2.5.6",
 	"dameng":     "1.8.22",
 	"kingbase":   "0.0.0-20201021123113-29bd62a876c3",
 	"highgo":     "0.0.0-local",
 	"vastbase":   "1.11.2",
 	"mongodb":    "2.5.0",
 	"tdengine":   "3.7.8",
-	"clickhouse": "2.43.0",
+	"clickhouse": "2.43.1",
 	"oracle":     "2.9.0",
 	"postgres":   "1.11.2",
 	"redis":      "9.17.3",
@@ -648,23 +652,42 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 			URL:  fmt.Sprintf("https://github.com/%s/releases/latest/download/%s", updateRepo, optionalDriverBundleAssetName),
 		},
 		{
+			Name: "GitHub Release 资产域名",
+			URL:  "https://release-assets.githubusercontent.com/",
+		},
+		{
 			Name: "Go 模块代理",
 			URL:  "https://proxy.golang.org/github.com/go-sql-driver/mysql/@v/list",
 		},
 	}
 
+	client := newHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
 	allReachable := true
 	for index := range checks {
-		checks[index] = probeDriverNetworkEndpoint(checks[index])
+		checks[index] = probeDriverNetworkEndpoint(client, checks[index])
 		if !checks[index].Reachable {
 			allReachable = false
 		}
 	}
+	findProbe := func(name string) (driverNetworkProbeItem, bool) {
+		for _, item := range checks {
+			if strings.EqualFold(strings.TrimSpace(item.Name), strings.TrimSpace(name)) {
+				return item, true
+			}
+		}
+		return driverNetworkProbeItem{}, false
+	}
+	githubAPICheck, _ := findProbe("GitHub API")
+	githubReleaseCheck, _ := findProbe("GitHub 驱动发布")
+	releaseAssetsCheck, _ := findProbe("GitHub Release 资产域名")
+	downloadChainReachable := githubReleaseCheck.Reachable && releaseAssetsCheck.Reachable
 
 	proxyEnv := collectDriverProxyEnv()
 	proxyConfigured := len(proxyEnv) > 0
 	summary := "驱动下载网络检测通过，可直接安装驱动。"
-	if !allReachable {
+	if githubAPICheck.Reachable && !downloadChainReachable {
+		summary = "重要提醒：GitHub API 可达，但驱动下载链路不可达。请优先在 GoNavi 启用全局代理（填写代理应用本地地址和端口），并在代理规则中放行 github.com、api.github.com、release-assets.githubusercontent.com、objects.githubusercontent.com、raw.githubusercontent.com；若仍失败，再考虑开启 TUN 模式。"
+	} else if !allReachable {
 		if proxyConfigured {
 			summary = "检测到部分驱动下载地址不可达，请确认系统代理配置有效后重试。"
 		} else {
@@ -678,6 +701,14 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 		"recommendedProxy": !allReachable,
 		"proxyConfigured":  proxyConfigured,
 		"proxyEnv":         proxyEnv,
+		"downloadChainReachable": downloadChainReachable,
+		"downloadRequiredHosts": []string{
+			"github.com",
+			"api.github.com",
+			"release-assets.githubusercontent.com",
+			"objects.githubusercontent.com",
+			"raw.githubusercontent.com",
+		},
 		"checkedAt":        time.Now().Format(time.RFC3339),
 		"checks":           checks,
 	}
@@ -890,12 +921,15 @@ func (a *App) emitDriverDownloadProgress(driverType string, status string, downl
 	runtime.EventsEmit(a.ctx, driverDownloadProgressEvent, payload)
 }
 
-func probeDriverNetworkEndpoint(item driverNetworkProbeItem) driverNetworkProbeItem {
+func probeDriverNetworkEndpoint(client *http.Client, item driverNetworkProbeItem) driverNetworkProbeItem {
 	probed := item
 	probed.Reachable = false
 	probed.HTTPStatus = 0
 	probed.Error = ""
 	probed.LatencyMs = 0
+	probed.TCPLatency = 0
+	probed.HTTPLatency = 0
+	probed.Method = ""
 
 	urlText := strings.TrimSpace(item.URL)
 	if urlText == "" {
@@ -903,33 +937,34 @@ func probeDriverNetworkEndpoint(item driverNetworkProbeItem) driverNetworkProbeI
 		return probed
 	}
 
-	client := newHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
-	start := time.Now()
-	req, err := http.NewRequest(http.MethodHead, urlText, nil)
-	if err != nil {
-		probed.Error = normalizeErrorMessage(err)
-		return probed
+	if tcpLatency, tcpErr := probeDriverTCPLatency(urlText); tcpErr == nil {
+		probed.TCPLatency = tcpLatency
+		probed.LatencyMs = tcpLatency
 	}
-	req.Header.Set("User-Agent", "GoNavi-DriverManager")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		// 某些网关不支持 HEAD，请回退为 GET（不读取正文）。
-		reqGet, reqErr := http.NewRequest(http.MethodGet, urlText, nil)
-		if reqErr != nil {
-			probed.Error = normalizeErrorMessage(reqErr)
-			probed.LatencyMs = time.Since(start).Milliseconds()
-			return probed
-		}
-		reqGet.Header.Set("User-Agent", "GoNavi-DriverManager")
-		resp, err = client.Do(reqGet)
+	if client == nil {
+		client = newHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
 	}
-	probed.LatencyMs = time.Since(start).Milliseconds()
+	start := time.Now()
+	resp, method, err := doDriverProbeRequest(client, urlText, http.MethodGet)
+	if err != nil || shouldFallbackHeadProbe(resp) {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		// 回退到 HEAD 时重置计时，避免把失败重试耗时累计到最终延迟指标里。
+		start = time.Now()
+		resp, method, err = doDriverProbeRequest(client, urlText, http.MethodHead)
+	}
+	probed.HTTPLatency = time.Since(start).Milliseconds()
+	if probed.LatencyMs <= 0 {
+		probed.LatencyMs = probed.HTTPLatency
+	}
 	if err != nil {
 		probed.Error = normalizeDriverNetworkError(err)
 		return probed
 	}
 	defer resp.Body.Close()
+	probed.Method = method
 
 	probed.HTTPStatus = resp.StatusCode
 	if resp.StatusCode >= 500 {
@@ -938,6 +973,121 @@ func probeDriverNetworkEndpoint(item driverNetworkProbeItem) driverNetworkProbeI
 	}
 	probed.Reachable = true
 	return probed
+}
+
+func probeDriverTCPLatency(rawURL string) (int64, error) {
+	dialAddr, err := resolveDriverProbeDialAddress(rawURL)
+	if err != nil {
+		return 0, err
+	}
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", dialAddr, driverNetworkProbeTCPTimeout)
+	elapsed := time.Since(start)
+	latency := elapsed.Milliseconds()
+	if elapsed > 0 && latency <= 0 {
+		latency = 1
+	}
+	if err != nil {
+		return latency, err
+	}
+	_ = conn.Close()
+	return latency, nil
+}
+
+func resolveDriverProbeDialAddress(rawURL string) (string, error) {
+	urlText := strings.TrimSpace(rawURL)
+	if urlText == "" {
+		return "", fmt.Errorf("检测地址为空")
+	}
+	parsed, err := url.Parse(urlText)
+	if err != nil {
+		return "", err
+	}
+
+	targetHost := strings.TrimSpace(parsed.Hostname())
+	if targetHost == "" {
+		return "", fmt.Errorf("检测地址缺少主机")
+	}
+	targetPort := strings.TrimSpace(parsed.Port())
+	if targetPort == "" {
+		if strings.EqualFold(parsed.Scheme, "http") {
+			targetPort = "80"
+		} else {
+			targetPort = "443"
+		}
+	}
+
+	if proxyURL := resolveDriverProbeProxyURL(parsed); proxyURL != nil {
+		proxyHost := strings.TrimSpace(proxyURL.Hostname())
+		if proxyHost == "" {
+			return net.JoinHostPort(targetHost, targetPort), nil
+		}
+		proxyPort := strings.TrimSpace(proxyURL.Port())
+		if proxyPort == "" {
+			proxyPort = defaultPortForScheme(proxyURL.Scheme)
+		}
+		return net.JoinHostPort(proxyHost, proxyPort), nil
+	}
+
+	return net.JoinHostPort(targetHost, targetPort), nil
+}
+
+func resolveDriverProbeProxyURL(target *url.URL) *url.URL {
+	if target == nil {
+		return nil
+	}
+
+	snapshot := currentGlobalProxyConfig()
+	if snapshot.Enabled {
+		proxyURL, err := buildProxyURLFromConfig(snapshot.Proxy)
+		if err == nil {
+			return proxyURL
+		}
+	}
+
+	req := &http.Request{URL: target}
+	proxyURL, err := http.ProxyFromEnvironment(req)
+	if err != nil {
+		return nil
+	}
+	return proxyURL
+}
+
+func defaultPortForScheme(scheme string) string {
+	switch strings.ToLower(strings.TrimSpace(scheme)) {
+	case "https":
+		return "443"
+	case "socks5", "socks5h":
+		return "1080"
+	case "http":
+		fallthrough
+	default:
+		return "80"
+	}
+}
+
+func doDriverProbeRequest(client *http.Client, urlText string, method string) (*http.Response, string, error) {
+	req, err := http.NewRequest(method, urlText, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("User-Agent", "GoNavi-DriverManager")
+	// 用 GET+Range 探测可更接近真实下载链路，同时避免下载正文。
+	if strings.EqualFold(method, http.MethodGet) {
+		req.Header.Set("Range", "bytes=0-0")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, method, err
+	}
+	return resp, method, nil
+}
+
+func shouldFallbackHeadProbe(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented
 }
 
 func normalizeDriverNetworkError(err error) string {

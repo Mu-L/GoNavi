@@ -2,12 +2,14 @@ package app
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,10 +17,15 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
+	"GoNavi-Wails/internal/utils"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/xuri/excelize/v2"
 )
+
+const minExportQueryTimeout = 5 * time.Minute
+const minClickHouseExportQueryTimeout = 2 * time.Hour
 
 func (a *App) OpenSQLFile() connection.QueryResult {
 	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
@@ -107,6 +114,78 @@ func (a *App) SelectSSHKeyFile(currentPath string) connection.QueryResult {
 				Pattern:     "*",
 			},
 		},
+	})
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if strings.TrimSpace(selection) == "" {
+		return connection.QueryResult{Success: false, Message: "Cancelled"}
+	}
+	if abs, err := filepath.Abs(selection); err == nil {
+		selection = abs
+	}
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{"path": selection}}
+}
+
+func (a *App) SelectDatabaseFile(currentPath string, driverType string) connection.QueryResult {
+	defaultDir := strings.TrimSpace(currentPath)
+	if defaultDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			defaultDir = home
+		}
+	}
+	if filepath.Ext(defaultDir) != "" {
+		defaultDir = filepath.Dir(defaultDir)
+	}
+	if defaultDir != "" && !filepath.IsAbs(defaultDir) {
+		if abs, err := filepath.Abs(defaultDir); err == nil {
+			defaultDir = abs
+		}
+	}
+
+	normalizedType := strings.ToLower(strings.TrimSpace(driverType))
+	filters := []runtime.FileFilter{
+		{
+			DisplayName: "数据库文件",
+			Pattern:     "*.db;*.sqlite;*.sqlite3;*.db3;*.duckdb;*.ddb",
+		},
+		{
+			DisplayName: "所有文件",
+			Pattern:     "*",
+		},
+	}
+	title := "选择数据库文件"
+	switch normalizedType {
+	case "sqlite":
+		title = "选择 SQLite 数据文件"
+		filters = []runtime.FileFilter{
+			{
+				DisplayName: "SQLite 文件",
+				Pattern:     "*.db;*.sqlite;*.sqlite3;*.db3",
+			},
+			{
+				DisplayName: "所有文件",
+				Pattern:     "*",
+			},
+		}
+	case "duckdb":
+		title = "选择 DuckDB 数据文件"
+		filters = []runtime.FileFilter{
+			{
+				DisplayName: "DuckDB 文件",
+				Pattern:     "*.duckdb;*.ddb;*.db",
+			},
+			{
+				DisplayName: "所有文件",
+				Pattern:     "*",
+			},
+		}
+	}
+
+	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            title,
+		DefaultDirectory: defaultDir,
+		Filters:          filters,
 	})
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -541,7 +620,7 @@ func (a *App) ExportTable(config connection.ConnectionConfig, dbName string, tab
 
 	query := fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(runConfig.Type, tableName))
 
-	data, columns, err := dbInst.Query(query)
+	data, columns, err := queryDataForExport(dbInst, runConfig, query)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -872,7 +951,7 @@ func listViewNameLookup(dbInst db.Database, config connection.ConnectionConfig, 
 		if strings.TrimSpace(query) == "" {
 			continue
 		}
-		rows, _, err := dbInst.Query(query)
+		rows, _, err := queryDataForExport(dbInst, config, query)
 		if err != nil {
 			continue
 		}
@@ -983,7 +1062,7 @@ func tryGetViewCreateStatement(
 		if strings.TrimSpace(query) == "" {
 			continue
 		}
-		rows, _, err := dbInst.Query(query)
+		rows, _, err := queryDataForExport(dbInst, config, query)
 		if err != nil || len(rows) == 0 {
 			continue
 		}
@@ -1348,7 +1427,7 @@ func dumpTableSQL(
 
 	qualified := qualifyTable(schemaName, pureTableName)
 	selectSQL := fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(config.Type, qualified))
-	data, columns, err := dbInst.Query(selectSQL)
+	data, columns, err := queryDataForExport(dbInst, config, selectSQL)
 	if err != nil {
 		return err
 	}
@@ -1383,14 +1462,17 @@ func (a *App) ExportData(data []map[string]interface{}, columns []string, defaul
 	if defaultName == "" {
 		defaultName = "export"
 	}
+	logger.Infof("ExportData 开始：rows=%d cols=%d format=%s defaultName=%s", len(data), len(columns), strings.ToLower(strings.TrimSpace(format)), strings.TrimSpace(defaultName))
 	filename, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Export Data",
 		DefaultFilename: fmt.Sprintf("%s.%s", defaultName, strings.ToLower(format)),
 	})
 
 	if err != nil || filename == "" {
+		logger.Infof("ExportData 已取消或未选择文件：err=%v", err)
 		return connection.QueryResult{Success: false, Message: "Cancelled"}
 	}
+	logger.Infof("ExportData 选定文件：%s", filename)
 
 	f, err := os.Create(filename)
 	if err != nil {
@@ -1398,9 +1480,11 @@ func (a *App) ExportData(data []map[string]interface{}, columns []string, defaul
 	}
 	defer f.Close()
 	if err := writeRowsToFile(f, data, columns, format); err != nil {
+		logger.Warnf("ExportData 写入失败：file=%s err=%v", filename, err)
 		return connection.QueryResult{Success: false, Message: "Write error: " + err.Error()}
 	}
 
+	logger.Infof("ExportData 完成：file=%s rows=%d", filename, len(data))
 	return connection.QueryResult{Success: true, Message: "Export successful"}
 }
 
@@ -1421,8 +1505,10 @@ func (a *App) ExportQuery(config connection.ConnectionConfig, dbName string, que
 		DefaultFilename: fmt.Sprintf("%s.%s", defaultName, strings.ToLower(format)),
 	})
 	if err != nil || filename == "" {
+		logger.Infof("ExportQuery 已取消或未选择文件：err=%v", err)
 		return connection.QueryResult{Success: false, Message: "Cancelled"}
 	}
+	logger.Infof("ExportQuery 开始：type=%s db=%s format=%s file=%s sql=%q", strings.TrimSpace(config.Type), strings.TrimSpace(dbName), strings.ToLower(strings.TrimSpace(format)), filename, sqlSnippet(query))
 
 	runConfig := normalizeRunConfig(config, dbName)
 	dbInst, err := a.getDatabase(runConfig)
@@ -1436,8 +1522,9 @@ func (a *App) ExportQuery(config connection.ConnectionConfig, dbName string, que
 		return connection.QueryResult{Success: false, Message: "Only SELECT/WITH queries are supported"}
 	}
 
-	data, columns, err := dbInst.Query(query)
+	data, columns, err := queryDataForExport(dbInst, runConfig, query)
 	if err != nil {
+		logger.Warnf("ExportQuery 查询失败：type=%s db=%s err=%v sql=%q", strings.TrimSpace(config.Type), strings.TrimSpace(dbName), err, sqlSnippet(query))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
@@ -1448,10 +1535,53 @@ func (a *App) ExportQuery(config connection.ConnectionConfig, dbName string, que
 	defer f.Close()
 
 	if err := writeRowsToFile(f, data, columns, format); err != nil {
+		logger.Warnf("ExportQuery 写入失败：file=%s err=%v", filename, err)
 		return connection.QueryResult{Success: false, Message: "Write error: " + err.Error()}
 	}
 
+	logger.Infof("ExportQuery 完成：file=%s rows=%d cols=%d", filename, len(data), len(columns))
 	return connection.QueryResult{Success: true, Message: "Export successful"}
+}
+
+func queryDataForExport(dbInst db.Database, config connection.ConnectionConfig, query string) ([]map[string]interface{}, []string, error) {
+	timeout := getExportQueryTimeout(config)
+	dbType := resolveDDLDBType(config)
+	if dbType == "clickhouse" {
+		logger.Infof("ClickHouse 导出查询开始：timeout=%s SQL片段=%q", timeout, sqlSnippet(query))
+	}
+	if q, ok := dbInst.(interface {
+		QueryContext(context.Context, string) ([]map[string]interface{}, []string, error)
+	}); ok {
+		ctx, cancel := utils.ContextWithTimeout(timeout)
+		defer cancel()
+		data, columns, err := q.QueryContext(ctx, query)
+		if err != nil && dbType == "clickhouse" {
+			logger.Warnf("ClickHouse 导出查询失败：timeout=%s SQL片段=%q err=%v", timeout, sqlSnippet(query), err)
+		}
+		return data, columns, err
+	}
+	data, columns, err := dbInst.Query(query)
+	if err != nil && dbType == "clickhouse" {
+		logger.Warnf("ClickHouse 导出查询失败（无 QueryContext）：timeout=%s SQL片段=%q err=%v", timeout, sqlSnippet(query), err)
+	}
+	return data, columns, err
+}
+
+func getExportQueryTimeout(config connection.ConnectionConfig) time.Duration {
+	timeout := time.Duration(config.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = minExportQueryTimeout
+	}
+	if resolveDDLDBType(config) == "clickhouse" {
+		if timeout < minClickHouseExportQueryTimeout {
+			timeout = minClickHouseExportQueryTimeout
+		}
+		return timeout
+	}
+	if timeout < minExportQueryTimeout {
+		timeout = minExportQueryTimeout
+	}
+	return timeout
 }
 
 func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string, format string) error {
@@ -1527,7 +1657,11 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 					return err
 				}
 			}
-			if err := jsonEncoder.Encode(rowMap); err != nil {
+			exportedRow := make(map[string]interface{}, len(columns))
+			for _, col := range columns {
+				exportedRow[col] = normalizeExportJSONValue(rowMap[col])
+			}
+			if err := jsonEncoder.Encode(exportedRow); err != nil {
 				return err
 			}
 			isJsonFirstRow = false
@@ -1567,8 +1701,99 @@ func formatExportCellText(val interface{}) string {
 			return "NULL"
 		}
 		return v.Format("2006-01-02 15:04:05")
+	case float32:
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return "NULL"
+		}
+		return strconv.FormatFloat(f, 'f', -1, 32)
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return "NULL"
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case json.Number:
+		text := strings.TrimSpace(v.String())
+		if text == "" {
+			return "NULL"
+		}
+		return text
 	default:
 		return fmt.Sprintf("%v", val)
+	}
+}
+
+func normalizeExportJSONValue(val interface{}) interface{} {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case float32:
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil
+		}
+		return json.Number(strconv.FormatFloat(f, 'f', -1, 32))
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil
+		}
+		return json.Number(strconv.FormatFloat(v, 'f', -1, 64))
+	case json.Number:
+		text := strings.TrimSpace(v.String())
+		if text == "" {
+			return nil
+		}
+		return json.Number(text)
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for key, item := range v {
+			out[key] = normalizeExportJSONValue(item)
+		}
+		return out
+	case []interface{}:
+		items := make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = normalizeExportJSONValue(item)
+		}
+		return items
+	}
+
+	rv := reflect.ValueOf(val)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return nil
+		}
+		return normalizeExportJSONValue(rv.Elem().Interface())
+	case reflect.Map:
+		if rv.IsNil() {
+			return nil
+		}
+		out := make(map[string]interface{}, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			out[fmt.Sprint(iter.Key().Interface())] = normalizeExportJSONValue(iter.Value().Interface())
+		}
+		return out
+	case reflect.Slice:
+		if rv.IsNil() {
+			return nil
+		}
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return val
+		}
+		fallthrough
+	case reflect.Array:
+		size := rv.Len()
+		items := make([]interface{}, size)
+		for i := 0; i < size; i++ {
+			items[i] = normalizeExportJSONValue(rv.Index(i).Interface())
+		}
+		return items
+	default:
+		return val
 	}
 }
 

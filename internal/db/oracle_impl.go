@@ -26,10 +26,7 @@ type OracleDB struct {
 
 func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
 	// oracle://user:pass@host:port/service_name
-	database := config.Database
-	if database == "" {
-		database = config.User // Default to user service/schema if empty?
-	}
+	database := strings.TrimSpace(config.Database)
 
 	u := &url.URL{
 		Scheme: "oracle",
@@ -44,6 +41,10 @@ func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
 func (o *OracleDB) Connect(config connection.ConnectionConfig) error {
 	var dsn string
 	var err error
+	serviceName := strings.TrimSpace(config.Database)
+	if serviceName == "" {
+		return fmt.Errorf("Oracle 连接缺少服务名（Service Name），请在连接配置中填写，例如 ORCLPDB1")
+	}
 
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding

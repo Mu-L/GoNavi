@@ -194,6 +194,10 @@ export function MySQLShowCreateTable(arg1, arg2, arg3) {
   return window['go']['app']['App']['MySQLShowCreateTable'](arg1, arg2, arg3);
 }
 
+export function OpenDownloadedUpdateDirectory() {
+  return window['go']['app']['App']['OpenDownloadedUpdateDirectory']();
+}
+
 export function OpenSQLFile() {
   return window['go']['app']['App']['OpenSQLFile']();
 }
@@ -320,6 +324,10 @@ export function ResolveDriverPackageDownloadURL(arg1, arg2) {
 
 export function ResolveDriverRepositoryURL(arg1) {
   return window['go']['app']['App']['ResolveDriverRepositoryURL'](arg1);
+}
+
+export function SelectDatabaseFile(arg1, arg2) {
+  return window['go']['app']['App']['SelectDatabaseFile'](arg1, arg2);
 }
 
 export function SelectDriverDownloadDirectory(arg1) {

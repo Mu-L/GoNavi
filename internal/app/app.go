@@ -74,16 +74,67 @@ func (a *App) Shutdown(ctx context.Context) {
 	logger.Close()
 }
 
-// Helper: Generate a unique key for the connection config
-func getCacheKey(config connection.ConnectionConfig) string {
-	if !config.UseSSH {
-		config.SSH = connection.SSHConfig{}
+func normalizeCacheKeyConfig(config connection.ConnectionConfig) connection.ConnectionConfig {
+	normalized := config
+	normalized.Type = strings.ToLower(strings.TrimSpace(normalized.Type))
+	// timeout 仅用于 Query/Ping 控制，不应作为物理连接复用键的一部分。
+	normalized.Timeout = 0
+	normalized.SavePassword = false
+
+	if !normalized.UseSSH {
+		normalized.SSH = connection.SSHConfig{}
 	}
-	if !config.UseProxy {
-		config.Proxy = connection.ProxyConfig{}
+	if !normalized.UseProxy {
+		normalized.Proxy = connection.ProxyConfig{}
 	}
 
-	b, _ := json.Marshal(config)
+	if isFileDatabaseType(normalized.Type) {
+		dsn := strings.TrimSpace(normalized.Host)
+		if dsn == "" {
+			dsn = strings.TrimSpace(normalized.Database)
+		}
+		if dsn == "" {
+			dsn = ":memory:"
+		}
+
+		// DuckDB/SQLite 仅基于文件来源识别连接，其他网络字段不参与键计算。
+		normalized.Host = dsn
+		normalized.Database = ""
+		normalized.Port = 0
+		normalized.User = ""
+		normalized.Password = ""
+		normalized.URI = ""
+		normalized.Hosts = nil
+		normalized.Topology = ""
+		normalized.MySQLReplicaUser = ""
+		normalized.MySQLReplicaPassword = ""
+		normalized.ReplicaSet = ""
+		normalized.AuthSource = ""
+		normalized.ReadPreference = ""
+		normalized.MongoSRV = false
+		normalized.MongoAuthMechanism = ""
+		normalized.MongoReplicaUser = ""
+		normalized.MongoReplicaPassword = ""
+	}
+
+	return normalized
+}
+
+func resolveFileDatabaseDSN(config connection.ConnectionConfig) string {
+	dsn := strings.TrimSpace(config.Host)
+	if dsn == "" {
+		dsn = strings.TrimSpace(config.Database)
+	}
+	if dsn == "" {
+		dsn = ":memory:"
+	}
+	return dsn
+}
+
+// Helper: Generate a unique key for the connection config
+func getCacheKey(config connection.ConnectionConfig) string {
+	normalized := normalizeCacheKeyConfig(config)
+	b, _ := json.Marshal(normalized)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -235,11 +286,18 @@ func (a *App) openDatabaseIsolated(config connection.ConnectionConfig) (db.Datab
 
 func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing bool) (db.Database, error) {
 	effectiveConfig := applyGlobalProxyToConnection(config)
+	isFileDB := isFileDatabaseType(effectiveConfig.Type)
 
 	key := getCacheKey(effectiveConfig)
 	shortKey := key
 	if len(shortKey) > 12 {
 		shortKey = shortKey[:12]
+	}
+	if isFileDB {
+		rawDSN := resolveFileDatabaseDSN(effectiveConfig)
+		normalizedDSN := resolveFileDatabaseDSN(normalizeCacheKeyConfig(effectiveConfig))
+		logger.Infof("文件库连接缓存探测：类型=%s 原始DSN=%s 归一化DSN=%s timeout=%ds forcePing=%t 缓存Key=%s",
+			strings.TrimSpace(effectiveConfig.Type), rawDSN, normalizedDSN, effectiveConfig.Timeout, forcePing, shortKey)
 	}
 
 	if supported, reason := db.DriverRuntimeSupportStatus(effectiveConfig.Type); !supported {
@@ -260,6 +318,9 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 	entry, ok := a.dbCache[key]
 	a.mu.RUnlock()
 	if ok {
+		if isFileDB {
+			logger.Infof("命中文件库连接缓存：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
+		}
 		needPing := forcePing
 		if !needPing {
 			lastPing := entry.lastPing
@@ -269,6 +330,9 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 		}
 
 		if !needPing {
+			if isFileDB {
+				logger.Infof("复用文件库连接缓存（免 Ping）：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
+			}
 			return entry.inst, nil
 		}
 
@@ -280,6 +344,9 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 				a.dbCache[key] = cur
 			}
 			a.mu.Unlock()
+			if isFileDB {
+				logger.Infof("复用文件库连接缓存（Ping 成功）：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
+			}
 			return entry.inst, nil
 		} else {
 			logger.Error(err, "缓存连接不可用，准备重建：%s 缓存Key=%s", formatConnSummary(effectiveConfig), shortKey)
@@ -294,6 +361,12 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 			delete(a.dbCache, key)
 		}
 		a.mu.Unlock()
+		if isFileDB {
+			logger.Infof("文件库缓存连接已剔除，准备新建连接：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
+		}
+	}
+	if isFileDB {
+		logger.Infof("未命中文件库连接缓存，开始创建连接：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
 	}
 
 	logger.Infof("获取数据库连接：%s 缓存Key=%s", formatConnSummary(effectiveConfig), shortKey)
@@ -324,6 +397,9 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 		a.mu.Unlock()
 		// Prefer existing cached connection to avoid cache racing duplicates.
 		_ = dbInst.Close()
+		if isFileDB {
+			logger.Infof("并发创建命中已存在文件库连接，关闭新建连接并复用缓存：类型=%s 缓存Key=%s", strings.TrimSpace(effectiveConfig.Type), shortKey)
+		}
 		return existing.inst, nil
 	}
 	a.dbCache[key] = cachedDatabase{inst: dbInst, lastPing: now}

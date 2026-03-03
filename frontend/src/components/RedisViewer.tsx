@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { RedisKeyInfo, RedisValue, StreamEntry } from '../types';
 import Editor from '@monaco-editor/react';
 import type { DataNode } from 'antd/es/tree';
+import { normalizeOpacityForPlatform } from '../utils/appearance';
 
 const { Search } = Input;
 
@@ -394,8 +395,21 @@ const buildRedisKeyTree = (
 };
 
 const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
-    const { connections } = useStore();
+    const connections = useStore(state => state.connections);
+    const theme = useStore(state => state.theme);
+    const appearance = useStore(state => state.appearance);
+    const darkMode = theme === 'dark';
+    const opacity = normalizeOpacityForPlatform(appearance.opacity);
     const connection = connections.find(c => c.id === connectionId);
+    const keyAccentColor = darkMode ? '#ffd666' : '#1677ff';
+    const jsonAccentColor = darkMode ? '#f6c453' : '#1890ff';
+    const valueToolbarBg = darkMode
+        ? `rgba(38, 38, 38, ${opacity})`
+        : `rgba(245, 245, 245, ${opacity})`;
+    const valueToolbarBorder = darkMode
+        ? `1px solid rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.24, opacity * 0.22))})`
+        : `1px solid rgba(0, 0, 0, ${Math.max(0.08, Math.min(0.2, opacity * 0.12))})`;
+    const valueToolbarText = darkMode ? 'rgba(255, 255, 255, 0.78)' : '#666';
 
     const [keys, setKeys] = useState<RedisKeyInfo[]>([]);
     const [loading, setLoading] = useState(false);
@@ -805,7 +819,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                         overflow: 'hidden',
                     }}
                 >
-                    <KeyOutlined style={{ color: '#1677ff', flexShrink: 0 }} />
+                    <KeyOutlined style={{ color: keyAccentColor, flexShrink: 0 }} />
                     <Tooltip title={rawKey}>
                         <span
                             style={{
@@ -901,13 +915,13 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     <div style={{
                         padding: '4px 8px',
-                        background: '#f5f5f5',
-                        borderBottom: '1px solid #d9d9d9',
+                        background: valueToolbarBg,
+                        borderBottom: valueToolbarBorder,
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center'
                     }}>
-                        <span style={{ fontSize: 12, color: '#666' }}>
+                        <span style={{ fontSize: 12, color: valueToolbarText }}>
                             {encoding && `编码: ${encoding}`}
                         </span>
                         <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
@@ -920,6 +934,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                     <Editor
                         height="calc(100% - 72px)"
                         language={isJson ? 'json' : 'plaintext'}
+                        theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                         value={displayValue}
                         options={{
                             readOnly: true,
@@ -1069,7 +1084,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     return (
                                         <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
                                             <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
                                                 fontFamily: record.isBinary ? 'monospace' : undefined,
                                                 fontSize: record.isBinary ? 11 : undefined
                                             }}>
@@ -1248,7 +1263,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     return (
                                         <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
                                             <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
                                                 fontFamily: record.isBinary ? 'monospace' : undefined,
                                                 fontSize: record.isBinary ? 11 : undefined
                                             }}>
@@ -1403,7 +1418,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     return (
                                         <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
                                             <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
                                                 fontFamily: record.isBinary ? 'monospace' : undefined,
                                                 fontSize: record.isBinary ? 11 : undefined
                                             }}>
@@ -1557,7 +1572,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     return (
                                         <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
                                             <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
                                                 fontFamily: record.isBinary ? 'monospace' : undefined,
                                                 fontSize: record.isBinary ? 11 : undefined
                                             }}>
@@ -1771,7 +1786,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     return (
                                         <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 720 } }}>
                                             <span style={{
-                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? jsonAccentColor : undefined),
                                                 fontFamily: record.isBinary ? 'monospace' : undefined,
                                                 fontSize: record.isBinary ? 11 : undefined
                                             }}>
@@ -1964,6 +1979,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 <Editor
                     height="450px"
                     language={tryFormatJson(editValue).isJson ? 'json' : 'plaintext'}
+                    theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                     value={editValue}
                     onChange={(value) => setEditValue(value || '')}
                     options={{
@@ -2028,6 +2044,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                 <Editor
                     height="450px"
                     language={jsonEditConfig?.isJson ? 'json' : 'plaintext'}
+                    theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                     defaultValue={jsonEditConfig?.value || ''}
                     onChange={(value) => { jsonEditValueRef.current = value || ''; }}
                     onMount={(editor) => { jsonEditValueRef.current = jsonEditConfig?.value || ''; }}

@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
@@ -16,6 +19,7 @@ type agentRequest struct {
 	Method    string                       `json:"method"`
 	Config    *connection.ConnectionConfig `json:"config,omitempty"`
 	Query     string                       `json:"query,omitempty"`
+	TimeoutMs int64                        `json:"timeoutMs,omitempty"`
 	DBName    string                       `json:"dbName,omitempty"`
 	TableName string                       `json:"tableName,omitempty"`
 	Changes   *connection.ChangeSet        `json:"changes,omitempty"`
@@ -46,6 +50,8 @@ const (
 	agentMethodGetTriggers   = "getTriggers"
 	agentMethodApplyChanges  = "applyChanges"
 )
+
+const legacyClickHouseDefaultTimeout = 2 * time.Hour
 
 var (
 	agentDriverType      string
@@ -137,14 +143,14 @@ func handleRequest(inst *db.Database, req agentRequest) agentResponse {
 			return fail(resp, err.Error())
 		}
 	case agentMethodQuery:
-		data, fields, err := (*inst).Query(req.Query)
+		data, fields, err := queryWithOptionalTimeout(*inst, req.Query, req.TimeoutMs)
 		if err != nil {
 			return fail(resp, err.Error())
 		}
 		resp.Data = data
 		resp.Fields = fields
 	case agentMethodExec:
-		affected, err := (*inst).Exec(req.Query)
+		affected, err := execWithOptionalTimeout(*inst, req.Query, req.TimeoutMs)
 		if err != nil {
 			return fail(resp, err.Error())
 		}
@@ -218,7 +224,11 @@ func handleRequest(inst *db.Database, req agentRequest) agentResponse {
 }
 
 func writeResponse(writer *bufio.Writer, resp agentResponse) error {
-	payload, err := json.Marshal(resp)
+	// 对响应数据做统一 JSON 安全归一化：
+	// 将 map[any]any（如 duckdb.Map）递归转换为 map[string]any，避免序列化失败导致代理进程退出。
+	safeResp := resp
+	safeResp.Data = normalizeAgentResponseData(resp.Data)
+	payload, err := json.Marshal(safeResp)
 	if err != nil {
 		return err
 	}
@@ -233,4 +243,88 @@ func fail(resp agentResponse, errText string) agentResponse {
 	resp.Success = false
 	resp.Error = strings.TrimSpace(errText)
 	return resp
+}
+
+func normalizeAgentResponseData(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return nil
+		}
+		return normalizeAgentResponseData(rv.Elem().Interface())
+	case reflect.Map:
+		if rv.IsNil() {
+			return nil
+		}
+		out := make(map[string]interface{}, rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			out[fmt.Sprint(iter.Key().Interface())] = normalizeAgentResponseData(iter.Value().Interface())
+		}
+		return out
+	case reflect.Slice:
+		if rv.IsNil() {
+			return nil
+		}
+		// 保持 []byte 原样，避免改变现有二进制列的 JSON 编码行为（base64）。
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return v
+		}
+		size := rv.Len()
+		items := make([]interface{}, size)
+		for i := 0; i < size; i++ {
+			items[i] = normalizeAgentResponseData(rv.Index(i).Interface())
+		}
+		return items
+	case reflect.Array:
+		size := rv.Len()
+		items := make([]interface{}, size)
+		for i := 0; i < size; i++ {
+			items[i] = normalizeAgentResponseData(rv.Index(i).Interface())
+		}
+		return items
+	default:
+		return v
+	}
+}
+
+func queryWithOptionalTimeout(inst db.Database, query string, timeoutMs int64) ([]map[string]interface{}, []string, error) {
+	effectiveTimeoutMs := timeoutMs
+	if effectiveTimeoutMs <= 0 && strings.EqualFold(strings.TrimSpace(agentDriverType), "clickhouse") {
+		effectiveTimeoutMs = int64(legacyClickHouseDefaultTimeout / time.Millisecond)
+	}
+	if effectiveTimeoutMs <= 0 {
+		return inst.Query(query)
+	}
+	if q, ok := inst.(interface {
+		QueryContext(context.Context, string) ([]map[string]interface{}, []string, error)
+	}); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(effectiveTimeoutMs)*time.Millisecond)
+		defer cancel()
+		return q.QueryContext(ctx, query)
+	}
+	return inst.Query(query)
+}
+
+func execWithOptionalTimeout(inst db.Database, query string, timeoutMs int64) (int64, error) {
+	effectiveTimeoutMs := timeoutMs
+	if effectiveTimeoutMs <= 0 && strings.EqualFold(strings.TrimSpace(agentDriverType), "clickhouse") {
+		effectiveTimeoutMs = int64(legacyClickHouseDefaultTimeout / time.Millisecond)
+	}
+	if effectiveTimeoutMs <= 0 {
+		return inst.Exec(query)
+	}
+	if e, ok := inst.(interface {
+		ExecContext(context.Context, string) (int64, error)
+	}); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(effectiveTimeoutMs)*time.Millisecond)
+		defer cancel()
+		return e.ExecContext(ctx, query)
+	}
+	return inst.Exec(query)
 }

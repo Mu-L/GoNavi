@@ -2,9 +2,10 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { message } from 'antd';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
-import { DBQuery, DBGetColumns, DBQueryIsolated } from '../../wailsjs/go/app/App';
+import { DBQuery, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
-import { buildOrderBySQL, buildWhereSQL, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
+import { buildOrderBySQL, buildWhereSQL, quoteIdentPart, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
+import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 
 type ViewerPaginationState = {
   current: number;
@@ -16,18 +17,33 @@ type ViewerPaginationState = {
   totalCountCancelled: boolean;
 };
 
+const JS_MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+const isIntegerText = (text: string): boolean => /^[+-]?\d+$/.test(text);
+
 const toNonNegativeFiniteNumber = (value: unknown): number | null => {
   if (typeof value === 'number') {
-    return Number.isFinite(value) && value >= 0 ? value : null;
+    return Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : null;
   }
   if (typeof value === 'bigint') {
-    return value >= 0n ? Number(value) : null;
+    return value >= 0n && value <= JS_MAX_SAFE_INTEGER_BIGINT ? Number(value) : null;
   }
   if (typeof value === 'string') {
     const text = value.trim();
     if (!text) return null;
+    if (isIntegerText(text)) {
+      try {
+        const parsedBigInt = BigInt(text);
+        if (parsedBigInt < 0n || parsedBigInt > JS_MAX_SAFE_INTEGER_BIGINT) {
+          return null;
+        }
+        return Number(parsedBigInt);
+      } catch {
+        return null;
+      }
+    }
     const parsed = Number(text);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= Number.MAX_SAFE_INTEGER ? parsed : null;
   }
   return null;
 };
@@ -108,6 +124,33 @@ const resolveDuckDBSchemaAndTable = (dbName: string, tableName: string) => {
 
 const escapeSQLLiteral = (value: string): string => String(value || '').replace(/'/g, "''");
 
+const isDuckDBUnsupportedTypeError = (msg: string): boolean => /unsupported\s*type:\s*duckdb\./i.test(String(msg || ''));
+
+const isDuckDBComplexColumnType = (columnType?: string): boolean => {
+  const raw = String(columnType || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw.includes('map') || raw.includes('struct') || raw.includes('union') || raw.includes('array') || raw.includes('list');
+};
+
+const reverseOrderBySQL = (orderBySQL: string): string => {
+  const raw = String(orderBySQL || '').trim();
+  if (!raw) return '';
+  const body = raw.replace(/^order\s+by\s+/i, '').trim();
+  if (!body) return '';
+
+  const parts = body
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      if (/\s+asc$/i.test(part)) return part.replace(/\s+asc$/i, ' DESC');
+      if (/\s+desc$/i.test(part)) return part.replace(/\s+desc$/i, ' ASC');
+      return `${part} DESC`;
+    });
+  if (parts.length === 0) return '';
+  return ` ORDER BY ${parts.join(', ')}`;
+};
+
 const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [data, setData] = useState<any[]>([]);
   const [columnNames, setColumnNames] = useState<string[]>([]);
@@ -144,12 +187,11 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   
   const [showFilter, setShowFilter] = useState(false);
   const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
-  const currentConnType = (connections.find(c => c.id === tab.connectionId)?.config?.type || '').toLowerCase();
-  const forceReadOnly = currentConnType === 'tdengine' || currentConnType === 'clickhouse';
-
-  const runIsolatedQuery = useCallback(async (queryConfig: any, dbName: string, sql: string) => {
-    return DBQueryIsolated(queryConfig as any, dbName, sql);
-  }, []);
+  const duckdbSafeSelectCacheRef = useRef<Record<string, string>>({});
+  const currentConnConfig = connections.find(c => c.id === tab.connectionId)?.config;
+  const currentConnCaps = getDataSourceCapabilities(currentConnConfig);
+  const currentConnType = currentConnCaps.type;
+  const forceReadOnly = currentConnCaps.forceReadOnlyQueryResult;
 
   useEffect(() => {
     setPkColumns([]);
@@ -157,6 +199,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
     countKeyRef.current = '';
     duckdbApproxKeyRef.current = '';
     manualCountKeyRef.current = '';
+    duckdbSafeSelectCacheRef.current = {};
     latestConfigRef.current = null;
     latestDbTypeRef.current = '';
     latestDbNameRef.current = '';
@@ -194,7 +237,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
     const countConfig: any = { ...(config as any), timeout: 120 };
 
     try {
-      const resCount = await runIsolatedQuery(countConfig, dbName, countSql);
+      const resCount = await DBQuery(countConfig as any, dbName, countSql);
       const countDuration = Date.now() - countStart;
       addSqlLog({
         id: `log-${Date.now()}-duckdb-manual-count`,
@@ -240,7 +283,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
       setPagination(prev => ({ ...prev, totalCountLoading: false }));
       message.error(`统计总数失败: ${String(e?.message || e)}`);
     }
-  }, [addSqlLog, runIsolatedQuery]);
+  }, [addSqlLog]);
 
   const handleDuckDBCancelManualCount = useCallback(() => {
     manualCountSeqRef.current++;
@@ -277,34 +320,111 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
 
     const countSql = `SELECT COUNT(*) as total FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
     
-    let sql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
-    sql += buildOrderBySQL(dbType, sortInfo, pkColumns);
-    const offset = (page - 1) * size;
-    // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
-    sql += ` LIMIT ${size + 1} OFFSET ${offset}`;
+    const baseSql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+    const orderBySQL = buildOrderBySQL(dbType, sortInfo, pkColumns);
+    let sql = `${baseSql}${orderBySQL}`;
+    const totalRows = Number(pagination.total);
+    const hasFiniteTotal = Number.isFinite(totalRows) && totalRows >= 0;
+    const totalKnown = pagination.totalKnown && hasFiniteTotal;
+    const totalPages = hasFiniteTotal ? Math.max(1, Math.ceil(totalRows / size)) : 0;
+    const currentPage = totalPages > 0 ? Math.min(Math.max(1, page), totalPages) : Math.max(1, page);
+    const offset = (currentPage - 1) * size;
+    const isClickHouse = dbTypeLower === 'clickhouse';
+    const reverseOrderSQL = isClickHouse ? reverseOrderBySQL(orderBySQL) : '';
+    let useClickHouseReversePagination = false;
+    let clickHouseReverseLimit = 0;
+    let clickHouseReverseHasMore = false;
+    // ClickHouse 深分页在超大 OFFSET 下容易超时。对于总数已知且存在 ORDER BY 的场景，
+    // 当“尾部偏移”小于“头部偏移”时，改为反向 ORDER BY + 小 OFFSET，并在前端翻转结果。
+    if (isClickHouse && totalKnown && offset > 0 && reverseOrderSQL) {
+        const pageRowCount = Math.max(0, Math.min(size, totalRows - offset));
+        if (pageRowCount > 0) {
+            const tailOffset = Math.max(0, totalRows - (offset + pageRowCount));
+            if (tailOffset < offset) {
+                sql = `${baseSql}${reverseOrderSQL} LIMIT ${pageRowCount} OFFSET ${tailOffset}`;
+                useClickHouseReversePagination = true;
+                clickHouseReverseLimit = pageRowCount;
+                clickHouseReverseHasMore = currentPage < totalPages;
+            }
+        }
+    }
+    if (!useClickHouseReversePagination) {
+        // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
+        sql += ` LIMIT ${size + 1} OFFSET ${offset}`;
+    }
 
     const requestStartTime = Date.now();
     let executedSql = sql;
     try {
         const executeDataQuery = async (querySql: string, attemptLabel: string) => {
             const startTime = Date.now();
-            const result = await DBQuery(config as any, dbName, querySql);
-            addSqlLog({
-                id: `log-${Date.now()}-data`,
-                timestamp: Date.now(),
-                sql: querySql,
-                status: result.success ? 'success' : 'error',
-                duration: Date.now() - startTime,
-                message: result.success ? '' : `${attemptLabel}: ${result.message}`,
-                affectedRows: Array.isArray(result.data) ? result.data.length : undefined,
-                dbName
-            });
-            return result;
+            try {
+                const result = await DBQuery(config as any, dbName, querySql);
+                addSqlLog({
+                    id: `log-${Date.now()}-data`,
+                    timestamp: Date.now(),
+                    sql: querySql,
+                    status: result.success ? 'success' : 'error',
+                    duration: Date.now() - startTime,
+                    message: result.success ? '' : `${attemptLabel}: ${result.message}`,
+                    affectedRows: Array.isArray(result.data) ? result.data.length : undefined,
+                    dbName
+                });
+                return result;
+            } catch (e: any) {
+                const errMessage = String(e?.message || e || 'query failed');
+                addSqlLog({
+                    id: `log-${Date.now()}-data`,
+                    timestamp: Date.now(),
+                    sql: querySql,
+                    status: 'error',
+                    duration: Date.now() - startTime,
+                    message: `${attemptLabel}: ${errMessage}`,
+                    dbName
+                });
+                return { success: false, message: errMessage, data: [], fields: [] };
+            }
         };
 
         const hasSort = !!sortInfo?.columnKey && (sortInfo?.order === 'ascend' || sortInfo?.order === 'descend');
         const isSortMemoryErr = (msg: string) => /error\s*1038|out of sort memory/i.test(String(msg || ''));
         let resData = await executeDataQuery(sql, '主查询');
+
+        if (!resData.success && dbTypeLower === 'duckdb' && isDuckDBUnsupportedTypeError(String(resData.message || ''))) {
+            const cacheKey = `${tab.connectionId}|${dbName}|${tableName}`;
+            let safeSelect = duckdbSafeSelectCacheRef.current[cacheKey] || '';
+            if (!safeSelect) {
+                try {
+                    const resCols = await DBGetColumns(config as any, dbName, tableName);
+                    if (resCols?.success && Array.isArray(resCols.data)) {
+                        const columnDefs = resCols.data as ColumnDefinition[];
+                        const selectParts = columnDefs.map((col) => {
+                            const colName = String(col?.name || '').trim();
+                            if (!colName) return '';
+                            const quotedCol = quoteIdentPart(dbType, colName);
+                            if (isDuckDBComplexColumnType(col?.type)) {
+                                return `CAST(${quotedCol} AS VARCHAR) AS ${quotedCol}`;
+                            }
+                            return quotedCol;
+                        }).filter(Boolean);
+                        if (selectParts.length > 0) {
+                            safeSelect = selectParts.join(', ');
+                            duckdbSafeSelectCacheRef.current[cacheKey] = safeSelect;
+                        }
+                    }
+                } catch {
+                    // ignore and keep original error path
+                }
+            }
+
+            if (safeSelect) {
+                let fallbackSql = `SELECT ${safeSelect} FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+                fallbackSql += buildOrderBySQL(dbType, sortInfo, pkColumns);
+                fallbackSql += ` LIMIT ${size + 1} OFFSET ${offset}`;
+                executedSql = fallbackSql;
+                resData = await executeDataQuery(fallbackSql, '复杂类型降级重试');
+            }
+        }
 
         if (!resData.success && isMySQLFamily && hasSort && isSortMemoryErr(resData.message)) {
             const retrySql32MB = withSortBufferTuningSQL(dbType, sql, 32 * 1024 * 1024);
@@ -348,7 +468,12 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
             let resultData = resData.data as any[];
             if (!Array.isArray(resultData)) resultData = [];
 
-            const hasMore = resultData.length > size;
+            if (useClickHouseReversePagination) {
+                // 反向查询后恢复为原排序方向，保证用户看到的仍是“最后一页正序数据”。
+                resultData = resultData.slice(0, clickHouseReverseLimit).reverse();
+            }
+
+            const hasMore = useClickHouseReversePagination ? clickHouseReverseHasMore : resultData.length > size;
             if (hasMore) resultData = resultData.slice(0, size);
 
             let fieldNames = resData.fields || [];
@@ -363,7 +488,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
             setData(resultData);
             const countKey = `${tab.connectionId}|${dbName}|${tableName}|${whereSQL}`;
             const derivedTotalKnown = !hasMore;
-            const derivedTotal = derivedTotalKnown ? offset + resultData.length : page * size + 1;
+            const derivedTotal = derivedTotalKnown ? offset + resultData.length : currentPage * size + 1;
             const isDuckDB = dbTypeLower === 'duckdb';
             const minExpectedTotal = hasMore ? offset + resultData.length + 1 : offset + resultData.length;
             if (derivedTotalKnown) countKeyRef.current = countKey;
@@ -377,7 +502,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                 if (derivedTotalKnown) {
                     return {
                         ...prev,
-                        current: page,
+                        current: currentPage,
                         pageSize: size,
                         total: derivedTotal,
                         totalKnown: true,
@@ -388,19 +513,19 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                 }
                 if (prev.totalKnown && countKeyRef.current === countKey) {
                     if (!isDuckDB) {
-                        return { ...prev, current: page, pageSize: size };
+                        return { ...prev, current: currentPage, pageSize: size };
                     }
                     // 当当前页存在“下一页”信号时，已知总数至少应大于当前页末尾。
                     // 若旧总数不满足该条件（例如历史统计值为 0），降级为未知总数并回退到 derivedTotal。
                     if (Number.isFinite(prev.total) && prev.total >= minExpectedTotal) {
-                        return { ...prev, current: page, pageSize: size };
+                        return { ...prev, current: currentPage, pageSize: size };
                     }
                 }
                 const keepManualCounting = prev.totalCountLoading && manualCountKeyRef.current === countKey;
                 if (isDuckDB && prev.totalApprox && duckdbApproxKeyRef.current === countKey && Number.isFinite(prev.total) && prev.total >= minExpectedTotal) {
                     return {
                         ...prev,
-                        current: page,
+                        current: currentPage,
                         pageSize: size,
                         totalKnown: false,
                         totalApprox: true,
@@ -410,7 +535,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                 }
                 return {
                     ...prev,
-                    current: page,
+                    current: currentPage,
                     pageSize: size,
                     total: derivedTotal,
                     totalKnown: false,
@@ -450,11 +575,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                             if (!resCount.success) return;
                             if (!Array.isArray(resCount.data) || resCount.data.length === 0) return;
 
-                            let total: number | null = null;
-                            const parsed = Number(resCount.data[0]?.['total']);
-                            if (Number.isFinite(parsed) && parsed >= 0) {
-                                total = parsed;
-                            }
+                            const total = parseTotalFromCountRow(resCount.data[0]);
                             if (total === null) return;
 
                             setPagination(prev => ({
@@ -489,7 +610,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                 (async () => {
                     for (const approxSql of approxSqlCandidates) {
                         try {
-                            const approxRes = await runIsolatedQuery(approxConfig, dbName, approxSql);
+                            const approxRes = await DBQuery(approxConfig as any, dbName, approxSql);
                             if (duckdbApproxSeqRef.current !== approxSeq) return;
                             if (countKeyRef.current !== countKey) return;
                             if (!approxRes?.success || !Array.isArray(approxRes.data) || approxRes.data.length === 0) continue;
@@ -534,7 +655,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
         });
     }
     if (fetchSeqRef.current === seq) setLoading(false);
-  }, [connections, tab, sortInfo, filterConditions, pkColumns, runIsolatedQuery]); 
+  }, [connections, tab, sortInfo, filterConditions, pkColumns, pagination.total, pagination.totalKnown]); 
   // 依赖 pkColumns：在无手动排序时可回退到主键稳定排序。
   // 主键信息只会在首次加载后更新一次，避免循环查询。
 
@@ -566,6 +687,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           columnNames={columnNames}
           loading={loading}
           tableName={tab.tableName}
+          exportScope="table"
           dbName={tab.dbName}
           connectionId={tab.connectionId}
           pkColumns={pkColumns}

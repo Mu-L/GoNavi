@@ -33,7 +33,7 @@
     },
     "duckdb": {
       "engine": "go",
-      "version": "2.5.5",
+      "version": "2.5.6",
       "checksumPolicy": "off",
       "downloadUrl": "builtin://activate/duckdb"
     },
@@ -75,7 +75,7 @@
     },
     "clickhouse": {
       "engine": "go",
-      "version": "2.43.0",
+      "version": "2.43.1",
       "checksumPolicy": "off",
       "downloadUrl": "builtin://activate/clickhouse"
     },

@@ -100,6 +100,8 @@ export function MySQLQuery(arg1:connection.ConnectionConfig,arg2:string,arg3:str
 
 export function MySQLShowCreateTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function OpenDownloadedUpdateDirectory():Promise<connection.QueryResult>;
+
 export function OpenSQLFile():Promise<connection.QueryResult>;
 
 export function PreviewImportFile(arg1:string):Promise<connection.QueryResult>;
@@ -163,6 +165,8 @@ export function ResolveDriverDownloadDirectory(arg1:string):Promise<connection.Q
 export function ResolveDriverPackageDownloadURL(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function ResolveDriverRepositoryURL(arg1:string):Promise<connection.QueryResult>;
+
+export function SelectDatabaseFile(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function SelectDriverDownloadDirectory(arg1:string):Promise<connection.QueryResult>;
 

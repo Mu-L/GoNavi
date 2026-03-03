@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Collapse, Modal, Progress, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
-import { DeleteOutlined, DownloadOutlined, FileSearchOutlined, FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Collapse, Input, Modal, Progress, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { DeleteOutlined, DownloadOutlined, FileSearchOutlined, FolderOpenOutlined, InfoCircleFilled, ReloadOutlined } from '@ant-design/icons';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useStore } from '../store';
 import { normalizeOpacityForPlatform } from '../utils/appearance';
@@ -63,6 +63,9 @@ type DriverNetworkProbe = {
   reachable: boolean;
   httpStatus?: number;
   latencyMs?: number;
+  tcpLatencyMs?: number;
+  httpLatencyMs?: number;
+  method?: string;
   error?: string;
 };
 
@@ -71,11 +74,21 @@ type DriverNetworkStatus = {
   summary: string;
   recommendedProxy: boolean;
   proxyConfigured: boolean;
+  downloadChainReachable?: boolean;
+  downloadRequiredHosts?: string[];
   proxyEnv?: Record<string, string>;
   checks: DriverNetworkProbe[];
   checkedAt?: string;
   logPath?: string;
 };
+
+const parseOptionalLatency = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+};
+
+const sharedInfoAlertIcon = <InfoCircleFilled style={{ fontSize: 24 }} />;
 
 type DriverVersionOption = {
   version: string;
@@ -90,6 +103,14 @@ type DriverVersionOption = {
 const buildVersionOptionKey = (option: DriverVersionOption) => `${option.version}@@${option.downloadUrl}`;
 const buildVersionSizeLoadingKey = (driverType: string, optionKey: string) => `${driverType}@@${optionKey}`;
 const DRIVER_TABLE_SCROLL_X = 1450;
+const DRIVER_STATUS_CACHE_TTL_MS = 60 * 1000;
+const DRIVER_NETWORK_CACHE_TTL_MS = 5 * 60 * 1000;
+const normalizeDriverSearchText = (value: string) => String(value || '').trim().toLowerCase();
+
+let driverStatusSnapshotCache: { rows: DriverStatusRow[]; downloadDir: string; cachedAt: number } | null = null;
+let driverNetworkSnapshotCache: { status: DriverNetworkStatus; cachedAt: number } | null = null;
+
+const isFreshCache = (cachedAt: number, ttlMs: number): boolean => Date.now() - cachedAt <= ttlMs;
 
 const buildVersionSelectOptions = (options: DriverVersionOption[]) => {
   type SelectOption = { value: string; label: string };
@@ -137,7 +158,11 @@ const buildVersionSelectOptions = (options: DriverVersionOption[]) => {
   return grouped;
 };
 
-const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
+const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onOpenGlobalProxySettings?: () => void }> = ({
+  open,
+  onClose,
+  onOpenGlobalProxySettings,
+}) => {
   const theme = useStore((state) => state.theme);
   const appearance = useStore((state) => state.appearance);
   const darkMode = theme === 'dark';
@@ -151,6 +176,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
   const [downloadDir, setDownloadDir] = useState('');
   const [networkChecking, setNetworkChecking] = useState(false);
   const [networkStatus, setNetworkStatus] = useState<DriverNetworkStatus | null>(null);
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [rows, setRows] = useState<DriverStatusRow[]>([]);
   const [actionState, setActionState] = useState<{ driverType: string; kind: DriverActionKind }>({ driverType: '', kind: '' });
   const [progressMap, setProgressMap] = useState<Record<string, ProgressState>>({});
@@ -164,6 +190,11 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
   const [versionLoadingMap, setVersionLoadingMap] = useState<Record<string, boolean>>({});
   const [versionSizeLoadingMap, setVersionSizeLoadingMap] = useState<Record<string, boolean>>({});
   const [horizontalScrollWidth, setHorizontalScrollWidth] = useState(DRIVER_TABLE_SCROLL_X);
+  const downloadDirRef = useRef(downloadDir);
+
+  useEffect(() => {
+    downloadDirRef.current = downloadDir;
+  }, [downloadDir]);
 
   const appendOperationLog = useCallback((
     driverType: string,
@@ -281,10 +312,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
     horizontalSyncSourceRef.current = '';
   }, []);
 
-  const refreshStatus = useCallback(async (toastOnError = true) => {
-    setLoading(true);
+  const refreshStatus = useCallback(async (
+    toastOnError = true,
+    options?: { showLoading?: boolean },
+  ) => {
+    const showLoading = options?.showLoading ?? true;
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
-      const res = await GetDriverStatusList(downloadDir, '');
+      const res = await GetDriverStatusList(downloadDirRef.current, '');
       if (!res?.success) {
         if (toastOnError) {
           message.error(res?.message || '拉取驱动状态失败');
@@ -296,6 +333,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
       const resolvedDir = String(data.downloadDir || '').trim();
       const drivers = Array.isArray(data.drivers) ? data.drivers : [];
 
+      const effectiveDownloadDir = resolvedDir || downloadDirRef.current;
       if (resolvedDir) {
         setDownloadDir(resolvedDir);
       }
@@ -318,17 +356,30 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
         message: String(item.message || '').trim() || undefined,
       }));
       setRows(nextRows);
+      driverStatusSnapshotCache = {
+        rows: nextRows,
+        downloadDir: effectiveDownloadDir,
+        cachedAt: Date.now(),
+      };
     } catch (err: any) {
       if (toastOnError) {
         message.error(`拉取驱动状态失败：${err?.message || String(err)}`);
       }
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  }, [downloadDir]);
+  }, []);
 
-  const checkNetworkStatus = useCallback(async (toastOnError = false) => {
-    setNetworkChecking(true);
+  const checkNetworkStatus = useCallback(async (
+    toastOnError = false,
+    options?: { showLoading?: boolean },
+  ) => {
+    const showLoading = options?.showLoading ?? true;
+    if (showLoading) {
+      setNetworkChecking(true);
+    }
     try {
       const res = await CheckDriverNetworkStatus();
       if (!res?.success) {
@@ -343,26 +394,40 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
         name: String(item.name || '').trim(),
         url: String(item.url || '').trim(),
         reachable: !!item.reachable,
-        httpStatus: Number(item.httpStatus || 0) || undefined,
-        latencyMs: Number(item.latencyMs || 0) || undefined,
+        httpStatus: parseOptionalLatency(item.httpStatus),
+        latencyMs: parseOptionalLatency(item.latencyMs),
+        tcpLatencyMs: parseOptionalLatency(item.tcpLatencyMs),
+        httpLatencyMs: parseOptionalLatency(item.httpLatencyMs),
+        method: String(item.method || '').trim().toUpperCase() || undefined,
         error: String(item.error || '').trim() || undefined,
       }));
-      setNetworkStatus({
+      const nextStatus: DriverNetworkStatus = {
         reachable: !!data.reachable,
         summary: String(data.summary || '').trim() || '驱动网络检测已完成',
         recommendedProxy: !!data.recommendedProxy,
         proxyConfigured: !!data.proxyConfigured,
+        downloadChainReachable: typeof data.downloadChainReachable === 'boolean' ? data.downloadChainReachable : undefined,
+        downloadRequiredHosts: Array.isArray(data.downloadRequiredHosts)
+          ? data.downloadRequiredHosts.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+          : undefined,
         proxyEnv: (data.proxyEnv || {}) as Record<string, string>,
         checkedAt: String(data.checkedAt || '').trim() || undefined,
         checks: normalizedChecks,
         logPath: String(data.logPath || '').trim() || undefined,
-      });
+      };
+      setNetworkStatus(nextStatus);
+      driverNetworkSnapshotCache = {
+        status: nextStatus,
+        cachedAt: Date.now(),
+      };
     } catch (err: any) {
       if (toastOnError) {
         message.error(`驱动网络检测失败：${err?.message || String(err)}`);
       }
     } finally {
-      setNetworkChecking(false);
+      if (showLoading) {
+        setNetworkChecking(false);
+      }
     }
   }, []);
 
@@ -521,8 +586,29 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
       tableScrollTargetsRef.current = [];
       return;
     }
-    refreshStatus(false);
-    checkNetworkStatus(false);
+
+    const cachedStatus = driverStatusSnapshotCache;
+    const hasCachedStatus = !!cachedStatus;
+    if (cachedStatus) {
+      setRows(cachedStatus.rows);
+      if (cachedStatus.downloadDir) {
+        setDownloadDir(cachedStatus.downloadDir);
+      }
+    }
+    const shouldRefreshStatus = !cachedStatus || !isFreshCache(cachedStatus.cachedAt, DRIVER_STATUS_CACHE_TTL_MS);
+    if (shouldRefreshStatus) {
+      void refreshStatus(false, { showLoading: !hasCachedStatus });
+    }
+
+    const cachedNetwork = driverNetworkSnapshotCache;
+    const hasCachedNetwork = !!cachedNetwork;
+    if (cachedNetwork) {
+      setNetworkStatus(cachedNetwork.status);
+    }
+    const shouldRefreshNetwork = !cachedNetwork || !isFreshCache(cachedNetwork.cachedAt, DRIVER_NETWORK_CACHE_TTL_MS);
+    if (shouldRefreshNetwork) {
+      void checkNetworkStatus(false, { showLoading: !hasCachedNetwork });
+    }
   }, [checkNetworkStatus, open, refreshStatus]);
 
   useEffect(() => {
@@ -1075,10 +1161,47 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
     }
     return rows.find((item) => item.type === logDriverType);
   }, [logDriverType, rows]);
+  const normalizedSearchKeyword = useMemo(() => normalizeDriverSearchText(searchKeyword), [searchKeyword]);
+  const filteredRows = useMemo(() => {
+    if (!normalizedSearchKeyword) {
+      return rows;
+    }
+    return rows.filter((row) => {
+      const searchableParts = [
+        row.name,
+        row.type,
+        row.pinnedVersion,
+        row.installedVersion,
+        row.message,
+        row.builtIn ? '内置' : '外置',
+        row.connectable ? '已启用' : row.packageInstalled ? '已安装' : '未启用',
+      ];
+      const searchableText = normalizeDriverSearchText(searchableParts.filter(Boolean).join(' '));
+      return searchableText.includes(normalizedSearchKeyword);
+    });
+  }, [normalizedSearchKeyword, rows]);
+  const filterSummaryText = useMemo(() => {
+    if (normalizedSearchKeyword) {
+      return `匹配 ${filteredRows.length} / ${rows.length}`;
+    }
+    return `共 ${rows.length} 个驱动`;
+  }, [filteredRows.length, normalizedSearchKeyword, rows.length]);
 
   const activeDriverLogs = operationLogMap[logDriverType] || [];
   const activeDriverLogLines = activeDriverLogs.map((item) => `[${item.time}] ${item.text}`);
   const proxyEnvEntries = Object.entries(networkStatus?.proxyEnv || {});
+  const downloadRequiredHosts = (networkStatus?.downloadRequiredHosts || []).filter(Boolean);
+  const showDownloadChainAlert = networkStatus?.downloadChainReachable === false;
+  const networkUnreachable = networkStatus?.reachable === false;
+  const downloadRequiredHostText = (downloadRequiredHosts.length > 0
+    ? downloadRequiredHosts
+    : ['github.com', 'api.github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com', 'raw.githubusercontent.com']).join('、');
+  const githubConnectivityProbe = networkStatus?.checks.find((item) => item.name === 'GitHub API')
+    || networkStatus?.checks.find((item) => item.name === 'GitHub 驱动发布')
+    || null;
+  const githubConnectivityLatencyMs = githubConnectivityProbe
+    ? (githubConnectivityProbe.httpLatencyMs ?? githubConnectivityProbe.latencyMs ?? githubConnectivityProbe.tcpLatencyMs)
+    : undefined;
   const logBlockBackground = darkMode
     ? `rgba(28, 28, 28, ${Math.max(opacity, 0.82)})`
     : `rgba(255, 255, 255, ${Math.max(opacity, 0.92)})`;
@@ -1129,15 +1252,43 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Text type="secondary">除 MySQL / Redis / Oracle / PostgreSQL 外，其他数据源需先安装启用后再连接。</Text>
         {networkStatus ? (
-          <Alert
-            type={networkStatus.reachable ? 'success' : 'warning'}
-            showIcon
-            message={networkStatus.summary}
-            description={(
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                <Text type="secondary">
-                  驱动下载依赖 GitHub 与 Go 模块代理网络。若检测失败，建议先启用 HTTP/HTTPS/SOCKS5 代理后重试。
-                </Text>
+          networkUnreachable ? (
+            <Alert
+              type="error"
+              showIcon
+              message={showDownloadChainAlert ? '重要提醒：驱动下载链路域名不可达' : '重要提醒：驱动下载网络不可达'}
+              description={(
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {showDownloadChainAlert ? (
+                    <>
+                      <Text>
+                        当前可能能访问 GitHub 页面，但驱动包下载会跳转到资产域名。
+                        请优先在 GoNavi 顶部“代理”中启用全局代理（填写代理应用本地地址和端口）。
+                      </Text>
+                      {onOpenGlobalProxySettings ? (
+                        <Button size="small" onClick={onOpenGlobalProxySettings}>打开全局代理设置</Button>
+                      ) : null}
+                      <Text>
+                        若仍失败，请在代理规则放行：{downloadRequiredHostText}；仍无法调整规则时，再考虑开启 TUN 模式。
+                      </Text>
+                    </>
+                  ) : (
+                    <Text>{networkStatus.summary}</Text>
+                  )}
+                  {proxyEnvEntries.length > 0 ? (
+                    <Text type="secondary">
+                      检测到代理环境变量：{proxyEnvEntries.map(([key]) => key).join('、')}
+                    </Text>
+                  ) : null}
+                </Space>
+              )}
+            />
+          ) : (
+            <Alert
+              type="success"
+              showIcon
+              message={networkStatus.summary}
+              description={(
                 <Collapse
                   size="small"
                   items={[
@@ -1146,11 +1297,11 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
                       label: '查看网络检测明细',
                       children: (
                         <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                          {networkStatus.checks.map((item) => (
-                            <Text key={`${item.name}-${item.url}`} type={item.reachable ? 'secondary' : 'danger'}>
-                              {item.name}：{item.reachable ? '可达' : '不可达'}{item.httpStatus ? `，HTTP ${item.httpStatus}` : ''}{item.latencyMs ? `，${item.latencyMs}ms` : ''}{item.error ? `，${item.error}` : ''}
-                            </Text>
-                          ))}
+                          <Text type="secondary">
+                            代理链路到 GitHub 连通性延迟：{githubConnectivityProbe ? (githubConnectivityProbe.reachable ? '可达' : '不可达') : '暂无结果'}
+                            {githubConnectivityLatencyMs !== undefined ? `，${githubConnectivityLatencyMs}ms` : ''}
+                            {githubConnectivityProbe?.error ? `，${githubConnectivityProbe.error}` : ''}
+                          </Text>
                           {proxyEnvEntries.length > 0 ? (
                             <Text type="secondary">
                               检测到代理环境变量：{proxyEnvEntries.map(([key]) => key).join('、')}
@@ -1163,34 +1314,58 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
                     },
                   ]}
                 />
-              </Space>
-            )}
-          />
+              )}
+            />
+          )
         ) : (
-          <Alert type="info" showIcon message={networkChecking ? '正在检测驱动下载网络...' : '尚未完成网络检测'} />
+          <Alert
+            type="info"
+            showIcon
+            icon={sharedInfoAlertIcon}
+            message={networkChecking ? '正在检测驱动下载网络...' : '尚未完成网络检测'}
+          />
         )}
 
         <Alert
           type="info"
           showIcon
+          icon={sharedInfoAlertIcon}
           message="驱动目录与复用说明"
           description={(
-            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-              <Text type="secondary">自动下载和手动导入的驱动都会落盘到以下目录；后续版本升级可重复复用已下载驱动。</Text>
-              <Text type="secondary">行内“本地导入”仅用于单个驱动文件/总包（如 `mariadb-driver-agent`、`mariadb-driver-agent.exe`、`GoNavi-DriverAgents.zip`）；批量导入请使用上方“导入驱动目录”。</Text>
-              <Paragraph copyable={{ text: downloadDir || '-' }} style={{ marginBottom: 0 }}>
-                驱动根目录：{downloadDir || '-'}
-              </Paragraph>
-              {networkStatus?.logPath ? (
-                <Paragraph copyable={{ text: networkStatus.logPath }} style={{ marginBottom: 0 }}>
-                  运行日志文件：{networkStatus.logPath}
-                </Paragraph>
-              ) : null}
-            </Space>
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: 'driver-directory',
+                  label: '查看驱动目录与复用说明',
+                  children: (
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      <Text type="secondary">自动下载和手动导入的驱动都会落盘到以下目录；后续版本升级可重复复用已下载驱动。</Text>
+                      <Text type="secondary">行内“本地导入”仅用于单个驱动文件/总包（如 `mariadb-driver-agent`、`mariadb-driver-agent.exe`、`GoNavi-DriverAgents.zip`）；批量导入请使用上方“导入驱动目录”。</Text>
+                      <Paragraph copyable={{ text: downloadDir || '-' }} style={{ marginBottom: 0 }}>
+                        驱动根目录：{downloadDir || '-'}
+                      </Paragraph>
+                      {networkStatus?.logPath ? (
+                        <Paragraph copyable={{ text: networkStatus.logPath }} style={{ marginBottom: 0 }}>
+                          运行日志文件：{networkStatus.logPath}
+                        </Paragraph>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+              ]}
+            />
           )}
         />
 
-        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+        <div style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <Input.Search
+            allowClear
+            placeholder="搜索驱动名称/类型（如 DuckDB、clickhouse）"
+            value={searchKeyword}
+            onChange={(event) => setSearchKeyword(event.target.value)}
+            style={{ minWidth: 300, flex: '1 1 360px' }}
+          />
           <Space size={8}>
             <Text type="secondary">覆盖已安装</Text>
             <Switch
@@ -1198,15 +1373,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
               onChange={(checked) => setForceOverwriteInstalled(checked)}
               disabled={batchDirectoryImporting}
             />
+            <Button
+              icon={<FolderOpenOutlined />}
+              loading={batchDirectoryImporting}
+              onClick={() => void installDriversFromDirectory()}
+            >
+              导入驱动目录
+            </Button>
           </Space>
-          <Button
-            icon={<FolderOpenOutlined />}
-            loading={batchDirectoryImporting}
-            onClick={() => void installDriversFromDirectory()}
-          >
-            导入驱动目录
-          </Button>
-        </Space>
+        </div>
+        <Text type="secondary">{filterSummaryText}</Text>
 
         <div
           ref={tableContainerRef}
@@ -1217,11 +1393,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void }> = ({ 
             rowKey="type"
             loading={loading}
             columns={columns as any}
-            dataSource={rows}
+            dataSource={filteredRows}
             pagination={false}
             size="middle"
             sticky={false}
             scroll={{ x: DRIVER_TABLE_SCROLL_X }}
+            locale={{
+              emptyText: normalizedSearchKeyword
+                ? `未找到匹配“${String(searchKeyword || '').trim()}”的驱动`
+                : '暂无驱动数据',
+            }}
           />
         </div>
       </Space>

@@ -3,7 +3,7 @@ import { Modal, Form, Input, InputNumber, Button, message, Checkbox, Divider, Se
 import { DatabaseOutlined, ConsoleSqlOutlined, FileTextOutlined, CloudServerOutlined, AppstoreAddOutlined, CloudOutlined, CheckCircleFilled, CloseCircleFilled } from '@ant-design/icons';
 import { useStore } from '../store';
 import { normalizeOpacityForPlatform } from '../utils/appearance';
-import { DBGetDatabases, GetDriverStatusList, MongoDiscoverMembers, TestConnection, RedisConnect, SelectSSHKeyFile } from '../../wailsjs/go/app/App';
+import { DBGetDatabases, GetDriverStatusList, MongoDiscoverMembers, TestConnection, RedisConnect, SelectDatabaseFile, SelectSSHKeyFile } from '../../wailsjs/go/app/App';
 import { ConnectionConfig, MongoMemberInfo, SavedConnection } from '../types';
 
 const { Meta } = Card;
@@ -39,6 +39,19 @@ const getDefaultPortByType = (type: string) => {
     case 'duckdb': return 0;
     default: return 3306;
   }
+};
+
+const singleHostUriSchemesByType: Record<string, string[]> = {
+  postgres: ['postgresql', 'postgres'],
+  clickhouse: ['clickhouse'],
+  oracle: ['oracle'],
+  sqlserver: ['sqlserver'],
+  redis: ['redis'],
+  tdengine: ['tdengine'],
+  dameng: ['dameng', 'dm'],
+  kingbase: ['kingbase'],
+  highgo: ['highgo'],
+  vastbase: ['vastbase'],
 };
 
 const isFileDatabaseType = (type: string) => type === 'sqlite' || type === 'duckdb';
@@ -80,6 +93,7 @@ const ConnectionModal: React.FC<{
   const [typeSelectWarning, setTypeSelectWarning] = useState<{ driverName: string; reason: string } | null>(null);
   const [driverStatusMap, setDriverStatusMap] = useState<Record<string, DriverStatusSnapshot>>({});
   const [driverStatusLoaded, setDriverStatusLoaded] = useState(false);
+  const [selectingDbFile, setSelectingDbFile] = useState(false);
   const [selectingSSHKey, setSelectingSSHKey] = useState(false);
   const testInFlightRef = useRef(false);
   const testTimerRef = useRef<number | null>(null);
@@ -92,6 +106,7 @@ const ConnectionModal: React.FC<{
   const mysqlTopology = Form.useWatch('mysqlTopology', form) || 'single';
   const mongoTopology = Form.useWatch('mongoTopology', form) || 'single';
   const mongoSrv = Form.useWatch('mongoSrv', form) || false;
+  const redisTopology = Form.useWatch('redisTopology', form) || 'single';
 
   const getSectionBg = (darkHex: string) => {
       if (!darkMode) {
@@ -105,6 +120,8 @@ const ConnectionModal: React.FC<{
   };
 
   const step1SidebarDividerColor = darkMode ? STEP1_SIDEBAR_DIVIDER_DARK : STEP1_SIDEBAR_DIVIDER_LIGHT;
+  const step1SidebarActiveBg = darkMode ? 'rgba(246, 196, 83, 0.20)' : '#e6f4ff';
+  const step1SidebarActiveColor = darkMode ? '#ffd666' : '#1677ff';
 
   const tunnelSectionStyle: React.CSSProperties = {
       padding: '12px',
@@ -343,6 +360,41 @@ const ConnectionModal: React.FC<{
       };
   };
 
+  const parseSingleHostUri = (
+      uriText: string,
+      expectedSchemes: string[],
+      defaultPort: number,
+  ): { host: string; port: number; username: string; password: string; database: string } | null => {
+      let parsed: ReturnType<typeof parseMultiHostUri> | null = null;
+      for (const scheme of expectedSchemes) {
+          parsed = parseMultiHostUri(uriText, scheme);
+          if (parsed) {
+              break;
+          }
+      }
+      if (!parsed) {
+          return null;
+      }
+      if (!parsed.hosts.length || parsed.hosts.length > MAX_URI_HOSTS) {
+          return null;
+      }
+      if (parsed.hosts.some((entry) => !isValidUriHostEntry(entry))) {
+          return null;
+      }
+      const hostList = normalizeAddressList(parsed.hosts, defaultPort);
+      if (!hostList.length) {
+          return null;
+      }
+      const primary = parseHostPort(hostList[0] || `localhost:${defaultPort}`, defaultPort);
+      return {
+          host: primary?.host || 'localhost',
+          port: primary?.port || defaultPort,
+          username: parsed.username,
+          password: parsed.password,
+          database: parsed.database || '',
+      };
+  };
+
   const parseUriToValues = (uriText: string, type: string): Record<string, any> | null => {
       const trimmedUri = String(uriText || '').trim();
       if (!trimmedUri) {
@@ -398,6 +450,35 @@ const ConnectionModal: React.FC<{
           return { host: normalizeFileDbPath(safeDecode(rawPath)) };
       }
 
+      if (type === 'redis') {
+          const parsed = parseMultiHostUri(trimmedUri, 'redis');
+          if (!parsed) {
+              return null;
+          }
+          if (!parsed.hosts.length || parsed.hosts.length > MAX_URI_HOSTS) {
+              return null;
+          }
+          if (parsed.hosts.some((entry) => !isValidUriHostEntry(entry))) {
+              return null;
+          }
+          const hostList = normalizeAddressList(parsed.hosts, 6379);
+          if (!hostList.length) {
+              return null;
+          }
+          const primary = parseHostPort(hostList[0] || 'localhost:6379', 6379);
+          const topologyParam = String(parsed.params.get('topology') || '').toLowerCase();
+          const dbText = String(parsed.database || '').trim().replace(/^\//, '');
+          const dbIndex = Number(dbText);
+          return {
+              host: primary?.host || 'localhost',
+              port: primary?.port || 6379,
+              password: parsed.password || '',
+              redisTopology: hostList.length > 1 || topologyParam === 'cluster' ? 'cluster' : 'single',
+              redisHosts: hostList.slice(1),
+              redisDB: Number.isFinite(dbIndex) && dbIndex >= 0 && dbIndex <= 15 ? Math.trunc(dbIndex) : 0,
+          };
+      }
+
       if (type === 'mongodb') {
           const parsed = parseMultiHostUri(trimmedUri, 'mongodb') || parseMultiHostUri(trimmedUri, 'mongodb+srv');
           if (!parsed) {
@@ -440,28 +521,22 @@ const ConnectionModal: React.FC<{
           };
       }
 
-      if (type === 'clickhouse') {
-          const parsed = parseMultiHostUri(trimmedUri, 'clickhouse');
+      const singleHostSchemes = singleHostUriSchemesByType[type];
+      if (singleHostSchemes && singleHostSchemes.length > 0) {
+          const parsed = parseSingleHostUri(trimmedUri, singleHostSchemes, getDefaultPortByType(type));
           if (!parsed) {
               return null;
           }
-          if (!parsed.hosts.length || parsed.hosts.length > MAX_URI_HOSTS) {
+          if (type === 'oracle' && !String(parsed.database || '').trim()) {
+              // Oracle 需要显式 service name，避免 URI 解析后放过必填校验。
               return null;
           }
-          if (parsed.hosts.some((entry) => !isValidUriHostEntry(entry))) {
-              return null;
-          }
-          const hostList = normalizeAddressList(parsed.hosts, 9000);
-          if (!hostList.length) {
-              return null;
-          }
-          const primary = parseHostPort(hostList[0] || 'localhost:9000', 9000);
           return {
-              host: primary?.host || 'localhost',
-              port: primary?.port || 9000,
+              host: parsed.host,
+              port: parsed.port,
               user: parsed.username,
               password: parsed.password,
-              database: parsed.database || '',
+              database: parsed.database,
           };
       }
 
@@ -502,6 +577,12 @@ const ConnectionModal: React.FC<{
       if (dbType === 'clickhouse') {
           return 'clickhouse://default:pass@127.0.0.1:9000/default';
       }
+      if (dbType === 'redis') {
+          return 'redis://:pass@127.0.0.1:6379,127.0.0.2:6379/0?topology=cluster';
+      }
+      if (dbType === 'oracle') {
+          return 'oracle://user:pass@127.0.0.1:1521/ORCLPDB1';
+      }
       return '例如: postgres://user:pass@127.0.0.1:5432/db_name';
   };
 
@@ -535,6 +616,26 @@ const ConnectionModal: React.FC<{
           const query = params.toString();
           const scheme = type === 'diros' ? 'doris' : 'mysql';
           return `${scheme}://${encodedAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
+      }
+
+      if (type === 'redis') {
+          const primary = toAddress(host, port, 6379);
+          const clusterHosts = values.redisTopology === 'cluster'
+              ? normalizeAddressList(values.redisHosts, 6379)
+              : [];
+          const hosts = normalizeAddressList([primary, ...clusterHosts], 6379);
+          const params = new URLSearchParams();
+          if (hosts.length > 1 || values.redisTopology === 'cluster') {
+              params.set('topology', 'cluster');
+          }
+          const redisPassword = String(values.password || '');
+          const redisAuth = redisPassword ? `:${encodeURIComponent(redisPassword)}@` : '';
+          const redisDB = Number.isFinite(Number(values.redisDB))
+              ? Math.max(0, Math.min(15, Math.trunc(Number(values.redisDB))))
+              : 0;
+          const dbPath = `/${redisDB}`;
+          const query = params.toString();
+          return `redis://${redisAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
       }
 
       if (isFileDatabaseType(type)) {
@@ -665,6 +766,30 @@ const ConnectionModal: React.FC<{
       }
   };
 
+  const handleSelectDatabaseFile = async () => {
+      if (selectingDbFile) {
+          return;
+      }
+      try {
+          setSelectingDbFile(true);
+          const currentPath = String(form.getFieldValue('host') || '').trim();
+          const res = await SelectDatabaseFile(currentPath, dbType);
+          if (res?.success) {
+              const data = res.data || {};
+              const selectedPath = typeof data === 'string' ? data : String(data.path || '').trim();
+              if (selectedPath) {
+                  form.setFieldValue('host', normalizeFileDbPath(selectedPath));
+              }
+          } else if (res?.message !== 'Cancelled') {
+              message.error(`选择数据库文件失败: ${res?.message || '未知错误'}`);
+          }
+      } catch (e: any) {
+          message.error(`选择数据库文件失败: ${e?.message || String(e)}`);
+      } finally {
+          setSelectingDbFile(false);
+      }
+  };
+
   useEffect(() => {
       if (open) {
           setTestResult(null); // Reset test result
@@ -698,8 +823,10 @@ const ConnectionModal: React.FC<{
                   : (primaryAddress?.port || Number(config.port || defaultPort));
               const mysqlReplicaHosts = (configType === 'mysql' || configType === 'mariadb' || configType === 'diros' || configType === 'sphinx') ? normalizedHosts.slice(1) : [];
               const mongoHosts = configType === 'mongodb' ? normalizedHosts.slice(1) : [];
+              const redisHosts = configType === 'redis' ? normalizedHosts.slice(1) : [];
               const mysqlIsReplica = String(config.topology || '').toLowerCase() === 'replica' || mysqlReplicaHosts.length > 0;
               const mongoIsReplica = String(config.topology || '').toLowerCase() === 'replica' || mongoHosts.length > 0 || !!config.replicaSet;
+              const redisIsCluster = String(config.topology || '').toLowerCase() === 'cluster' || redisHosts.length > 0;
               form.setFieldsValue({
                   type: configType,
                   name: initialValues.name,
@@ -732,12 +859,15 @@ const ConnectionModal: React.FC<{
                   mysqlReplicaPassword: config.mysqlReplicaPassword || '',
                   mongoTopology: mongoIsReplica ? 'replica' : 'single',
                   mongoHosts: mongoHosts,
+                  redisTopology: redisIsCluster ? 'cluster' : 'single',
+                  redisHosts: redisHosts,
                   mongoSrv: !!config.mongoSrv,
                   mongoReplicaSet: config.replicaSet || '',
                   mongoAuthSource: config.authSource || '',
                   mongoReadPreference: config.readPreference || 'primary',
                   mongoAuthMechanism: config.mongoAuthMechanism || '',
                   savePassword: config.savePassword !== false,
+                  redisDB: Number.isFinite(Number(config.redisDB)) ? Number(config.redisDB) : 0,
                   mongoReplicaUser: config.mongoReplicaUser || '',
                   mongoReplicaPassword: config.mongoReplicaPassword || ''
               });
@@ -852,7 +982,6 @@ const ConnectionModal: React.FC<{
           if (res.success) {
               setTestResult({ type: 'success', message: res.message });
               if (isRedisType) {
-                  // Redis: generate database list 0-15
                   setRedisDbList(Array.from({ length: 16 }, (_, i) => i));
               } else {
                   // Other databases: fetch database list
@@ -961,7 +1090,7 @@ const ConnectionModal: React.FC<{
       }
 
       let hosts: string[] = [];
-      let topology: 'single' | 'replica' | undefined;
+      let topology: 'single' | 'replica' | 'cluster' | undefined;
       let replicaSet = '';
       let authSource = '';
       let readPreference = '';
@@ -1015,6 +1144,22 @@ const ConnectionModal: React.FC<{
           mongoAuthMechanism = String(mergedValues.mongoAuthMechanism || '').trim().toUpperCase();
       }
 
+      if (type === 'redis') {
+          const clusterNodes = mergedValues.redisTopology === 'cluster'
+              ? normalizeAddressList(mergedValues.redisHosts, defaultPort)
+              : [];
+          const allHosts = normalizeAddressList([`${primaryHost}:${primaryPort}`, ...clusterNodes], defaultPort);
+          if (mergedValues.redisTopology === 'cluster' || allHosts.length > 1) {
+              hosts = allHosts;
+              topology = 'cluster';
+          } else {
+              topology = 'single';
+          }
+          mergedValues.redisDB = Number.isFinite(Number(mergedValues.redisDB))
+              ? Math.max(0, Math.min(15, Math.trunc(Number(mergedValues.redisDB))))
+              : 0;
+      }
+
       const sshConfig = mergedValues.useSSH ? {
           host: mergedValues.sshHost,
           port: Number(mergedValues.sshPort),
@@ -1056,6 +1201,9 @@ const ConnectionModal: React.FC<{
           driver: mergedValues.driver,
           dsn: mergedValues.dsn,
           timeout: Number(mergedValues.timeout || 30),
+          redisDB: Number.isFinite(Number(mergedValues.redisDB))
+              ? Math.max(0, Math.min(15, Math.trunc(Number(mergedValues.redisDB))))
+              : 0,
           uri: String(mergedValues.uri || '').trim(),
           hosts: hosts,
           topology: topology,
@@ -1106,6 +1254,7 @@ const ConnectionModal: React.FC<{
               proxyUser: '',
               proxyPassword: '',
               mysqlTopology: 'single',
+              redisTopology: 'single',
               mongoTopology: 'single',
               mongoSrv: false,
               mongoReadPreference: 'primary',
@@ -1114,11 +1263,13 @@ const ConnectionModal: React.FC<{
               mongoAuthMechanism: '',
               savePassword: true,
               mysqlReplicaHosts: [],
+              redisHosts: [],
               mongoHosts: [],
               mysqlReplicaUser: '',
               mysqlReplicaPassword: '',
               mongoReplicaUser: '',
               mongoReplicaPassword: '',
+              redisDB: 0,
           });
       } else if (type !== 'custom') {
           const defaultUser = type === 'clickhouse' ? 'default' : 'root';
@@ -1127,6 +1278,7 @@ const ConnectionModal: React.FC<{
               database: '',
               port: defaultPort,
               mysqlTopology: 'single',
+              redisTopology: 'single',
               mongoTopology: 'single',
               mongoSrv: false,
               mongoReadPreference: 'primary',
@@ -1135,11 +1287,13 @@ const ConnectionModal: React.FC<{
               mongoAuthMechanism: '',
               savePassword: true,
               mysqlReplicaHosts: [],
+              redisHosts: [],
               mongoHosts: [],
               mysqlReplicaUser: '',
               mysqlReplicaPassword: '',
               mongoReplicaUser: '',
               mongoReplicaPassword: '',
+              redisDB: 0,
           });
       }
 
@@ -1223,8 +1377,8 @@ const ConnectionModal: React.FC<{
                           cursor: 'pointer',
                           borderRadius: 6,
                           marginBottom: 4,
-                          background: activeGroup === idx ? '#e6f4ff' : 'transparent',
-                          color: activeGroup === idx ? '#1677ff' : undefined,
+                          background: activeGroup === idx ? step1SidebarActiveBg : 'transparent',
+                          color: activeGroup === idx ? step1SidebarActiveColor : undefined,
                           fontWeight: activeGroup === idx ? 500 : 400,
                           transition: 'all 0.2s',
                           fontSize: 13,
@@ -1274,17 +1428,20 @@ const ConnectionModal: React.FC<{
             timeout: 30,
             uri: '',
             mysqlTopology: 'single',
+            redisTopology: 'single',
             mongoTopology: 'single',
             mongoSrv: false,
             mongoReadPreference: 'primary',
             mongoAuthMechanism: '',
             savePassword: true,
             mysqlReplicaHosts: [],
+            redisHosts: [],
             mongoHosts: [],
             mysqlReplicaUser: '',
             mysqlReplicaPassword: '',
             mongoReplicaUser: '',
             mongoReplicaPassword: '',
+            redisDB: 0,
         }}
         onValuesChange={(changed) => {
             if (testResult) {
@@ -1312,6 +1469,17 @@ const ConnectionModal: React.FC<{
             }
             // Type change handled by step 1, but keep sync if select changes (hidden now)
             if (changed.type !== undefined) setDbType(changed.type);
+            if (changed.redisTopology !== undefined) {
+                const supportedDbs = Array.from({ length: 16 }, (_, i) => i);
+                setRedisDbList(supportedDbs);
+                const selectedDbsRaw = form.getFieldValue('includeRedisDatabases');
+                const selectedDbs = Array.isArray(selectedDbsRaw) ? selectedDbsRaw.map((entry: any) => Number(entry)) : [];
+                const validDbs = selectedDbs
+                    .filter((entry: number) => Number.isFinite(entry))
+                    .map((entry: number) => Math.trunc(entry))
+                    .filter((entry: number) => supportedDbs.includes(entry));
+                form.setFieldValue('includeRedisDatabases', validDbs.length > 0 ? validDbs : undefined);
+            }
             if (
                 changed.type !== undefined
                 || changed.host !== undefined
@@ -1392,6 +1560,13 @@ const ConnectionModal: React.FC<{
                 onDoubleClick={requestTest}
               />
             </Form.Item>
+            {isFileDb && (
+            <Form.Item label=" " style={{ width: 120 }}>
+              <Button style={{ width: '100%' }} onClick={handleSelectDatabaseFile} loading={selectingDbFile}>
+                浏览...
+              </Button>
+            </Form.Item>
+            )}
             {!isFileDb && (
             <Form.Item
                 name="port"
@@ -1411,6 +1586,17 @@ const ConnectionModal: React.FC<{
             help="留空会自动尝试 postgres、template1、与当前用户名同名数据库"
         >
             <Input placeholder="例如：appdb" />
+        </Form.Item>
+        )}
+
+        {dbType === 'oracle' && (
+        <Form.Item
+            name="database"
+            label="服务名 (Service Name)"
+            rules={[createUriAwareRequiredRule('请输入 Oracle 服务名（例如 ORCLPDB1）')]}
+            help="请填写监听器注册的 SERVICE_NAME（不是用户名）。例如：ORCLPDB1"
+        >
+            <Input placeholder="例如：ORCLPDB1" />
         </Form.Item>
         )}
 
@@ -1567,11 +1753,36 @@ const ConnectionModal: React.FC<{
         {/* Redis specific: password only, no username */}
         {isRedis && (
         <>
+            <Form.Item name="redisTopology" label="连接模式">
+                <Select
+                    options={[
+                        { value: 'single', label: '单机模式' },
+                        { value: 'cluster', label: '集群模式（Redis Cluster）' },
+                    ]}
+                />
+            </Form.Item>
+            {redisTopology === 'cluster' && (
+            <Form.Item
+                name="redisHosts"
+                label="集群附加节点地址"
+                help="主节点使用上方主机地址；这里填写其他种子节点，格式：host:port"
+            >
+                <Select mode="tags" placeholder="例如：10.10.0.12:6379、10.10.0.13:6379" tokenSeparators={[',', ';', ' ']} />
+            </Form.Item>
+            )}
             <Form.Item name="password" label="密码 (可选)">
               <Input.Password placeholder="Redis 密码（如果设置了 requirepass）" />
             </Form.Item>
-            <Form.Item name="includeRedisDatabases" label="显示数据库 (留空显示全部)" help="连接测试成功后可选择">
-                <Select mode="multiple" placeholder="选择显示的数据库 (0-15)" allowClear>
+            <Form.Item
+                name="includeRedisDatabases"
+                label="显示数据库 (留空显示全部)"
+                help="连接测试成功后可选择"
+            >
+                <Select
+                    mode="multiple"
+                    placeholder="选择显示的数据库 (0-15)"
+                    allowClear
+                >
                     {redisDbList.map(db => <Select.Option key={db} value={db}>db{db}</Select.Option>)}
                 </Select>
             </Form.Item>

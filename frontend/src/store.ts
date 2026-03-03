@@ -3,6 +3,12 @@ import { persist } from 'zustand/middleware';
 import { ConnectionConfig, ProxyConfig, SavedConnection, TabData, SavedQuery } from './types';
 
 const DEFAULT_APPEARANCE = { opacity: 1.0, blur: 0 };
+const DEFAULT_UI_SCALE = 1.0;
+const MIN_UI_SCALE = 0.8;
+const MAX_UI_SCALE = 1.25;
+const DEFAULT_FONT_SIZE = 14;
+const MIN_FONT_SIZE = 12;
+const MAX_FONT_SIZE = 20;
 const DEFAULT_STARTUP_FULLSCREEN = false;
 const LEGACY_DEFAULT_OPACITY = 0.95;
 const OPACITY_EPSILON = 1e-6;
@@ -107,6 +113,13 @@ const normalizeIntegerInRange = (value: unknown, fallbackValue: number, min: num
   return normalized;
 };
 
+const normalizeFloatInRange = (value: unknown, fallbackValue: number, min: number, max: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallbackValue;
+  if (parsed < min || parsed > max) return fallbackValue;
+  return parsed;
+};
+
 const isValidHostEntry = (entry: string): boolean => {
   if (!entry) return false;
   if (entry.length > MAX_HOST_ENTRY_LENGTH) return false;
@@ -199,7 +212,7 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
     proxy,
     uri: toTrimmedString(raw.uri).slice(0, MAX_URI_LENGTH),
     hosts: sanitizeAddressList(raw.hosts),
-    topology: raw.topology === 'replica' ? 'replica' : 'single',
+    topology: raw.topology === 'replica' ? 'replica' : (raw.topology === 'cluster' ? 'cluster' : 'single'),
     mysqlReplicaUser: toTrimmedString(raw.mysqlReplicaUser),
     mysqlReplicaPassword: savePassword ? toTrimmedString(raw.mysqlReplicaPassword) : '',
     replicaSet: toTrimmedString(raw.replicaSet),
@@ -318,6 +331,8 @@ interface AppState {
   savedQueries: SavedQuery[];
   theme: 'light' | 'dark';
   appearance: { opacity: number; blur: number };
+  uiScale: number;
+  fontSize: number;
   startupFullscreen: boolean;
   globalProxy: GlobalProxyConfig;
   sqlFormatOptions: { keywordCase: 'upper' | 'lower' };
@@ -337,6 +352,7 @@ interface AppState {
   closeTabsToRight: (id: string) => void;
   closeTabsByConnection: (connectionId: string) => void;
   closeTabsByDatabase: (connectionId: string, dbName: string) => void;
+  moveTab: (sourceId: string, targetId: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (id: string) => void;
   setActiveContext: (context: { connectionId: string; dbName: string } | null) => void;
@@ -346,6 +362,8 @@ interface AppState {
 
   setTheme: (theme: 'light' | 'dark') => void;
   setAppearance: (appearance: Partial<{ opacity: number; blur: number }>) => void;
+  setUiScale: (scale: number) => void;
+  setFontSize: (size: number) => void;
   setStartupFullscreen: (enabled: boolean) => void;
   setGlobalProxy: (proxy: Partial<GlobalProxyConfig>) => void;
   setSqlFormatOptions: (options: { keywordCase: 'upper' | 'lower' }) => void;
@@ -440,6 +458,14 @@ const sanitizeStartupFullscreen = (value: unknown): boolean => {
   return value === true;
 };
 
+const sanitizeUiScale = (value: unknown): number => {
+  return normalizeFloatInRange(value, DEFAULT_UI_SCALE, MIN_UI_SCALE, MAX_UI_SCALE);
+};
+
+const sanitizeFontSize = (value: unknown): number => {
+  return normalizeIntegerInRange(value, DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE);
+};
+
 const sanitizeGlobalProxy = (value: unknown): GlobalProxyConfig => {
   const raw = (value && typeof value === 'object') ? value as Record<string, unknown> : {};
   const typeRaw = toTrimmedString(raw.type, DEFAULT_GLOBAL_PROXY.type).toLowerCase();
@@ -476,6 +502,8 @@ export const useStore = create<AppState>()(
       savedQueries: [],
       theme: 'light',
       appearance: { ...DEFAULT_APPEARANCE },
+      uiScale: DEFAULT_UI_SCALE,
+      fontSize: DEFAULT_FONT_SIZE,
       startupFullscreen: DEFAULT_STARTUP_FULLSCREEN,
       globalProxy: { ...DEFAULT_GLOBAL_PROXY },
       sqlFormatOptions: { keywordCase: 'upper' },
@@ -571,6 +599,23 @@ export const useStore = create<AppState>()(
         };
       }),
 
+      moveTab: (sourceId, targetId) => set((state) => {
+        const fromId = String(sourceId || '').trim();
+        const toId = String(targetId || '').trim();
+        if (!fromId || !toId || fromId === toId) {
+          return state;
+        }
+        const fromIndex = state.tabs.findIndex((tab) => tab.id === fromId);
+        const toIndex = state.tabs.findIndex((tab) => tab.id === toId);
+        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+          return state;
+        }
+        const nextTabs = [...state.tabs];
+        const [movingTab] = nextTabs.splice(fromIndex, 1);
+        nextTabs.splice(toIndex, 0, movingTab);
+        return { tabs: nextTabs };
+      }),
+
       closeAllTabs: () => set(() => ({ tabs: [], activeTabId: null })),
       
       setActiveTab: (id) => set({ activeTabId: id }),
@@ -589,6 +634,8 @@ export const useStore = create<AppState>()(
 
       setTheme: (theme) => set({ theme }),
       setAppearance: (appearance) => set((state) => ({ appearance: { ...state.appearance, ...appearance } })),
+      setUiScale: (scale) => set({ uiScale: sanitizeUiScale(scale) }),
+      setFontSize: (size) => set({ fontSize: sanitizeFontSize(size) }),
       setStartupFullscreen: (enabled) => set({ startupFullscreen: !!enabled }),
       setGlobalProxy: (proxy) => set((state) => ({ globalProxy: sanitizeGlobalProxy({ ...state.globalProxy, ...proxy }) })),
       setSqlFormatOptions: (options) => set({ sqlFormatOptions: options }),
@@ -628,6 +675,8 @@ export const useStore = create<AppState>()(
         nextState.savedQueries = sanitizeSavedQueries(state.savedQueries);
         nextState.theme = sanitizeTheme(state.theme);
         nextState.appearance = sanitizeAppearance(state.appearance, version);
+        nextState.uiScale = sanitizeUiScale(state.uiScale);
+        nextState.fontSize = sanitizeFontSize(state.fontSize);
         nextState.startupFullscreen = sanitizeStartupFullscreen(state.startupFullscreen);
         nextState.globalProxy = sanitizeGlobalProxy(state.globalProxy);
         nextState.sqlFormatOptions = sanitizeSqlFormatOptions(state.sqlFormatOptions);
@@ -645,6 +694,8 @@ export const useStore = create<AppState>()(
           savedQueries: sanitizeSavedQueries(state.savedQueries),
           theme: sanitizeTheme(state.theme),
           appearance: sanitizeAppearance(state.appearance, PERSIST_VERSION),
+          uiScale: sanitizeUiScale(state.uiScale),
+          fontSize: sanitizeFontSize(state.fontSize),
           startupFullscreen: sanitizeStartupFullscreen(state.startupFullscreen),
           globalProxy: sanitizeGlobalProxy(state.globalProxy),
           sqlFormatOptions: sanitizeSqlFormatOptions(state.sqlFormatOptions),
@@ -658,6 +709,8 @@ export const useStore = create<AppState>()(
         savedQueries: state.savedQueries,
         theme: state.theme,
         appearance: state.appearance,
+        uiScale: state.uiScale,
+        fontSize: state.fontSize,
         startupFullscreen: state.startupFullscreen,
         globalProxy: state.globalProxy,
         sqlFormatOptions: state.sqlFormatOptions,

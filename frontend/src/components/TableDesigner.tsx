@@ -259,6 +259,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const connections = useStore(state => state.connections);
   const theme = useStore(state => state.theme);
   const darkMode = theme === 'dark';
+  const resizeGuideColor = darkMode ? '#f6c453' : '#1890ff';
   const readOnly = !!tab.readOnly;
 
   const [tableHeight, setTableHeight] = useState(500);
@@ -1973,7 +1974,7 @@ END;`;
             bottom: 0,
             left: 0,
             width: '2px',
-            background: '#1890ff',
+            background: resizeGuideColor,
             zIndex: 9999,
             display: 'none',
             pointerEvents: 'none',

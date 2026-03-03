@@ -131,6 +131,24 @@ jobs:
       - name: Install Wails
         run: go install -v github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      - name: Prepare MinGW For DuckDB (Windows)
+        if: ${{ matrix.build_optional_agents && contains(matrix.platform, 'windows') }}
+        shell: pwsh
+        run: |
+          $mingwBin = "C:\msys64\mingw64\bin"
+          if (!(Test-Path $mingwBin)) {
+            choco install mingw --yes --no-progress
+            $mingwBin = "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin"
+          }
+          if (!(Test-Path $mingwBin)) {
+            Write-Error "❌ 未找到 MinGW GCC 路径：$mingwBin"
+            exit 1
+          }
+          "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "CC=$mingwBin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CXX=$mingwBin\g++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "✅ 已配置 DuckDB cgo 编译器: $mingwBin"
+
       - name: Build
         shell: bash
         run: |
@@ -166,20 +184,12 @@ jobs:
             OUTPUT_PATH="${OUTDIR}/${OUTPUT}"
             echo "🔧 构建 ${OUTPUT_PATH} (tag=${TAG})"
             if [ "$DRIVER" = "duckdb" ]; then
-              set +e
               CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" go build \
                 -tags "${TAG}" \
                 -trimpath \
                 -ldflags "-s -w" \
                 -o "${OUTPUT_PATH}" \
                 ./cmd/optional-driver-agent
-              DUCKDB_RC=$?
-              set -e
-              if [ "${DUCKDB_RC}" -ne 0 ]; then
-                echo "⚠️ DuckDB 代理构建失败（平台 ${GOOS}/${GOARCH}），跳过该资产，不阻断发布"
-                rm -f "${OUTPUT_PATH}"
-                continue
-              fi
             else
               CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
                 -tags "${TAG}" \
@@ -368,6 +378,38 @@ jobs:
 
       - name: List Assets
         run: ls -R release-assets
+
+      - name: Verify Optional Driver Assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          REQUIRED_FILES=(
+            "drivers/Windows/duckdb-driver-agent-windows-amd64.exe"
+            "drivers/MacOS/duckdb-driver-agent-darwin-amd64"
+            "drivers/MacOS/duckdb-driver-agent-darwin-arm64"
+            "drivers/Linux/duckdb-driver-agent-linux-amd64"
+            "drivers/Windows/clickhouse-driver-agent-windows-amd64.exe"
+            "drivers/MacOS/clickhouse-driver-agent-darwin-amd64"
+            "drivers/MacOS/clickhouse-driver-agent-darwin-arm64"
+            "drivers/Linux/clickhouse-driver-agent-linux-amd64"
+          )
+
+          missing=0
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ 缺少驱动资产：$file"
+              missing=1
+            else
+              echo "✅ 已找到驱动资产：$file"
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "❌ 可选驱动资产不完整，终止发布"
+            exit 1
+          fi
 
       - name: Package Driver Agents Bundle
         shell: bash

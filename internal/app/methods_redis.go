@@ -67,24 +67,27 @@ func getRedisClientCacheKey(config connection.ConnectionConfig) string {
 }
 
 func formatRedisConnSummary(config connection.ConnectionConfig) string {
-	timeoutSeconds := config.Timeout
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 30
-	}
-
 	var b strings.Builder
 	b.WriteString("类型=redis 地址=")
 	b.WriteString(config.Host)
 	b.WriteString(":")
-	b.WriteString(string(rune(config.Port + '0')))
+	b.WriteString(strconv.Itoa(config.Port))
+	if topology := strings.TrimSpace(config.Topology); topology != "" {
+		b.WriteString(" 模式=")
+		b.WriteString(topology)
+	}
+	if len(config.Hosts) > 0 {
+		b.WriteString(" 节点数=")
+		b.WriteString(strconv.Itoa(len(config.Hosts)))
+	}
 	b.WriteString(" DB=")
-	b.WriteString(string(rune(config.RedisDB + '0')))
+	b.WriteString(strconv.Itoa(config.RedisDB))
 
 	if config.UseSSH {
 		b.WriteString(" SSH=")
 		b.WriteString(config.SSH.Host)
 		b.WriteString(":")
-		b.WriteString(string(rune(config.SSH.Port + '0')))
+		b.WriteString(strconv.Itoa(config.SSH.Port))
 		b.WriteString(" 用户=")
 		b.WriteString(config.SSH.User)
 	}

@@ -12,7 +12,7 @@ type RedisValue struct {
 
 // RedisDBInfo represents information about a Redis database
 type RedisDBInfo struct {
-	Index int   `json:"index"` // Database index (0-15)
+	Index int   `json:"index"` // Database index (single: 0-15, cluster: logical 0-15)
 	Keys  int64 `json:"keys"`  // Number of keys in this database
 }
 

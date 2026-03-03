@@ -233,6 +233,49 @@ func (a *App) InstallUpdateAndRestart() connection.QueryResult {
 	}
 }
 
+func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
+	a.updateMu.Lock()
+	staged := a.updateState.staged
+	a.updateMu.Unlock()
+	if staged == nil {
+		return connection.QueryResult{Success: false, Message: "未找到已下载的更新包"}
+	}
+	assetPath := strings.TrimSpace(staged.FilePath)
+	if assetPath == "" {
+		return connection.QueryResult{Success: false, Message: "更新包路径为空"}
+	}
+	dirPath := strings.TrimSpace(filepath.Dir(assetPath))
+	if dirPath == "" || dirPath == "." {
+		return connection.QueryResult{Success: false, Message: "无法解析更新目录"}
+	}
+	if stat, err := os.Stat(dirPath); err != nil || !stat.IsDir() {
+		return connection.QueryResult{Success: false, Message: "更新目录不存在或不可访问"}
+	}
+
+	var cmd *exec.Cmd
+	switch stdRuntime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", dirPath)
+	case "windows":
+		cmd = exec.Command("explorer", dirPath)
+	case "linux":
+		cmd = exec.Command("xdg-open", dirPath)
+	default:
+		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前平台暂不支持打开目录：%s", stdRuntime.GOOS)}
+	}
+	if err := cmd.Start(); err != nil {
+		logger.Error(err, "打开更新目录失败")
+		return connection.QueryResult{Success: false, Message: fmt.Sprintf("打开更新目录失败：%v", err)}
+	}
+	return connection.QueryResult{
+		Success: true,
+		Message: fmt.Sprintf("已打开安装目录：%s", dirPath),
+		Data: map[string]any{
+			"path": dirPath,
+		},
+	}
+}
+
 func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 	workspaceDir := strings.TrimSpace(resolveUpdateWorkspaceDir(info.LatestVersion))
 	if workspaceDir == "" {

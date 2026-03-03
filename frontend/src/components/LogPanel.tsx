@@ -27,8 +27,9 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
         const b = parseInt(hex.substring(4, 6), 16);
         return `rgba(${r}, ${g}, ${b}, ${opacity})`;
     };
-    const bgMain = getBg('#1f1f1f');
-    const bgToolbar = getBg('#2a2a2a');
+    const bgMain = getBg('#1d1d1d');
+    const panelDividerColor = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    const panelMutedTextColor = darkMode ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.58)';
     const logScrollbarThumb = darkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(0, 0, 0, 0.26)';
     const logScrollbarThumbHover = darkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.36)';
 
@@ -37,7 +38,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
             title: 'Time',
             dataIndex: 'timestamp',
             width: 80,
-            render: (ts: number) => <span style={{ color: '#888', fontSize: '12px' }}>{new Date(ts).toLocaleTimeString()}</span>
+            render: (ts: number) => <span style={{ color: panelMutedTextColor, fontSize: '12px' }}>{new Date(ts).toLocaleTimeString()}</span>
         },
         {
             title: 'Status',
@@ -62,7 +63,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
                 <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', fontSize: '12px', lineHeight: '1.2' }}>
                     <div style={{ color: darkMode ? '#a6e22e' : '#005cc5' }}>{text}</div>
                     {record.message && <div style={{ color: '#ff4d4f', marginTop: 2 }}>{record.message}</div>}
-                    {record.affectedRows !== undefined && <div style={{ color: '#888', marginTop: 1 }}>Affected: {record.affectedRows}</div>}
+                    {record.affectedRows !== undefined && <div style={{ color: panelMutedTextColor, marginTop: 1 }}>Affected: {record.affectedRows}</div>}
                 </div>
             )
         }
@@ -71,7 +72,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
     return (
         <div style={{ 
             height, 
-            borderTop: 'none', 
+            borderTop: `1px solid ${panelDividerColor}`,
             background: bgMain,
             display: 'flex',
             flexDirection: 'column',
@@ -95,7 +96,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
             {/* Toolbar */}
             <div style={{ 
                 padding: '4px 8px', 
-                borderBottom: 'none',
+                borderBottom: `1px solid ${panelDividerColor}`,
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',

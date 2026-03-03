@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress, Switch, Input, InputNumber, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
-import { Environment, EventsOn, WindowFullscreen, WindowIsFullscreen, WindowIsMaximised, WindowMaximise } from '../wailsjs/runtime/runtime';
+import { PlusOutlined, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
+import { BrowserOpenURL, Environment, EventsOn, Quit, WindowFullscreen, WindowIsFullscreen, WindowIsMaximised, WindowMaximise, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -16,6 +16,25 @@ import { ConfigureGlobalProxy, SetWindowTranslucency } from '../wailsjs/go/app/A
 import './App.css';
 
 const { Sider, Content } = Layout;
+const MIN_UI_SCALE = 0.8;
+const MAX_UI_SCALE = 1.25;
+const MIN_FONT_SIZE = 12;
+const MAX_FONT_SIZE = 20;
+const DEFAULT_UI_SCALE = 1.0;
+const DEFAULT_FONT_SIZE = 14;
+
+const detectNavigatorPlatform = (): string => {
+  if (typeof navigator === 'undefined') {
+      return '';
+  }
+  const uaDataPlatform = (navigator as Navigator & {
+      userAgentData?: { platform?: string };
+  }).userAgentData?.platform;
+  if (uaDataPlatform) {
+      return uaDataPlatform;
+  }
+  return navigator.userAgent || '';
+};
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -26,15 +45,33 @@ function App() {
   const setTheme = useStore(state => state.setTheme);
   const appearance = useStore(state => state.appearance);
   const setAppearance = useStore(state => state.setAppearance);
+  const uiScale = useStore(state => state.uiScale);
+  const setUiScale = useStore(state => state.setUiScale);
+  const fontSize = useStore(state => state.fontSize);
+  const setFontSize = useStore(state => state.setFontSize);
   const startupFullscreen = useStore(state => state.startupFullscreen);
   const setStartupFullscreen = useStore(state => state.setStartupFullscreen);
   const globalProxy = useStore(state => state.globalProxy);
   const setGlobalProxy = useStore(state => state.setGlobalProxy);
   const darkMode = themeMode === 'dark';
+  const effectiveUiScale = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, Number(uiScale) || DEFAULT_UI_SCALE));
+  const effectiveFontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(Number(fontSize) || DEFAULT_FONT_SIZE)));
+  const tokenFontSize = Math.round(effectiveFontSize * effectiveUiScale);
+  const tokenFontSizeSM = Math.max(10, Math.round(tokenFontSize * 0.86));
+  const tokenFontSizeLG = Math.max(tokenFontSize + 1, Math.round(tokenFontSize * 1.14));
+  const tokenControlHeight = Math.max(24, Math.round(32 * effectiveUiScale));
+  const tokenControlHeightSM = Math.max(20, Math.round(24 * effectiveUiScale));
+  const tokenControlHeightLG = Math.max(30, Math.round(40 * effectiveUiScale));
+  const appComponentSize: 'small' | 'middle' | 'large' = effectiveUiScale <= 0.92 ? 'small' : (effectiveUiScale >= 1.12 ? 'large' : 'middle');
+  const titleBarHeight = Math.max(28, Math.round(32 * effectiveUiScale));
+  const toolbarHeight = Math.max(32, Math.round(36 * effectiveUiScale));
+  const titleBarButtonWidth = Math.max(40, Math.round(46 * effectiveUiScale));
+  const floatingLogButtonHeight = Math.max(30, Math.round(34 * effectiveUiScale));
   const effectiveOpacity = normalizeOpacityForPlatform(appearance.opacity);
   const effectiveBlur = normalizeBlurForPlatform(appearance.blur);
   const blurFilter = blurToFilter(effectiveBlur);
   const windowCornerRadius = 14;
+  const [runtimePlatform, setRuntimePlatform] = useState('');
   const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const [isStoreHydrated, setIsStoreHydrated] = useState(() => useStore.persist.hasHydrated());
   const globalProxyInvalidHintShownRef = React.useRef(false);
@@ -42,7 +79,7 @@ function App() {
   // 同步 macOS 窗口透明度：opacity=1.0 且 blur=0 时关闭 NSVisualEffectView，
   // 避免 GPU 持续计算窗口背后的模糊合成
   useEffect(() => {
-    SetWindowTranslucency(appearance.opacity, appearance.blur).catch(() => {});
+    void SetWindowTranslucency(appearance.opacity, appearance.blur).catch(() => undefined);
   }, [appearance.opacity, appearance.blur]);
 
   useEffect(() => {
@@ -50,12 +87,18 @@ function App() {
       Environment()
           .then((env) => {
               if (cancelled) return;
-              setIsLinuxRuntime((env?.platform || '').toLowerCase() === 'linux');
+              const platform = String(env?.platform || '').toLowerCase();
+              setRuntimePlatform(platform);
+              setIsLinuxRuntime(platform === 'linux');
           })
           .catch(() => {
               if (cancelled) return;
-              const platform = typeof navigator !== 'undefined' ? navigator.platform : '';
-              setIsLinuxRuntime(/linux/i.test(platform));
+              const platform = detectNavigatorPlatform();
+              const normalized = /linux/i.test(platform)
+                  ? 'linux'
+                  : (/mac/i.test(platform) ? 'darwin' : (/win/i.test(platform) ? 'windows' : ''));
+              setRuntimePlatform(normalized);
+              setIsLinuxRuntime(normalized === 'linux');
           });
       return () => {
           cancelled = true;
@@ -86,7 +129,7 @@ function App() {
 
       if (invalidWhenEnabled) {
           if (!globalProxyInvalidHintShownRef.current) {
-              message.warning({
+              void message.warning({
                   content: '全局代理已开启，但地址或端口无效，当前按未启用处理',
                   key: 'global-proxy-invalid',
               });
@@ -94,7 +137,7 @@ function App() {
           }
       } else {
           globalProxyInvalidHintShownRef.current = false;
-          message.destroy('global-proxy-invalid');
+          void message.destroy('global-proxy-invalid');
       }
 
       const enabledForBackend = globalProxy.enabled && !invalidWhenEnabled;
@@ -110,7 +153,7 @@ function App() {
               if (cancelled || res?.success) {
                   return;
               }
-              message.error({
+              void message.error({
                   content: '全局代理配置失败: ' + (res?.message || '未知错误'),
                   key: 'global-proxy-sync-error',
               });
@@ -120,7 +163,7 @@ function App() {
                   return;
               }
               const errMsg = err instanceof Error ? err.message : String(err || '未知错误');
-              message.error({
+              void message.error({
                   content: '全局代理配置失败: ' + errMsg,
                   key: 'global-proxy-sync-error',
               });
@@ -175,18 +218,18 @@ function App() {
               if (!useStore.getState().startupFullscreen) {
                   return;
               }
-              Promise.resolve()
+              void Promise.resolve()
                   .then(async () => {
                       if (await checkStartupPreferenceApplied()) {
                           return;
                       }
                       // 优先尝试全屏，若当前平台/时机不生效，后续走最大化兜底。
-                      WindowFullscreen();
+                      await WindowFullscreen();
                       await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
                       if (await checkStartupPreferenceApplied()) {
                           return;
                       }
-                      WindowMaximise();
+                      await WindowMaximise();
                       await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
                       if (await checkStartupPreferenceApplied()) {
                           return;
@@ -195,7 +238,7 @@ function App() {
                           applyStartupWindowPreference(attempt + 1);
                       }
                   });
-          }, 300);
+          }, applyRetryDelayMs);
       };
 
       if (useStore.persist.hasHydrated()) {
@@ -218,7 +261,7 @@ function App() {
   }, []);
 
   // Background Helper
-  const getBg = (darkHex: string, lightHex: string) => {
+  const getBg = (darkHex: string) => {
       if (!darkMode) return `rgba(255, 255, 255, ${effectiveOpacity})`; // Light mode usually white
       
       // Parse hex to rgb
@@ -229,8 +272,16 @@ function App() {
       return `rgba(${r}, ${g}, ${b}, ${effectiveOpacity})`;
   };
   // Specific colors
-  const bgMain = getBg('#141414', '#ffffff');
-  const bgContent = getBg('#1d1d1d', '#ffffff');
+  const bgMain = getBg('#141414');
+  const bgContent = getBg('#1d1d1d');
+  const floatingLogButtonBorderColor = darkMode ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.16)';
+  const floatingLogButtonTextColor = darkMode ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.82)';
+  const floatingLogButtonBgColor = darkMode
+      ? `rgba(34, 34, 34, ${Math.max(effectiveOpacity, 0.82)})`
+      : `rgba(255, 255, 255, ${Math.max(effectiveOpacity, 0.9)})`;
+  const floatingLogButtonShadow = darkMode
+      ? '0 8px 22px rgba(0,0,0,0.38)'
+      : '0 8px 20px rgba(0,0,0,0.16)';
   
   const addTab = useStore(state => state.addTab);
   const activeContext = useStore(state => state.activeContext);
@@ -241,11 +292,12 @@ function App() {
   const updateCheckInFlightRef = React.useRef(false);
   const updateDownloadInFlightRef = React.useRef(false);
   const updateDownloadedVersionRef = React.useRef<string | null>(null);
+  const updateInstallTriggeredVersionRef = React.useRef<string | null>(null);
   const updateDownloadMetaRef = React.useRef<UpdateDownloadResultData | null>(null);
-  const updateDeferredVersionRef = React.useRef<string | null>(null);
   const updateNotifiedVersionRef = React.useRef<string | null>(null);
   const updateMutedVersionRef = React.useRef<string | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const isAboutOpenRef = React.useRef(false);
   const [aboutLoading, setAboutLoading] = useState(false);
   const [aboutInfo, setAboutInfo] = useState<{ version: string; author: string; buildTime?: string; repoUrl?: string; issueUrl?: string; releaseUrl?: string } | null>(null);
   const [aboutUpdateStatus, setAboutUpdateStatus] = useState<string>('');
@@ -299,6 +351,9 @@ function App() {
       autoRelaunch?: boolean;
   };
 
+  const isMacRuntime = runtimePlatform === 'darwin'
+      || (runtimePlatform === '' && /mac/i.test(detectNavigatorPlatform()));
+
   const formatBytes = (bytes?: number) => {
       if (!bytes || bytes <= 0) return '0 B';
       const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -311,52 +366,18 @@ function App() {
       return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
   };
 
-  const promptRestartForUpdate = (info: UpdateInfo, resultData?: UpdateDownloadResultData) => {
-      const downloadPathHint = resultData?.downloadPath
-          ? `更新包路径：${resultData.downloadPath}`
-          : '';
-      const installLogHint = resultData?.installLogPath
-          ? `安装日志：${resultData.installLogPath}`
-          : '';
-      Modal.confirm({
-          title: '更新已下载',
-          content: (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, userSelect: 'text' }}>
-                  <div>{`版本 ${info.latestVersion} 已下载完成，是否现在重启完成更新？`}</div>
-                  {downloadPathHint ? <div style={{ fontSize: 12, color: '#8c8c8c' }}>{downloadPathHint}</div> : null}
-                  {installLogHint ? <div style={{ fontSize: 12, color: '#8c8c8c' }}>{installLogHint}</div> : null}
-              </div>
-          ),
-          okText: '立即重启',
-          cancelText: '稍后',
-          onOk: async () => {
-              updateDeferredVersionRef.current = null;
-              const res = await (window as any).go.app.App.InstallUpdateAndRestart();
-              if (!res?.success) {
-                  message.error('更新安装失败: ' + (res?.message || '未知错误'));
-              }
-          },
-          onCancel: () => {
-              updateDeferredVersionRef.current = info.latestVersion;
-          }
-      });
-  };
-
   const downloadUpdate = React.useCallback(async (info: UpdateInfo, silent: boolean) => {
       if (updateDownloadInFlightRef.current) return;
       if (updateDownloadedVersionRef.current === info.latestVersion) {
           if (!silent) {
               const cachedDownloadPath = updateDownloadMetaRef.current?.downloadPath;
-              message.info(cachedDownloadPath ? `更新包已就绪（${info.latestVersion}），路径：${cachedDownloadPath}` : `更新包已就绪（${info.latestVersion}）`);
-          }
-          if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
-              promptRestartForUpdate(info, updateDownloadMetaRef.current || undefined);
+              void message.info(cachedDownloadPath ? `更新包已就绪（${info.latestVersion}），路径：${cachedDownloadPath}` : `更新包已就绪（${info.latestVersion}）`);
+              showUpdateDownloadProgress();
           }
           return;
       }
       updateDownloadInFlightRef.current = true;
       updateDownloadMetaRef.current = null;
-      const key = 'update-download';
       setUpdateDownloadProgress({
           open: true,
           version: info.latestVersion,
@@ -366,32 +387,93 @@ function App() {
           total: info.assetSize || 0,
           message: ''
       });
-      message.loading({ content: `正在下载更新 ${info.latestVersion}...`, key, duration: 0 });
       const res = await (window as any).go.app.App.DownloadUpdate();
       updateDownloadInFlightRef.current = false;
       if (res?.success) {
           const resultData = (res?.data || {}) as UpdateDownloadResultData;
           updateDownloadMetaRef.current = resultData;
           updateDownloadedVersionRef.current = info.latestVersion;
-          setUpdateDownloadProgress(prev => ({ ...prev, status: 'done', percent: 100, open: false }));
+          setUpdateDownloadProgress(prev => {
+              const total = prev.total > 0 ? prev.total : (info.assetSize || 0);
+              return { ...prev, status: 'done', percent: 100, downloaded: total, total, message: '', open: false };
+          });
+          setLastUpdateInfo((prev) => {
+              if (!prev || prev.latestVersion !== info.latestVersion) {
+                  return {
+                      ...info,
+                      downloaded: true,
+                      downloadPath: resultData?.downloadPath || info.downloadPath,
+                  };
+              }
+              return {
+                  ...prev,
+                  downloaded: true,
+                  downloadPath: resultData?.downloadPath || prev.downloadPath || info.downloadPath,
+              };
+          });
           if (resultData?.downloadPath) {
-              message.success({ content: `更新下载完成，更新包路径：${resultData.downloadPath}`, key, duration: 5 });
+              void message.success({ content: `更新下载完成，更新包路径：${resultData.downloadPath}`, duration: 5 });
           } else {
-              message.success({ content: '更新下载完成', key, duration: 2 });
+              void message.success({ content: '更新下载完成', duration: 2 });
           }
-          setAboutUpdateStatus(`发现新版本 ${info.latestVersion}（已下载，待重启安装）`);
-          if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
-              promptRestartForUpdate(info, resultData);
-          }
+          setAboutUpdateStatus(`发现新版本 ${info.latestVersion}（已下载，请点击“下载进度”后安装）`);
       } else {
           setUpdateDownloadProgress(prev => ({
               ...prev,
               status: 'error',
               message: res?.message || '未知错误'
           }));
-          message.error({ content: '更新下载失败: ' + (res?.message || '未知错误'), key, duration: 4 });
+          void message.error({ content: '更新下载失败: ' + (res?.message || '未知错误'), duration: 4 });
       }
   }, []);
+
+  const showUpdateDownloadProgress = React.useCallback(() => {
+      setUpdateDownloadProgress((prev) => {
+          if (prev.status === 'idle') return prev;
+          return { ...prev, open: true };
+      });
+  }, []);
+
+  const hideUpdateDownloadProgress = React.useCallback(() => {
+      setUpdateDownloadProgress((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  const isLatestUpdateDownloaded = Boolean(lastUpdateInfo?.hasUpdate) && (
+      Boolean(lastUpdateInfo?.downloaded)
+      || (Boolean(lastUpdateInfo?.latestVersion) && updateDownloadedVersionRef.current === lastUpdateInfo?.latestVersion)
+  );
+  const isBackgroundProgressForLatestUpdate = Boolean(lastUpdateInfo?.hasUpdate)
+      && Boolean(lastUpdateInfo?.latestVersion)
+      && updateDownloadProgress.version === lastUpdateInfo?.latestVersion
+      && (updateDownloadProgress.status === 'start'
+          || updateDownloadProgress.status === 'downloading'
+          || updateDownloadProgress.status === 'error');
+  const canShowProgressEntry = (isLatestUpdateDownloaded || isBackgroundProgressForLatestUpdate)
+      && updateInstallTriggeredVersionRef.current !== (lastUpdateInfo?.latestVersion || null);
+
+  const handleInstallFromProgress = React.useCallback(async () => {
+      if (updateDownloadProgress.status !== 'done') {
+          return;
+      }
+      if (isMacRuntime) {
+          const res = await (window as any).go.app.App.OpenDownloadedUpdateDirectory();
+          if (!res?.success) {
+              void message.error('打开安装目录失败: ' + (res?.message || '未知错误'));
+              return;
+          }
+          updateInstallTriggeredVersionRef.current = updateDownloadProgress.version || lastUpdateInfo?.latestVersion || null;
+          hideUpdateDownloadProgress();
+          void message.success(res?.message || '已打开安装目录，请手动完成替换');
+          return;
+      }
+      const res = await (window as any).go.app.App.InstallUpdateAndRestart();
+      if (!res?.success) {
+          void message.error('更新安装失败: ' + (res?.message || '未知错误'));
+          return;
+      }
+      updateInstallTriggeredVersionRef.current = updateDownloadProgress.version || lastUpdateInfo?.latestVersion || null;
+      hideUpdateDownloadProgress();
+  }, [hideUpdateDownloadProgress, isMacRuntime, lastUpdateInfo?.latestVersion, updateDownloadProgress.status, updateDownloadProgress.version]);
 
   const checkForUpdates = React.useCallback(async (silent: boolean) => {
       if (updateCheckInFlightRef.current) return;
@@ -403,14 +485,14 @@ function App() {
       updateCheckInFlightRef.current = false;
       if (!res?.success) {
           if (!silent) {
-              message.error('检查更新失败: ' + (res?.message || '未知错误'));
+              void message.error('检查更新失败: ' + (res?.message || '未知错误'));
               setAboutUpdateStatus('检查更新失败: ' + (res?.message || '未知错误'));
           }
           return;
       }
       const info: UpdateInfo = res.data;
       if (!info) return;
-      setLastUpdateInfo(info);
+      const aboutOpen = isAboutOpenRef.current;
       if (info.hasUpdate) {
           const localDownloaded = updateDownloadedVersionRef.current === info.latestVersion;
           const hasDownloaded = Boolean(info.downloaded) || localDownloaded;
@@ -422,34 +504,103 @@ function App() {
                   info,
                   downloadPath: downloadPath || undefined,
               };
+              setUpdateDownloadProgress((prev) => {
+                  if (prev.status === 'start' || prev.status === 'downloading') {
+                      return prev;
+                  }
+                  const total = info.assetSize || prev.total || 0;
+                  return {
+                      ...prev,
+                      open: prev.open && prev.version === info.latestVersion,
+                      version: info.latestVersion,
+                      status: 'done',
+                      percent: 100,
+                      downloaded: total,
+                      total,
+                      message: '',
+                  };
+              });
+              setLastUpdateInfo({
+                  ...info,
+                  downloaded: true,
+                  downloadPath: downloadPath || undefined,
+              });
           } else {
               if (updateDownloadedVersionRef.current !== info.latestVersion) {
                   updateDownloadMetaRef.current = null;
               }
+              setUpdateDownloadProgress((prev) => {
+                  if (prev.status === 'start' || prev.status === 'downloading') {
+                      return prev;
+                  }
+                  return {
+                      ...prev,
+                      open: false,
+                      version: info.latestVersion,
+                      status: 'idle',
+                      percent: 0,
+                      downloaded: 0,
+                      total: info.assetSize || 0,
+                      message: '',
+                  };
+              });
+              setLastUpdateInfo(info);
           }
           const statusText = hasDownloaded
-              ? `发现新版本 ${info.latestVersion}（已下载，待重启安装）`
+              ? `发现新版本 ${info.latestVersion}（已下载，请点击“下载进度”后安装）`
               : `发现新版本 ${info.latestVersion}（未下载）`;
           if (!silent) {
-              message.info(`发现新版本 ${info.latestVersion}`);
+              void message.info(`发现新版本 ${info.latestVersion}`);
               setAboutUpdateStatus(statusText);
           }
-          if (silent && isAboutOpen) {
+          if (silent && aboutOpen) {
               setAboutUpdateStatus(statusText);
           }
-          if (silent && !isAboutOpen && updateMutedVersionRef.current !== info.latestVersion && updateNotifiedVersionRef.current !== info.latestVersion) {
+          if (silent && !aboutOpen && updateMutedVersionRef.current !== info.latestVersion && updateNotifiedVersionRef.current !== info.latestVersion) {
               updateNotifiedVersionRef.current = info.latestVersion;
               setIsAboutOpen(true);
           }
       } else if (!silent) {
+          setUpdateDownloadProgress((prev) => {
+              if (prev.status === 'start' || prev.status === 'downloading') {
+                  return prev;
+              }
+              return {
+                  open: false,
+                  version: '',
+                  status: 'idle',
+                  percent: 0,
+                  downloaded: 0,
+                  total: 0,
+                  message: '',
+              };
+          });
+          setLastUpdateInfo(info);
           const text = `当前已是最新版本（${info.currentVersion || '未知'}）`;
-          message.success(text);
+          void message.success(text);
           setAboutUpdateStatus(text);
-      } else if (silent && isAboutOpen) {
+      } else if (silent && aboutOpen) {
+          setUpdateDownloadProgress((prev) => {
+              if (prev.status === 'start' || prev.status === 'downloading') {
+                  return prev;
+              }
+              return {
+                  open: false,
+                  version: '',
+                  status: 'idle',
+                  percent: 0,
+                  downloaded: 0,
+                  total: 0,
+                  message: '',
+              };
+          });
+          setLastUpdateInfo(info);
           const text = `当前已是最新版本（${info.currentVersion || '未知'}）`;
           setAboutUpdateStatus(text);
+      } else {
+          setLastUpdateInfo(info);
       }
-  }, [downloadUpdate]);
+  }, []);
 
   const loadAboutInfo = React.useCallback(async () => {
       setAboutLoading(true);
@@ -457,7 +608,7 @@ function App() {
       if (res?.success) {
           setAboutInfo(res.data);
       } else {
-          message.error('获取应用信息失败: ' + (res?.message || '未知错误'));
+          void message.error('获取应用信息失败: ' + (res?.message || '未知错误'));
       }
       setAboutLoading(false);
   }, []);
@@ -498,28 +649,28 @@ function App() {
                           count++;
                       }
                   });
-                  message.success(`成功导入 ${count} 个连接`);
+                  void message.success(`成功导入 ${count} 个连接`);
               } else {
-                  message.error("文件格式错误：需要 JSON 数组");
+                  void message.error("文件格式错误：需要 JSON 数组");
               }
           } catch (e) {
-              message.error("解析 JSON 失败");
+              void message.error("解析 JSON 失败");
           }
       } else if (res.message !== "Cancelled") {
-          message.error("导入失败: " + res.message);
+          void message.error("导入失败: " + res.message);
       }
   };
 
   const handleExportConnections = async () => {
       if (connections.length === 0) {
-          message.warning("没有连接可导出");
+          void message.warning("没有连接可导出");
           return;
       }
       const res = await (window as any).go.app.App.ExportData(connections, [], "connections", "json");
       if (res.success) {
-          message.success("导出成功");
+          void message.success("导出成功");
       } else if (res.message !== "Cancelled") {
-          message.error("导出失败: " + res.message);
+          void message.error("导出失败: " + res.message);
       }
   };
 
@@ -648,7 +799,7 @@ function App() {
       if (target?.closest('[data-no-titlebar-toggle="true"]')) {
           return;
       }
-      (window as any).runtime.WindowToggleMaximise();
+      WindowToggleMaximise();
   };
   
   // Sidebar Resizing
@@ -715,27 +866,39 @@ function App() {
     document.body.style.backgroundColor = 'transparent';
     document.body.style.color = darkMode ? '#ffffff' : '#000000';
     document.body.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-  }, [darkMode]);
+    document.body.style.fontSize = `${effectiveFontSize}px`;
+    document.documentElement.style.setProperty('--gonavi-font-size', `${effectiveFontSize}px`);
+  }, [darkMode, effectiveFontSize]);
+
+  useEffect(() => {
+      isAboutOpenRef.current = isAboutOpen;
+  }, [isAboutOpen]);
 
   useEffect(() => {
       if (isAboutOpen) {
           if (lastUpdateInfo?.hasUpdate) {
-              setAboutUpdateStatus(`发现新版本 ${lastUpdateInfo.latestVersion}（未下载）`);
+              const localDownloaded = updateDownloadedVersionRef.current === lastUpdateInfo.latestVersion;
+              const hasDownloaded = Boolean(lastUpdateInfo.downloaded) || localDownloaded;
+              setAboutUpdateStatus(
+                  hasDownloaded
+                      ? `发现新版本 ${lastUpdateInfo.latestVersion}（已下载，请点击“下载进度”后安装）`
+                      : `发现新版本 ${lastUpdateInfo.latestVersion}（未下载）`
+              );
           } else if (lastUpdateInfo) {
               setAboutUpdateStatus(`当前已是最新版本（${lastUpdateInfo.currentVersion || '未知'}）`);
           } else {
               setAboutUpdateStatus('未检查');
           }
-          loadAboutInfo();
+          void loadAboutInfo();
       }
   }, [isAboutOpen, lastUpdateInfo, loadAboutInfo]);
 
   useEffect(() => {
       const startupTimer = window.setTimeout(() => {
-          checkForUpdates(true);
+          void checkForUpdates(true);
       }, 2000);
       const interval = window.setInterval(() => {
-          checkForUpdates(true);
+          void checkForUpdates(true);
       }, 30 * 60 * 1000);
       return () => {
           window.clearTimeout(startupTimer);
@@ -758,7 +921,7 @@ function App() {
               : (total > 0 ? (downloaded / total) * 100 : 0);
           const percent = Math.max(0, Math.min(100, percentRaw));
           setUpdateDownloadProgress(prev => ({
-              open: nextStatus === 'start' || nextStatus === 'downloading' || nextStatus === 'error',
+              open: prev.open,
               version: prev.version,
               status: nextStatus,
               percent,
@@ -782,13 +945,21 @@ function App() {
   } as any;
 
   const showLinuxResizeHandles = isLinuxRuntime;
+  const resizeGuideColor = darkMode ? 'rgba(246, 196, 83, 0.55)' : 'rgba(24, 144, 255, 0.5)';
 
   return (
     <ConfigProvider
         locale={zhCN}
+        componentSize={appComponentSize}
         theme={{
             algorithm: darkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
             token: {
+                fontSize: tokenFontSize,
+                fontSizeSM: tokenFontSizeSM,
+                fontSizeLG: tokenFontSizeLG,
+                controlHeight: tokenControlHeight,
+                controlHeightSM: tokenControlHeightSM,
+                controlHeightLG: tokenControlHeightLG,
                 colorBgLayout: 'transparent',
                 colorBgContainer: darkMode 
                     ? `rgba(29, 29, 29, ${effectiveOpacity})` 
@@ -799,6 +970,20 @@ function App() {
                 colorFillAlter: darkMode
                     ? `rgba(38, 38, 38, ${effectiveOpacity})`
                     : `rgba(250, 250, 250, ${effectiveOpacity})`,
+                colorPrimary: darkMode ? '#f6c453' : '#1677ff',
+                colorPrimaryHover: darkMode ? '#ffd666' : '#4096ff',
+                colorPrimaryActive: darkMode ? '#d8a93b' : '#0958d9',
+                colorInfo: darkMode ? '#f6c453' : '#1677ff',
+                colorLink: darkMode ? '#ffd666' : '#1677ff',
+                colorLinkHover: darkMode ? '#ffe58f' : '#4096ff',
+                colorLinkActive: darkMode ? '#d8a93b' : '#0958d9',
+                colorPrimaryBg: darkMode ? 'rgba(246, 196, 83, 0.22)' : '#e6f4ff',
+                colorPrimaryBgHover: darkMode ? 'rgba(246, 196, 83, 0.30)' : '#bae0ff',
+                colorPrimaryBorder: darkMode ? 'rgba(246, 196, 83, 0.45)' : '#91caff',
+                colorPrimaryBorderHover: darkMode ? 'rgba(246, 196, 83, 0.60)' : '#69b1ff',
+                controlItemBgActive: darkMode ? 'rgba(246, 196, 83, 0.20)' : 'rgba(22, 119, 255, 0.12)',
+                controlItemBgActiveHover: darkMode ? 'rgba(246, 196, 83, 0.28)' : 'rgba(22, 119, 255, 0.18)',
+                controlOutline: darkMode ? 'rgba(246, 196, 83, 0.50)' : 'rgba(5, 145, 255, 0.24)',
             },
             components: {
                 Layout: {
@@ -815,7 +1000,10 @@ function App() {
                 },
                 Tabs: {
                     cardBg: 'transparent',
-                    itemActiveColor: darkMode ? '#177ddc' : '#1890ff',
+                    itemActiveColor: darkMode ? '#ffd666' : '#1890ff',
+                    itemHoverColor: darkMode ? '#ffe58f' : '#40a9ff',
+                    itemSelectedColor: darkMode ? '#ffd666' : '#1677ff',
+                    inkBarColor: darkMode ? '#ffd666' : '#1677ff',
                 }
             }
         }}
@@ -835,7 +1023,7 @@ function App() {
           <div
             onDoubleClick={handleTitleBarDoubleClick}
             style={{
-                height: 32,
+                height: titleBarHeight,
                 flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
@@ -845,10 +1033,11 @@ function App() {
                 userSelect: 'none',
                 WebkitAppRegion: 'drag', // Wails drag region
                 '--wails-draggable': 'drag',
-                paddingLeft: 16
+                paddingLeft: Math.max(12, Math.round(16 * effectiveUiScale)),
+                fontSize: tokenFontSize
             } as any}
           >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600 }}>
                   {/* Logo can be added here if available */}
                   GoNavi
               </div>
@@ -860,35 +1049,35 @@ function App() {
                   <Button 
                     type="text" 
                     icon={<MinusOutlined />} 
-                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
-                    onClick={() => (window as any).runtime.WindowMinimise()} 
+                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                    onClick={WindowMinimise} 
                   />
                   <Button 
                     type="text" 
                     icon={<BorderOutlined />} 
-                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
-                    onClick={() => (window as any).runtime.WindowToggleMaximise()} 
+                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                    onClick={WindowToggleMaximise} 
                   />
                   <Button 
                     type="text" 
                     icon={<CloseOutlined />} 
                     danger
                     className="titlebar-close-btn"
-                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
-                    onClick={() => (window as any).runtime.Quit()} 
+                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                    onClick={Quit} 
                   />
               </div>
           </div>
 
           <div
             style={{
-                height: 36,
+                height: toolbarHeight,
                 flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'flex-start',
-                gap: 4,
-                padding: '0 8px',
+                gap: Math.max(2, Math.round(4 * effectiveUiScale)),
+                padding: `0 ${Math.max(6, Math.round(8 * effectiveUiScale))}px`,
                 borderBottom: 'none',
                 background: bgMain,
             }}
@@ -920,17 +1109,42 @@ function App() {
                 </div>
             </div>
                 
-                <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ flex: 1, overflow: 'hidden', paddingBottom: 58 }}>
                     <Sidebar onEditConnection={handleEditConnection} />
                 </div>
 
-                {/* Sidebar Footer for Log Toggle */}
-                <div style={{ padding: '8px', borderTop: 'none', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
-                    <Button 
-                        type={isLogPanelOpen ? "primary" : "text"}  
-                        icon={<BugOutlined />} 
+                {/* Floating SQL Log Toggle */}
+                <div
+                    style={{
+                        position: 'absolute',
+                        left: 10,
+                        right: 14,
+                        bottom: 10,
+                        zIndex: 20,
+                        pointerEvents: 'none'
+                    }}
+                >
+                    <Button
+                        type={isLogPanelOpen ? "primary" : "text"}
+                        icon={<BugOutlined />}
                         onClick={() => setIsLogPanelOpen(!isLogPanelOpen)}
-                        block
+                        style={isLogPanelOpen ? {
+                            width: '100%',
+                            height: floatingLogButtonHeight,
+                            borderRadius: 999,
+                            boxShadow: floatingLogButtonShadow,
+                            pointerEvents: 'auto'
+                        } : {
+                            width: '100%',
+                            height: floatingLogButtonHeight,
+                            borderRadius: 999,
+                            border: `1px solid ${floatingLogButtonBorderColor}`,
+                            color: floatingLogButtonTextColor,
+                            background: floatingLogButtonBgColor,
+                            boxShadow: floatingLogButtonShadow,
+                            backdropFilter: blurFilter,
+                            pointerEvents: 'auto'
+                        }}
                     >
                         SQL 执行日志
                     </Button>
@@ -979,13 +1193,17 @@ function App() {
           <DriverManagerModal
             open={isDriverModalOpen}
             onClose={() => setIsDriverModalOpen(false)}
+            onOpenGlobalProxySettings={() => setIsProxyModalOpen(true)}
           />
           <Modal
             title="关于 GoNavi"
             open={isAboutOpen}
             onCancel={() => setIsAboutOpen(false)}
             footer={[
-                lastUpdateInfo?.hasUpdate ? (
+                canShowProgressEntry ? (
+                    <Button key="progress" icon={<DownloadOutlined />} onClick={showUpdateDownloadProgress}>下载进度</Button>
+                ) : null,
+                lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded ? (
                     <Button key="download" icon={<DownloadOutlined />} onClick={() => downloadUpdate(lastUpdateInfo, false)}>下载更新</Button>
                 ) : null,
                 lastUpdateInfo?.hasUpdate ? (
@@ -1007,7 +1225,7 @@ function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <GithubOutlined />
                         {aboutInfo?.repoUrl ? (
-                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.repoUrl); }} href={aboutInfo.repoUrl}>
+                        <a onClick={(e) => { e.preventDefault(); if (aboutInfo?.repoUrl) BrowserOpenURL(aboutInfo.repoUrl); }} href={aboutInfo.repoUrl}>
                             {aboutInfo.repoUrl}
                         </a>
                     ) : '未知'}
@@ -1015,7 +1233,7 @@ function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <BugOutlined />
                     {aboutInfo?.issueUrl ? (
-                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.issueUrl); }} href={aboutInfo.issueUrl}>
+                        <a onClick={(e) => { e.preventDefault(); if (aboutInfo?.issueUrl) BrowserOpenURL(aboutInfo.issueUrl); }} href={aboutInfo.issueUrl}>
                             {aboutInfo.issueUrl}
                         </a>
                     ) : '未知'}
@@ -1023,7 +1241,7 @@ function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <CloudDownloadOutlined />
                     {aboutInfo?.releaseUrl ? (
-                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.releaseUrl); }} href={aboutInfo.releaseUrl}>
+                        <a onClick={(e) => { e.preventDefault(); if (aboutInfo?.releaseUrl) BrowserOpenURL(aboutInfo.releaseUrl); }} href={aboutInfo.releaseUrl}>
                             {aboutInfo.releaseUrl}
                         </a>
                     ) : '未知'}
@@ -1040,6 +1258,37 @@ function App() {
               width={460}
           >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '12px 0' }}>
+                  <div>
+                      <div style={{ marginBottom: 8, fontWeight: 500 }}>界面缩放 (UI Scale)</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <Slider
+                            min={MIN_UI_SCALE}
+                            max={MAX_UI_SCALE}
+                            step={0.05}
+                            value={effectiveUiScale}
+                            onChange={(v) => setUiScale(Number(v))}
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ width: 56 }}>{Math.round(effectiveUiScale * 100)}%</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                          * 建议小屏设备设置为 85%-95%
+                      </div>
+                  </div>
+                  <div>
+                      <div style={{ marginBottom: 8, fontWeight: 500 }}>基础字体大小 (Font Size)</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <Slider
+                            min={MIN_FONT_SIZE}
+                            max={MAX_FONT_SIZE}
+                            step={1}
+                            value={effectiveFontSize}
+                            onChange={(v) => setFontSize(Number(v))}
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ width: 56 }}>{effectiveFontSize}px</span>
+                      </div>
+                  </div>
                   <div>
                       <div style={{ marginBottom: 8, fontWeight: 500 }}>背景不透明度 (Opacity)</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -1087,6 +1336,17 @@ function App() {
                       <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
                           * 修改后下次启动生效
                       </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button
+                          onClick={() => {
+                              setUiScale(DEFAULT_UI_SCALE);
+                              setFontSize(DEFAULT_FONT_SIZE);
+                              setAppearance({ opacity: 1.0, blur: 0 });
+                          }}
+                      >
+                          恢复默认
+                      </Button>
                   </div>
               </div>
           </Modal>
@@ -1169,38 +1429,25 @@ function App() {
           <Modal
               title={updateDownloadProgress.version ? `下载更新 ${updateDownloadProgress.version}` : '下载更新'}
               open={updateDownloadProgress.open}
-              closable={updateDownloadProgress.status === 'error'}
-              maskClosable={false}
-              keyboard={updateDownloadProgress.status === 'error'}
-              onCancel={() => {
-                  if (updateDownloadProgress.status === 'error') {
-                      setUpdateDownloadProgress({
-                          open: false,
-                          version: '',
-                          status: 'idle',
-                          percent: 0,
-                          downloaded: 0,
-                          total: 0,
-                          message: ''
-                      });
-                  }
-              }}
-              footer={updateDownloadProgress.status === 'error' ? [
+              closable
+              maskClosable
+              keyboard
+              onCancel={hideUpdateDownloadProgress}
+              footer={updateDownloadProgress.status === 'start' || updateDownloadProgress.status === 'downloading' ? [
                   <Button
-                      key="close"
-                      onClick={() => setUpdateDownloadProgress({
-                          open: false,
-                          version: '',
-                          status: 'idle',
-                          percent: 0,
-                          downloaded: 0,
-                          total: 0,
-                          message: ''
-                      })}
+                      key="background"
+                      onClick={hideUpdateDownloadProgress}
                   >
-                      关闭
+                      隐藏到后台
                   </Button>
-              ] : null}
+              ] : (updateDownloadProgress.status === 'done' ? [
+                  <Button key="close" onClick={hideUpdateDownloadProgress}>关闭</Button>,
+                  <Button key="install" type="primary" onClick={handleInstallFromProgress}>
+                      {isMacRuntime ? '打开安装目录' : '安装更新'}
+                  </Button>
+              ] : (updateDownloadProgress.status === 'error' ? [
+                  <Button key="close" onClick={hideUpdateDownloadProgress}>关闭</Button>
+              ] : null))}
           >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <Progress
@@ -1240,7 +1487,7 @@ function App() {
                   bottom: 0,
                   left: 0,
                   width: '4px',
-                  background: 'rgba(24, 144, 255, 0.5)',
+                  background: resizeGuideColor,
                   zIndex: 9999,
                   pointerEvents: 'none',
                   display: 'none'
@@ -1255,7 +1502,7 @@ function App() {
                   left: sidebarWidth, // Start from sidebar edge
                   right: 0,
                   height: '4px',
-                  background: 'rgba(24, 144, 255, 0.5)',
+                  background: resizeGuideColor,
                   zIndex: 9999,
                   pointerEvents: 'none',
                   display: 'none',

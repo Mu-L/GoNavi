@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
 import { buildOrderBySQL, buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
 import { isMacLikePlatform, normalizeOpacityForPlatform } from '../utils/appearance';
+import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 
 // --- Error Boundary ---
 interface DataGridErrorBoundaryState {
@@ -64,6 +65,10 @@ export const GONAVI_ROW_KEY = '__gonavi_row_key__';
 // Cell key helpers for batch selection/fill.
 // Use a control character separator to avoid collisions with rowKey/columnName contents (e.g. `new-123`).
 const CELL_KEY_SEP = '\u0001';
+const DATE_TIME_CACHE_LIMIT = 2000;
+const TABLE_CELL_PREVIEW_MAX_CHARS = 240;
+const normalizedDateTimeCache = new Map<string, string>();
+const objectCellPreviewCache = new WeakMap<object, string>();
 const makeCellKey = (rowKey: string, colName: string) => `${rowKey}${CELL_KEY_SEP}${colName}`;
 const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | null => {
     const sepIndex = cellKey.indexOf(CELL_KEY_SEP);
@@ -74,10 +79,42 @@ const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | nu
     };
 };
 
+const trimSimpleCache = (cache: Map<string, string>, limit: number) => {
+    if (cache.size < limit) return;
+    const firstKey = cache.keys().next().value;
+    if (typeof firstKey === 'string') {
+        cache.delete(firstKey);
+    }
+};
+
+const looksLikeDateTimeText = (val: string): boolean => {
+    if (!val) return false;
+    const len = val.length;
+    if (len < 19 || len > 48) return false;
+    const charCode0 = val.charCodeAt(0);
+    if (charCode0 < 48 || charCode0 > 57) return false;
+    return (
+        val[4] === '-' &&
+        val[7] === '-' &&
+        (val[10] === ' ' || val[10] === 'T') &&
+        val[13] === ':' &&
+        val[16] === ':'
+    );
+};
+
 // Normalize common datetime strings to `YYYY-MM-DD HH:mm:ss` for display/editing.
 // Handles RFC3339 and Go-style datetime text like `2024-05-13 08:32:47 +0800 CST`.
 // Also keep invalid datetime values like `0000-00-00 00:00:00` unchanged.
 const normalizeDateTimeString = (val: string) => {
+    if (!looksLikeDateTimeText(val)) {
+        return val;
+    }
+
+    const cached = normalizedDateTimeCache.get(val);
+    if (cached !== undefined) {
+        return cached;
+    }
+
     // 检查是否为无效日期时间（0000-00-00 或类似格式）
     if (/^0{4}-0{2}-0{2}/.test(val)) {
         return val; // 保持原样显示，不尝试转换
@@ -86,8 +123,10 @@ const normalizeDateTimeString = (val: string) => {
     const match = val.match(
         /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:\s*(?:Z|[+-]\d{2}:?\d{2})(?:\s+[A-Za-z_\/+-]+)?)?$/
     );
-    if (!match) return val;
-    return `${match[1]} ${match[2]}`;
+    const normalized = match ? `${match[1]} ${match[2]}` : val;
+    trimSimpleCache(normalizedDateTimeCache, DATE_TIME_CACHE_LIMIT);
+    normalizedDateTimeCache.set(val, normalized);
+    return normalized;
 };
 
 const isTemporalColumnType = (columnType?: string): boolean => {
@@ -103,14 +142,22 @@ const formatCellValue = (val: any) => {
     try {
         if (val === null) return <span style={{ color: '#ccc' }}>NULL</span>;
         if (typeof val === 'object') {
+            const cached = objectCellPreviewCache.get(val);
+            if (cached !== undefined) {
+                return cached;
+            }
             try {
-                return JSON.stringify(val);
+                const nextText = JSON.stringify(val);
+                const previewText = nextText.length > TABLE_CELL_PREVIEW_MAX_CHARS ? `${nextText.slice(0, TABLE_CELL_PREVIEW_MAX_CHARS)}…` : nextText;
+                objectCellPreviewCache.set(val, previewText);
+                return previewText;
             } catch {
                 return '[Object]';
             }
         }
         if (typeof val === 'string') {
-            return normalizeDateTimeString(val);
+            const normalized = normalizeDateTimeString(val);
+            return normalized.length > TABLE_CELL_PREVIEW_MAX_CHARS ? `${normalized.slice(0, TABLE_CELL_PREVIEW_MAX_CHARS)}…` : normalized;
         }
         return String(val);
     } catch (e) {
@@ -137,6 +184,7 @@ const toFormText = (val: any): string => {
 
 // 用于变更比较：NULL 与 undefined 视为同类空值；与空字符串严格区分。
 const isCellValueEqualForDiff = (left: any, right: any): boolean => {
+    if (left === right) return true;
     const leftNullish = left === null || left === undefined;
     const rightNullish = right === null || right === undefined;
     if (leftNullish || rightNullish) return leftNullish && rightNullish;
@@ -302,6 +350,7 @@ const DataContext = React.createContext<{
     copyToClipboard: (t: string) => void;
     tableName?: string;
     enableRowContextMenu: boolean;
+    supportsCopyInsert: boolean;
 } | null>(null);
 
 interface Item {
@@ -316,6 +365,7 @@ interface EditableCellProps {
   record: Item;
   handleSave: (record: Item) => void;
   focusCell?: (record: Item, dataIndex: string, title: React.ReactNode) => void;
+  as?: any;
   [key: string]: any;
 }
 
@@ -327,6 +377,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   record,
   handleSave,
   focusCell,
+  as: Component = 'td',
   ...restProps
 }) => {
   const [editing, setEditing] = useState(false);
@@ -428,14 +479,14 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   };
 
   return (
-      <td
+      <Component
           {...restProps}
           data-row-key={record ? String(record?.[GONAVI_ROW_KEY]) : undefined}
           data-col-name={dataIndex || undefined}
           onDoubleClick={editable ? handleDoubleClick : restProps?.onDoubleClick}
       >
           {childNode}
-      </td>
+      </Component>
   );
 });
 
@@ -444,7 +495,7 @@ const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
     
     if (!record || !context) return <tr {...props}>{children}</tr>;
 
-    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, enableRowContextMenu } = context;
+    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, enableRowContextMenu, supportsCopyInsert } = context;
 
     if (!enableRowContextMenu) {
         return <tr {...props}>{children}</tr>;
@@ -460,12 +511,12 @@ const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
     };
 
     const menuItems: MenuProps['items'] = [
-        { 
-            key: 'insert', 
-            label: `复制为 INSERT`, 
-            icon: <ConsoleSqlOutlined />, 
-            onClick: () => handleCopyInsert(record) 
-        },
+        ...(supportsCopyInsert ? [{
+            key: 'insert',
+            label: '复制为 INSERT',
+            icon: <ConsoleSqlOutlined />,
+            onClick: () => handleCopyInsert(record),
+        }] : []),
         { key: 'json', label: '复制为 JSON', icon: <FileTextOutlined />, onClick: () => handleCopyJson(record) },
         { key: 'csv', label: '复制为 CSV', icon: <FileTextOutlined />, onClick: () => handleCopyCsv(record) },
         { key: 'copy', label: '复制为 Markdown', icon: <CopyOutlined />, onClick: () => { 
@@ -502,6 +553,8 @@ interface DataGridProps {
     columnNames: string[];
     loading: boolean;
     tableName?: string;
+    exportScope?: 'table' | 'queryResult';
+    resultSql?: string;
     dbName?: string;
     connectionId?: string;
     pkColumns?: string[];
@@ -543,7 +596,7 @@ type ColumnMeta = {
 };
 
 const DataGrid: React.FC<DataGridProps> = ({ 
-    data, columnNames, loading, tableName, dbName, connectionId, pkColumns = [], readOnly = false,
+    data, columnNames, loading, tableName, exportScope = 'table', resultSql, dbName, connectionId, pkColumns = [], readOnly = false,
     onReload, onSort, onPageChange, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, onApplyFilter
 }) => {
   const connections = useStore(state => state.connections);
@@ -559,8 +612,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   const showColumnComment = queryOptions?.showColumnComment !== false;
   const showColumnType = queryOptions?.showColumnType !== false;
   const selectionColumnWidth = 46;
-  const connTypeLower = String(connections.find(c => c.id === connectionId)?.config?.type || '').trim().toLowerCase();
-  const isDuckDBConnection = connTypeLower === 'duckdb';
+  const currentConnConfig = connections.find(c => c.id === connectionId)?.config;
+  const dataSourceCaps = getDataSourceCapabilities(currentConnConfig);
+  const isDuckDBConnection = dataSourceCaps.type === 'duckdb';
+  const supportsCopyInsert = dataSourceCaps.supportsCopyInsert;
+  const supportsSqlQueryExport = dataSourceCaps.supportsSqlQueryExport;
+  const isQueryResultExport = exportScope === 'queryResult';
+  const canImport = exportScope === 'table' && !!tableName;
+  const canExport = !!connectionId && (isQueryResultExport || !!tableName);
 
   // Background Helper
   const getBg = (darkHex: string) => {
@@ -581,6 +640,38 @@ const DataGrid: React.FC<DataGridProps> = ({
   const rowModBg = darkMode ? getRowBg(22, 34, 56) : getRowBg(230, 247, 255);
   const rowAddedHover = darkMode ? getRowBg(31, 61, 31) : getRowBg(217, 247, 190);
   const rowModHover = darkMode ? getRowBg(29, 53, 94) : getRowBg(186, 231, 255);
+  const selectionAccentHex = darkMode ? '#f6c453' : '#1890ff';
+  const selectionAccentRgb = darkMode ? '246, 196, 83' : '24, 144, 255';
+  const darkHighlightTextColor = 'rgba(255, 236, 179, 0.98)';
+  const lightMetaHintColor = '#595959';
+  const lightMetaTooltipColor = '#262626';
+  const panelRadius = 10;
+  const panelOuterGap = 6;
+  const panelPaddingY = 10;
+  const panelPaddingX = 12;
+  const toolbarBottomPadding = 6;
+  const filterTopPadding = 2;
+  const panelBorderColor = darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
+  const panelFrameColor = darkMode ? 'rgba(0, 0, 0, 0.42)' : 'rgba(0, 0, 0, 0.18)';
+  const floatingScrollbarGap = 6;
+  const floatingScrollbarInset = 10;
+  const floatingScrollbarHeight = 10;
+  const floatingScrollbarTrackBg = 'transparent';
+  const floatingScrollbarBorderColor = 'transparent';
+  const floatingScrollbarShadow = 'none';
+  const floatingScrollbarThumbBg = darkMode ? 'rgba(255,255,255,0.34)' : 'rgba(0,0,0,0.22)';
+  const floatingScrollbarThumbBorderColor = darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.32)';
+  const floatingScrollbarThumbShadow = darkMode ? '0 4px 12px rgba(0,0,0,0.28)' : '0 4px 10px rgba(0,0,0,0.12)';
+  const horizontalScrollbarTrackBg = 'transparent';
+  const horizontalScrollbarTrackBorderColor = 'transparent';
+  const horizontalScrollbarTrackShadow = 'none';
+  const horizontalScrollbarThumbBg = darkMode ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.14)';
+  const horizontalScrollbarThumbBorderColor = 'transparent';
+  const horizontalScrollbarThumbShadow = 'none';
+  const externalScrollbarMinWidth = 1;
+  const toolbarDividerColor = darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)';
+  const columnMetaHintColor = darkMode ? darkHighlightTextColor : lightMetaHintColor;
+  const columnMetaTooltipColor = darkMode ? darkHighlightTextColor : lightMetaTooltipColor;
   
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
@@ -618,6 +709,12 @@ const DataGrid: React.FC<DataGridProps> = ({
     title: '',
   });
   const containerRef = useRef<HTMLDivElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
+  const tableScrollTargetsRef = useRef<HTMLElement[]>([]);
+  const externalHScrollRef = useRef<HTMLDivElement | null>(null);
+  const horizontalSyncSourceRef = useRef<'table' | 'external' | ''>('');
+  const lastTableScrollLeftRef = useRef(0);
+  const lastExternalScrollLeftRef = useRef(0);
   const pendingScrollToBottomRef = useRef(false);
 
   // 批量编辑模式状态
@@ -687,11 +784,20 @@ const DataGrid: React.FC<DataGridProps> = ({
   // Helper to export specific data
   const exportData = async (rows: any[], format: string) => {
       const hide = message.loading(`正在导出 ${rows.length} 条数据...`, 0);
-      const cleanRows = rows.map(({ [GONAVI_ROW_KEY]: _rowKey, ...rest }) => rest);
-      // Pass tableName (or 'export') as default filename
-      const res = await ExportData(cleanRows, columnNames, tableName || 'export', format);
-      hide();
-      if (res.success) { message.success("导出成功"); } else if (res.message !== "Cancelled") { message.error("导出失败: " + res.message); }
+      try {
+          const cleanRows = rows.map(({ [GONAVI_ROW_KEY]: _rowKey, ...rest }) => rest);
+          // Pass tableName (or 'export') as default filename
+          const res = await ExportData(cleanRows, columnNames, tableName || 'export', format);
+          if (res.success) {
+              message.success("导出成功");
+          } else if (res.message !== "Cancelled") {
+              message.error("导出失败: " + res.message);
+          }
+      } catch (e: any) {
+          message.error("导出失败: " + (e?.message || String(e)));
+      } finally {
+          hide();
+      }
   };
   
   const [sortInfo, setSortInfo] = useState<{ columnKey: string, order: string } | null>(null);
@@ -828,7 +934,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                       style={{
                           marginTop: 2,
                           fontSize: 11,
-                          color: '#8c8c8c',
+                          color: columnMetaHintColor,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -843,7 +949,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                       style={{
                           marginTop: 2,
                           fontSize: 11,
-                          color: '#8c8c8c',
+                          color: columnMetaHintColor,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -859,13 +965,14 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (hoverLines.length === 0) return titleNode;
       return (
           <Tooltip
-              title={<pre style={{ maxHeight: 260, overflow: 'auto', margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>{hoverLines.join('\n')}</pre>}
+              title={<pre style={{ maxHeight: 260, overflow: 'auto', margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', color: darkMode ? columnMetaTooltipColor : '#fff' }}>{hoverLines.join('\n')}</pre>}
               styles={{ root: { maxWidth: 640 } }}
+              {...(!darkMode ? { color: 'rgba(0, 0, 0, 0.82)' } : {})}
           >
               <span style={{ display: 'inline-flex', maxWidth: '100%' }}>{titleNode}</span>
           </Tooltip>
       );
-  }, [columnMetaMap, columnMetaMapByLowerName, showColumnComment, showColumnType]);
+  }, [columnMetaHintColor, columnMetaTooltipColor, columnMetaMap, columnMetaMapByLowerName, showColumnComment, showColumnType]);
 
   const closeCellEditor = useCallback(() => {
       setCellEditorOpen(false);
@@ -912,23 +1019,19 @@ const DataGrid: React.FC<DataGridProps> = ({
           Number.isFinite(rawHeaderHeight) && rawHeaderHeight >= 24 && rawHeaderHeight <= 120 ? rawHeaderHeight : 42;
 
       const bodyEl = target.querySelector('.ant-table-body') as HTMLElement | null;
-      const stickyScrollEl = target.querySelector('.ant-table-sticky-scroll') as HTMLElement | null;
-      const hasHorizontalOverflow = !!bodyEl && (bodyEl.scrollWidth - bodyEl.clientWidth > 1);
-      const nativeHorizontalScrollbarHeight = bodyEl ? Math.max(0, Math.ceil(bodyEl.offsetHeight - bodyEl.clientHeight)) : 0;
-      const stickyScrollHeight = stickyScrollEl ? Math.ceil(stickyScrollEl.getBoundingClientRect().height) : 0;
-      // 动态为横向滚动条（含 sticky 条）预留空间，避免最后一行被遮住。
-      const horizontalReserve = hasHorizontalOverflow
-          ? Math.max(nativeHorizontalScrollbarHeight, stickyScrollHeight, 14)
-          : Math.max(nativeHorizontalScrollbarHeight, 0);
-      // sticky 横向滚动条会覆盖在表格底部，额外给 body 增加内边距，确保最后一行完整可见。
+      const virtualHolderEl = target.querySelector('.rc-virtual-list-holder') as HTMLElement | null;
+      const scrollableEl = virtualHolderEl || bodyEl;
+      const hasHorizontalOverflow = !!scrollableEl && (scrollableEl.scrollWidth - scrollableEl.clientWidth > 1);
+      // 外部横向滚动条采用悬浮覆盖，不再通过压缩表格高度制造独立底部空白层；
+      // 只给 body 增加底部内边距，确保最后一行可以完整滚到胶囊条上方。
       const nextBodyBottomPadding = hasHorizontalOverflow
-          ? Math.max(stickyScrollHeight, nativeHorizontalScrollbarHeight, 14) + 6
+          ? floatingScrollbarHeight + floatingScrollbarGap + 4
           : 0;
       setTableBodyBottomPadding(nextBodyBottomPadding);
-      const extraBottom = 10 + horizontalReserve;
+      const extraBottom = 2;
       const nextHeight = Math.max(100, Math.floor(height - headerHeight - extraBottom));
       setTableHeight(nextHeight);
-  }, []);
+  }, [floatingScrollbarGap, floatingScrollbarHeight]);
 
   useEffect(() => {
       const el = containerRef.current;
@@ -1430,8 +1533,16 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [addedRows, rowKeyStr]);
 
   const modifiedRowKeySet = useMemo(() => new Set(Object.keys(modifiedRows)), [modifiedRows]);
+  const rowClassName = useCallback((record: Item) => {
+      const k = record?.[GONAVI_ROW_KEY];
+      if (k === undefined || k === null) return '';
+      const keyStr = rowKeyStr(k);
+      if (addedRowKeySet.has(keyStr)) return 'row-added';
+      if (modifiedRowKeySet.has(keyStr) || deletedRowKeys.has(keyStr)) return 'row-modified';
+      return '';
+  }, [addedRowKeySet, modifiedRowKeySet, deletedRowKeys, rowKeyStr]);
 
-  const handleTableChange = (pag: any, filtersArg: any, sorter: any) => {
+  const handleTableChange = useCallback((pag: any, filtersArg: any, sorter: any) => {
       if (isResizingRef.current) return; // Block sort if resizing
       if (sorter.field) {
           const field = String(sorter.field);
@@ -1448,7 +1559,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           setSortInfo(null);
           if (onSort) onSort('', '');
       }
-  };
+  }, [onSort]);
 
     // Native Drag State
     const draggingRef = useRef<{
@@ -1605,6 +1716,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
   }, [cellEditorIsJson, cellEditorValue]);
 
+  const handleVirtualCellActivate = useCallback((record: Item, dataIndex: string, title: React.ReactNode) => {
+      if (!canModifyData) return;
+      openCellEditor(record, dataIndex, title);
+  }, [canModifyData, openCellEditor]);
+
   // Merge Data for Display
   // 'displayData' already merges addedRows. 
   // We need to merge modifiedRows into it for rendering.
@@ -1626,24 +1742,27 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [mergedDisplayData.length]);
 
   const jsonViewText = useMemo(() => {
+      if (viewMode !== 'json') return '';
       const cleanRows = mergedDisplayData.map((row) => {
           const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = row || {};
           return normalizeValueForJsonView(rest);
       });
       return JSON.stringify(cleanRows, null, 2);
-  }, [mergedDisplayData]);
+  }, [viewMode, mergedDisplayData]);
 
   const textViewRows = useMemo(() => {
+      if (viewMode !== 'text') return [];
       return mergedDisplayData.map((row) => {
           const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = row || {};
           return rest;
       });
-  }, [mergedDisplayData]);
+  }, [viewMode, mergedDisplayData]);
 
   const currentTextRow = useMemo(() => {
+      if (viewMode !== 'text') return null;
       if (textViewRows.length === 0) return null;
       return textViewRows[textRecordIndex] || null;
-  }, [textViewRows, textRecordIndex]);
+  }, [viewMode, textViewRows, textRecordIndex]);
 
   const formatTextViewValue = useCallback((val: any): string => {
       if (val === null) return 'NULL';
@@ -1889,6 +2008,12 @@ const DataGrid: React.FC<DataGridProps> = ({
       closeRowEditor();
   }, [rowEditorRowKey, rowEditorForm, addedRows, columnNames, rowKeyStr, closeRowEditor]);
 
+  const estimatedVisibleCellCount = mergedDisplayData.length * Math.max(columnNames.length, 1);
+  const enableLargeResultOptimizedEditing =
+      viewMode === 'table' && (mergedDisplayData.length >= 60 || estimatedVisibleCellCount >= 4000);
+  const enableVirtual = enableLargeResultOptimizedEditing;
+  const enableInlineEditableCell = canModifyData;
+
   const columns = useMemo(() => {
       return columnNames.map(key => ({
           title: renderColumnTitle(key),
@@ -1938,18 +2063,49 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const mergedColumns = useMemo(() => columns.map(col => {
       if (!col.editable) return col;
+      const dataIndex = String(col.dataIndex);
       return {
           ...col,
-          onCell: (record: Item) => ({
-              record,
-              editable: col.editable,
-              dataIndex: col.dataIndex,
-              title: String(col.dataIndex),
-              handleSave: handleCellSave,
-              focusCell: openCellEditor,
-          }),
+          onCell: (record: Item) => {
+              if (!enableInlineEditableCell) {
+                  const rowKey = record?.[GONAVI_ROW_KEY];
+                  return {
+                      'data-row-key': rowKey === undefined || rowKey === null ? undefined : String(rowKey),
+                      'data-col-name': dataIndex,
+                      onDoubleClick: () => handleVirtualCellActivate(record, dataIndex, dataIndex),
+                  };
+              }
+              return {
+                  record,
+                  editable: col.editable,
+                  dataIndex: col.dataIndex,
+                  title: dataIndex,
+                  handleSave: handleCellSave,
+                  focusCell: openCellEditor,
+              };
+          },
+          render: (text: any, record: Item, index: number) => {
+              const originalRenderContent = col.render ? (col.render as any)(text, record, index) : text;
+              if (enableVirtual && enableInlineEditableCell) {
+                  return (
+                      <EditableCell
+                          title={dataIndex}
+                          editable={col.editable}
+                          dataIndex={dataIndex}
+                          record={record}
+                          handleSave={handleCellSave}
+                          focusCell={openCellEditor}
+                          as="div"
+                          style={{ margin: -8, padding: '8px 8px 8px 8px' }}
+                      >
+                          {originalRenderContent}
+                      </EditableCell>
+                  );
+              }
+              return originalRenderContent;
+          }
       };
-  }), [columns, handleCellSave, openCellEditor]);
+  }), [columns, enableInlineEditableCell, enableVirtual, handleCellSave, openCellEditor, handleVirtualCellActivate]);
 
   const handleAddRow = () => {
       const newKey = `new-${Date.now()}`;
@@ -2101,6 +2257,10 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, []);
 
   const handleCopyInsert = useCallback((record: any) => {
+      if (!supportsCopyInsert) {
+          message.warning("当前数据源不支持复制为 INSERT，请使用 JSON/CSV/Markdown 复制。");
+          return;
+      }
       const records = getTargets(record);
       const sqls = records.map((r: any) => {
           const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
@@ -2110,7 +2270,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           return `INSERT INTO \`${targetTable}\` (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${values.join(', ')});`;
       });
       copyToClipboard(sqls.join('\n'));
-  }, [tableName, getTargets, copyToClipboard]);
+  }, [supportsCopyInsert, tableName, getTargets, copyToClipboard]);
 
   const handleCopyJson = useCallback((record: any) => {
       const records = getTargets(record);
@@ -2149,12 +2309,17 @@ const DataGrid: React.FC<DataGridProps> = ({
       const config = buildConnConfig();
       if (!config) return;
       const hide = message.loading(`正在导出...`, 0);
-      const res = await ExportQuery(config as any, dbName || '', sql, defaultName || 'export', format);
-      hide();
-      if (res.success) {
-          message.success("导出成功");
-      } else if (res.message !== "Cancelled") {
-          message.error("导出失败: " + res.message);
+      try {
+          const res = await ExportQuery(config as any, dbName || '', sql, defaultName || 'export', format);
+          if (res.success) {
+              message.success("导出成功");
+          } else if (res.message !== "Cancelled") {
+              message.error("导出失败: " + res.message);
+          }
+      } catch (e: any) {
+          message.error("导出失败: " + (e?.message || String(e)));
+      } finally {
+          hide();
       }
   }, [buildConnConfig, dbName]);
 
@@ -2198,6 +2363,10 @@ const DataGrid: React.FC<DataGridProps> = ({
   // Context Menu Export
   const handleExportSelected = useCallback(async (format: string, record: any) => {
       const records = getTargets(record);
+      if (isQueryResultExport) {
+          await exportData(records, format);
+          return;
+      }
       if (!connectionId || !tableName) {
           await exportData(records, format);
           return;
@@ -2225,11 +2394,11 @@ const DataGrid: React.FC<DataGridProps> = ({
 
       const sql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} WHERE ${pkWhere}`;
       await exportByQuery(sql, format, tableName || 'export');
-  }, [getTargets, connectionId, tableName, hasChanges, exportData, buildConnConfig, buildPkWhereSql, exportByQuery]);
+  }, [getTargets, isQueryResultExport, connectionId, tableName, hasChanges, exportData, buildConnConfig, buildPkWhereSql, exportByQuery]);
 
   // Export
   const handleExport = async (format: string) => {
-      if (!connectionId || !tableName) return;
+      if (!connectionId) return;
       
       // 1. Export Selected
       if (selectedRowKeys.length > 0) {
@@ -2238,17 +2407,38 @@ const DataGrid: React.FC<DataGridProps> = ({
           return;
       }
 
+      // 查询结果页导出统一按当前结果集（已加载数据）导出，避免再次执行原 SQL 造成大数据导出或长时间阻塞。
+      if (isQueryResultExport) {
+          const sql = String(resultSql || '').trim();
+          if (!hasChanges && supportsSqlQueryExport && sql) {
+              await exportByQuery(sql, format, tableName || 'query_result');
+          } else {
+              await exportData(mergedDisplayData, format);
+          }
+          return;
+      }
+
       // 2. Prompt for Current vs All
       // Using a custom modal content with buttons to handle 3 states
       let instance: any;
       const handleAll = async () => {
           instance.destroy();
+          if (!tableName) return;
           const config = buildConnConfig();
           if (!config) return;
           const hide = message.loading(`正在导出全部数据...`, 0);
-          const res = await ExportTable(config as any, dbName || '', tableName, format);
-          hide();
-          if (res.success) { message.success("导出成功"); } else if (res.message !== "Cancelled") { message.error("导出失败: " + res.message); }
+          try {
+              const res = await ExportTable(config as any, dbName || '', tableName, format);
+              if (res.success) {
+                  message.success("导出成功");
+              } else if (res.message !== "Cancelled") {
+                  message.error("导出失败: " + res.message);
+              }
+          } catch (e: any) {
+              message.error("导出失败: " + (e?.message || String(e)));
+          } finally {
+              hide();
+          }
       };
       const handlePage = async () => {
           instance.destroy();
@@ -2396,11 +2586,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       </div>
   );
 
-  const tableComponents = useMemo(() => ({
-      body: { cell: EditableCell, row: ContextMenuRow },
-      header: { cell: ResizableTitle }
-  }), []); 
-
   const dataContextValue = useMemo(() => ({
       selectedRowKeysRef,
       displayDataRef,
@@ -2411,7 +2596,8 @@ const DataGrid: React.FC<DataGridProps> = ({
       copyToClipboard,
       tableName,
       enableRowContextMenu: !canModifyData,
-  }), [handleCopyCsv, handleCopyInsert, handleCopyJson, handleExportSelected, copyToClipboard, tableName, canModifyData]);
+      supportsCopyInsert,
+  }), [handleCopyCsv, handleCopyInsert, handleCopyJson, handleExportSelected, copyToClipboard, tableName, canModifyData, supportsCopyInsert]);
 
   const cellContextMenuValue = useMemo(() => ({
       showMenu: showCellContextMenu,
@@ -2427,17 +2613,121 @@ const DataGrid: React.FC<DataGridProps> = ({
   const rowPropsFactory = useCallback((record: any) => ({ record } as any), []);
 
   const totalWidth = columns.reduce((sum, col) => sum + (Number(col.width) || 200), 0) + selectionColumnWidth;
-  const enableVirtual = mergedDisplayData.length >= 200;
+  const useContextMenuRow = !canModifyData;
   const tableScrollX = useMemo(() => {
       const baseWidth = Math.max(totalWidth, 1000);
       if (!isMacLike || tableViewportWidth <= 0) return baseWidth;
       // macOS 在“自动隐藏滚动条”模式下容易误判为无横向滚动，预留 2px 触发稳定滚动轨道。
       return Math.max(baseWidth, tableViewportWidth + 2);
   }, [totalWidth, isMacLike, tableViewportWidth]);
-  const tableStickyConfig = useMemo(() => ({
-      getContainer: () => containerRef.current || document.body,
-      offsetScroll: 0,
-  }), []);
+  const horizontalScrollVisible = viewMode === 'table' && !enableVirtual && tableScrollX > tableViewportWidth + 1;
+  const horizontalScrollWidth = Math.max(externalScrollbarMinWidth, tableScrollX);
+  const tableScrollConfig = useMemo(() => ({ x: tableScrollX, y: tableHeight }), [tableScrollX, tableHeight]);
+  const tableComponents = useMemo(() => {
+      const body: Record<string, any> = {};
+      if (enableInlineEditableCell) {
+          body.cell = EditableCell;
+      }
+      if (useContextMenuRow) {
+          body.row = ContextMenuRow;
+      }
+      return Object.keys(body).length > 0
+          ? { body, header: { cell: ResizableTitle } }
+          : { header: { cell: ResizableTitle } };
+  }, [enableInlineEditableCell, useContextMenuRow]);
+  const tableOnRow = useMemo(() => (useContextMenuRow ? rowPropsFactory : undefined), [useContextMenuRow, rowPropsFactory]);
+
+  const pickHorizontalScrollTargets = useCallback((tableContainer: HTMLElement): HTMLElement[] => {
+      const body = tableContainer.querySelector('.ant-table-body');
+      const content = tableContainer.querySelector('.ant-table-content');
+      const virtualHolder = tableContainer.querySelector('.rc-virtual-list-holder');
+      const candidates = [virtualHolder, body, content].filter((node): node is HTMLElement => node instanceof HTMLElement);
+      if (candidates.length === 0) {
+          return [];
+      }
+      const active = candidates.find((target) => target.scrollWidth > target.clientWidth + 1) || candidates[0];
+      return active ? [active] : [];
+  }, []);
+
+  const syncExternalScrollFromTargets = useCallback((targets?: HTMLElement[], source?: HTMLElement | null) => {
+      const externalScroll = externalHScrollRef.current;
+      if (!(externalScroll instanceof HTMLDivElement) || horizontalSyncSourceRef.current === 'external') {
+          return;
+      }
+      const nextTargets = targets && targets.length > 0 ? targets : tableScrollTargetsRef.current;
+      if (!nextTargets || nextTargets.length === 0) {
+          return;
+      }
+      const activeTarget = source || nextTargets.find((target) => target.scrollWidth > target.clientWidth + 1) || nextTargets[0];
+      if (!(activeTarget instanceof HTMLElement)) {
+          return;
+      }
+      const nextScrollLeft = activeTarget.scrollLeft;
+      if (Math.abs(lastTableScrollLeftRef.current - nextScrollLeft) < 1 && Math.abs(externalScroll.scrollLeft - nextScrollLeft) < 1) {
+          return;
+      }
+      lastTableScrollLeftRef.current = nextScrollLeft;
+      if (Math.abs(externalScroll.scrollLeft - nextScrollLeft) > 1) {
+          externalScroll.scrollLeft = nextScrollLeft;
+          lastExternalScrollLeftRef.current = nextScrollLeft;
+      }
+  }, []);
+
+  const applyExternalScrollToTableTargets = useCallback(() => {
+      const externalScroll = externalHScrollRef.current;
+      if (!(externalScroll instanceof HTMLDivElement)) {
+          return;
+      }
+      if (horizontalSyncSourceRef.current === 'table') {
+          return;
+      }
+
+      const liveTargets = tableScrollTargetsRef.current;
+      if (liveTargets.length === 0) {
+          return;
+      }
+
+      if (Math.abs(lastExternalScrollLeftRef.current - externalScroll.scrollLeft) < 1) {
+          return;
+      }
+      lastExternalScrollLeftRef.current = externalScroll.scrollLeft;
+
+      horizontalSyncSourceRef.current = 'external';
+      liveTargets.forEach((target) => {
+          if (target.scrollWidth <= target.clientWidth + 1) {
+              return;
+          }
+          if (Math.abs(target.scrollLeft - externalScroll.scrollLeft) > 1) {
+              target.scrollLeft = externalScroll.scrollLeft;
+          }
+      });
+      lastTableScrollLeftRef.current = externalScroll.scrollLeft;
+      horizontalSyncSourceRef.current = '';
+  }, []);
+
+  const handleExternalHorizontalWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+      const externalScroll = externalHScrollRef.current;
+      if (!(externalScroll instanceof HTMLDivElement)) {
+          return;
+      }
+      const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!Number.isFinite(dominantDelta) || Math.abs(dominantDelta) < 0.5) {
+          return;
+      }
+
+      const maxScrollLeft = Math.max(0, externalScroll.scrollWidth - externalScroll.clientWidth);
+      if (maxScrollLeft <= 0) {
+          return;
+      }
+
+      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, externalScroll.scrollLeft + dominantDelta));
+      if (Math.abs(nextScrollLeft - externalScroll.scrollLeft) < 0.5) {
+          return;
+      }
+
+      event.preventDefault();
+      externalScroll.scrollLeft = nextScrollLeft;
+  }, []);
 
   useEffect(() => {
       if (viewMode !== 'table') return;
@@ -2445,10 +2735,141 @@ const DataGrid: React.FC<DataGridProps> = ({
       return () => cancelAnimationFrame(rafId);
   }, [viewMode, totalWidth, mergedDisplayData.length, recalculateTableMetrics]);
 
+  // 虚拟模式下，为 rc-virtual-list 的内置水平滚动条添加鼠标滚轮支持
+  // rc-virtual-list 的 ScrollBar 组件原生只支持拖拽，不支持 wheel 事件
+  // 方案：使用 MutationObserver 发现滚动条元素后直接绑定 wheel 事件
+  useEffect(() => {
+      if (viewMode !== 'table' || !enableVirtual) return;
+      const container = tableContainerRef.current;
+      if (!container) return;
+
+      let currentScrollbarEl: HTMLElement | null = null;
+
+      const handleScrollbarWheel = (e: WheelEvent) => {
+          const innerEl = container.querySelector('.rc-virtual-list-holder-inner') as HTMLElement | null;
+          const holderEl = container.querySelector('.rc-virtual-list-holder') as HTMLElement | null;
+          if (!innerEl || !holderEl) return;
+
+          const dominantDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          if (Math.abs(dominantDelta) < 0.5) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          // 读取当前 marginLeft（负值表示向右偏移）
+          const currentMarginLeft = parseFloat(innerEl.style.marginLeft) || 0;
+          const contentWidth = tableScrollX;
+          const viewportWidth = holderEl.clientWidth;
+          const maxScroll = Math.max(0, contentWidth - viewportWidth);
+
+          const currentOffset = Math.abs(currentMarginLeft);
+          const newOffset = Math.min(maxScroll, Math.max(0, currentOffset + dominantDelta));
+
+          // 直接更新内容位置
+          innerEl.style.marginLeft = `${-newOffset}px`;
+
+          // 同步 scrollbar thumb 位置
+          if (currentScrollbarEl && maxScroll > 0) {
+              const thumbEl = currentScrollbarEl.querySelector('[class*="scrollbar-thumb"]') as HTMLElement | null;
+              if (thumbEl) {
+                  const ratio = newOffset / maxScroll;
+                  const thumbWidth = parseFloat(thumbEl.style.width) || thumbEl.offsetWidth;
+                  const trackWidth = currentScrollbarEl.clientWidth;
+                  const thumbMaxOffset = trackWidth - thumbWidth;
+                  thumbEl.style.left = `${ratio * thumbMaxOffset}px`;
+              }
+          }
+
+          // 同步表头水平位置
+          const headerEl = container.querySelector('.ant-table-header') as HTMLElement | null;
+          if (headerEl) {
+              headerEl.scrollLeft = newOffset;
+          }
+      };
+
+      const bindScrollbar = () => {
+          const el = container.querySelector('.ant-table-tbody-virtual-scrollbar-horizontal') as HTMLElement | null;
+          if (el && el !== currentScrollbarEl) {
+              if (currentScrollbarEl) {
+                  currentScrollbarEl.removeEventListener('wheel', handleScrollbarWheel);
+              }
+              currentScrollbarEl = el;
+              el.addEventListener('wheel', handleScrollbarWheel, { passive: false });
+          }
+      };
+
+      // 初次尝试绑定
+      bindScrollbar();
+
+      // 使用 MutationObserver 监听 DOM 变化，确保即使元素延迟渲染也能绑定
+      const observer = new MutationObserver(() => {
+          bindScrollbar();
+      });
+      observer.observe(container, { childList: true, subtree: true });
+
+      return () => {
+          observer.disconnect();
+          if (currentScrollbarEl) {
+              currentScrollbarEl.removeEventListener('wheel', handleScrollbarWheel);
+          }
+      };
+  }, [viewMode, enableVirtual, tableScrollX, mergedDisplayData.length]);
+
+  useEffect(() => {
+      if (viewMode !== 'table') return;
+      const tableContainer = tableContainerRef.current;
+      const externalScroll = externalHScrollRef.current;
+      if (!(tableContainer instanceof HTMLElement) || !(externalScroll instanceof HTMLDivElement)) return;
+
+      let rafId: number | null = null;
+      let boundTargets: HTMLElement[] = [];
+
+      const handleTargetScroll = (event: Event) => {
+          const source = event.target as HTMLElement | null;
+          if (horizontalSyncSourceRef.current === 'external') return;
+          horizontalSyncSourceRef.current = 'table';
+          syncExternalScrollFromTargets(undefined, source);
+          horizontalSyncSourceRef.current = '';
+      };
+
+      const bindCurrentTableTargets = () => {
+          // Unbind previous targets
+          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll));
+          const nextTargets = pickHorizontalScrollTargets(tableContainer);
+          tableScrollTargetsRef.current = nextTargets;
+          boundTargets = nextTargets;
+          // Bind scroll listener on new targets
+          nextTargets.forEach(t => t.addEventListener('scroll', handleTargetScroll, { passive: true }));
+          syncExternalScrollFromTargets(nextTargets);
+      };
+
+      const scheduleBind = () => {
+          if (rafId !== null) {
+              cancelAnimationFrame(rafId);
+          }
+          rafId = requestAnimationFrame(() => {
+              bindCurrentTableTargets();
+          });
+      };
+
+      window.addEventListener('resize', scheduleBind);
+      scheduleBind();
+
+      return () => {
+          window.removeEventListener('resize', scheduleBind);
+          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll));
+          tableScrollTargetsRef.current = [];
+          if (rafId !== null) {
+              cancelAnimationFrame(rafId);
+          }
+      };
+  }, [viewMode, tableScrollX, mergedDisplayData.length, syncExternalScrollFromTargets, pickHorizontalScrollTargets]);
+
   return (
-    <div className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''} data-grid-root`} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: bgContent }}>
-		       {/* Toolbar */}
-		        <div className="data-grid-toolbar-scroll" style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, overflowX: 'auto', overflowY: 'hidden', scrollbarGutter: 'stable', WebkitOverflowScrolling: 'touch' }}>
+    <div className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''} data-grid-root`} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent' }}>
+		       {/* Toolbar + Filter Panel */}
+           <div style={{ margin: `${panelOuterGap}px 0 ${panelOuterGap}px 0`, border: `1px solid ${panelFrameColor}`, borderRadius: `${panelRadius}px`, background: bgFilter, overflow: 'hidden', boxSizing: 'border-box' }}>
+		        <div className="data-grid-toolbar-scroll" style={{ padding: showFilter ? `${panelPaddingY}px ${panelPaddingX}px ${toolbarBottomPadding}px ${panelPaddingX}px` : `${panelPaddingY}px ${panelPaddingX}px`, border: 'none', borderRadius: 0, background: 'transparent', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, overflowX: 'auto', overflowY: 'hidden', scrollbarGutter: 'stable', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
 	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
 	                setAddedRows([]);
 	                setModifiedRows({});
@@ -2456,12 +2877,12 @@ const DataGrid: React.FC<DataGridProps> = ({
 	               setSelectedRowKeys([]);
 	               onReload();
 	           }}>刷新</Button>}
-	           {tableName && <Button icon={<ImportOutlined />} onClick={handleImport}>导入</Button>}
-	           {tableName && <Dropdown menu={{ items: exportMenu }}><Button icon={<ExportOutlined />}>导出 <DownOutlined /></Button></Dropdown>}
+	           {canImport && <Button icon={<ImportOutlined />} onClick={handleImport}>导入</Button>}
+	           {canExport && <Dropdown menu={{ items: exportMenu }}><Button icon={<ExportOutlined />}>导出 <DownOutlined /></Button></Dropdown>}
 	           
 	           {canModifyData && (
 	               <>
-	                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+	                   <div style={{ width: 1, background: toolbarDividerColor, height: 20, margin: '0 8px' }} />
 	                   <Button icon={<PlusOutlined />} onClick={handleAddRow}>添加行</Button>
 	                   <Button
                            icon={<EditOutlined />}
@@ -2472,7 +2893,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                        </Button>
 	                   <Button icon={<DeleteOutlined />} danger disabled={selectedRowKeys.length === 0} onClick={handleDeleteSelected}>删除选中</Button>
 	                   {selectedRowKeys.length > 0 && <span style={{ fontSize: '12px', color: '#888' }}>已选 {selectedRowKeys.length}</span>}
-	                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+	                   <div style={{ width: 1, background: toolbarDividerColor, height: 20, margin: '0 8px' }} />
 	                   <Button
                             icon={<EditOutlined />}
                             type={cellEditMode ? 'primary' : 'default'}
@@ -2517,7 +2938,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                                </Button>
                            </>
                        )}
-	                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+	                   <div style={{ width: 1, background: toolbarDividerColor, height: 20, margin: '0 8px' }} />
 	                   <Button icon={<SaveOutlined />} type="primary" disabled={!hasChanges} onClick={handleCommit}>提交事务 ({addedRows.length + Object.keys(modifiedRows).length + deletedRowKeys.size})</Button>
 	                   {hasChanges && (<Button icon={<UndoOutlined />} onClick={() => {
 	                        setAddedRows([]);
@@ -2529,7 +2950,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
            {onToggleFilter && (
                <>
-                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+                   <div style={{ width: 1, background: toolbarDividerColor, height: 20, margin: '0 8px' }} />
                    <Button icon={<FilterOutlined />} type={showFilter ? 'primary' : 'default'} onClick={() => { 
                        onToggleFilter(); 
                        if (filterConditions.length === 0 && !showFilter) addFilter(); 
@@ -2539,7 +2960,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
            {isDuckDBConnection && onRequestTotalCount && (
                <>
-                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+                   <div style={{ width: 1, background: toolbarDividerColor, height: 20, margin: '0 8px' }} />
                    <Tooltip title={pagination?.totalCountLoading ? '取消本次精确总数统计（不会影响当前浏览）' : '按当前筛选统计精确总数'}>
                        <Button
                            icon={pagination?.totalCountLoading ? <CloseOutlined /> : <VerticalAlignBottomOutlined />}
@@ -2612,15 +3033,13 @@ const DataGrid: React.FC<DataGridProps> = ({
 	                   }}
 	               />
 	           </div>
-	       </div>
+	          </div>
 
-       {/* Filter Panel */}
        {showFilter && (
            <div style={{ 
-               padding: '8px', 
-               margin: '4px 8px 0 8px', 
-               borderRadius: '8px',
-               background: bgFilter, 
+               padding: `${filterTopPadding}px ${panelPaddingX}px ${panelPaddingY}px ${panelPaddingX}px`,
+               background: 'transparent',
+               boxSizing: 'border-box',
            }}>
                {filterConditions.map(cond => (
                    <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start', opacity: cond.enabled === false ? 0.58 : 1 }}>
@@ -2701,8 +3120,9 @@ const DataGrid: React.FC<DataGridProps> = ({
                </div>
            </div>
        )}
+       </div>
 
-	       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
+	       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0, background: bgContent, borderRadius: panelRadius, border: `1px solid ${panelFrameColor}`, boxSizing: 'border-box' }}>
 	        {contextHolder}
             <Modal
                 title="编辑行"
@@ -2754,6 +3174,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 	            title={cellEditorMeta ? `编辑单元格：${cellEditorMeta.title}` : '编辑单元格'}
 	            open={cellEditorOpen}
 	            onCancel={closeCellEditor}
+            destroyOnHidden
             width={960}
             maskClosable={false}
             footer={[
@@ -2767,21 +3188,23 @@ const DataGrid: React.FC<DataGridProps> = ({
             <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
                 {cellEditorMeta ? `${tableName || ''}${tableName ? '.' : ''}${cellEditorMeta.dataIndex}` : ''}
             </div>
-            <Editor
-                height="56vh"
-                language={cellEditorIsJson ? "json" : "plaintext"}
-                theme={darkMode ? "transparent-dark" : "transparent-light"}
-                value={cellEditorValue}
-                onChange={(val) => setCellEditorValue(val || '')}
-                options={{
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    wordWrap: "on",
-                    fontSize: 14,
-                    tabSize: 2,
-                    automaticLayout: true,
-                }}
-            />
+            {cellEditorOpen && (
+                <Editor
+                    height="56vh"
+                    language={cellEditorIsJson ? "json" : "plaintext"}
+                    theme={darkMode ? "transparent-dark" : "transparent-light"}
+                    value={cellEditorValue}
+                    onChange={(val) => setCellEditorValue(val || '')}
+                    options={{
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: "on",
+                        fontSize: 14,
+                        tabSize: 2,
+                        automaticLayout: true,
+                    }}
+                />
+            )}
         </Modal>
 
         {/* 批量编辑弹窗 */}
@@ -2814,6 +3237,7 @@ const DataGrid: React.FC<DataGridProps> = ({
             title="编辑 JSON 结果集"
             open={jsonEditorOpen}
             onCancel={() => setJsonEditorOpen(false)}
+            destroyOnHidden
             width={980}
             maskClosable={false}
             footer={[
@@ -2825,59 +3249,76 @@ const DataGrid: React.FC<DataGridProps> = ({
             <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
                 说明：此处按当前结果集顺序编辑，不支持在 JSON 模式增删记录（可在表格模式操作）。
             </div>
-            <Editor
-                height="56vh"
-                language="json"
-                theme={darkMode ? "transparent-dark" : "transparent-light"}
-                value={jsonEditorValue}
-                onChange={(val) => setJsonEditorValue(val || '')}
-                options={{
-                    readOnly: false,
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    wordWrap: "off",
-                    fontSize: 12,
-                    tabSize: 2,
-                    automaticLayout: true,
-                }}
-            />
+            {jsonEditorOpen && (
+                <Editor
+                    height="56vh"
+                    language="json"
+                    theme={darkMode ? "transparent-dark" : "transparent-light"}
+                    value={jsonEditorValue}
+                    onChange={(val) => setJsonEditorValue(val || '')}
+                    options={{
+                        readOnly: false,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: "off",
+                        fontSize: 12,
+                        tabSize: 2,
+                        automaticLayout: true,
+                    }}
+                />
+            )}
         </Modal>
 
         {viewMode === 'table' ? (
-            <Form component={false} form={form}>
-                <DataContext.Provider value={dataContextValue}>
-                    <CellContextMenuContext.Provider value={cellContextMenuValue}>
-                            <EditableContext.Provider value={form}>
-                                <Table
-                                    components={tableComponents}
-                                    dataSource={mergedDisplayData}
-                                    columns={mergedColumns}
-                                    showSorterTooltip={{ target: 'sorter-icon' }}
-                                    size="small"
-                                    tableLayout="fixed"
-                                    scroll={{ x: tableScrollX, y: tableHeight }}
-                                    sticky={tableStickyConfig}
-                                    virtual={enableVirtual}
-                                        loading={loading}
-                                        rowKey={GONAVI_ROW_KEY}
-                                        pagination={false}
-                                        onChange={handleTableChange}
-                                        bordered
-                                        rowSelection={rowSelectionConfig}
-                                        rowClassName={(record) => {
-                                            const k = record?.[GONAVI_ROW_KEY];
-                                            if (k === undefined || k === null) return '';
-                                            const keyStr = rowKeyStr(k);
-                                            if (addedRowKeySet.has(keyStr)) return 'row-added';
-                                            if (modifiedRowKeySet.has(keyStr) || deletedRowKeys.has(keyStr)) return 'row-modified'; // deleted won't show
-                                            return '';
-                                        }}
-                                        onRow={rowPropsFactory}
-                                    />
-                            </EditableContext.Provider>
-                    </CellContextMenuContext.Provider>
-                </DataContext.Provider>
-            </Form>
+            <div
+                ref={tableContainerRef}
+                className={`data-grid-table-wrap${horizontalScrollVisible ? ' data-grid-table-wrap-external-active' : ''}`}
+                style={{ height: '100%', minHeight: 0, position: 'relative' }}
+            >
+                <Form component={false} form={form}>
+                    <DataContext.Provider value={dataContextValue}>
+                        <CellContextMenuContext.Provider value={cellContextMenuValue}>
+                                <EditableContext.Provider value={form}>
+                                    <Table
+                                        components={tableComponents}
+                                        dataSource={mergedDisplayData}
+                                        columns={mergedColumns}
+                                        showSorterTooltip={{ target: 'sorter-icon' }}
+                                        size="small"
+                                        tableLayout="fixed"
+                                        scroll={tableScrollConfig}
+                                        sticky={false}
+                                        virtual={enableVirtual}
+                                            loading={loading}
+                                            rowKey={GONAVI_ROW_KEY}
+                                            pagination={false}
+                                            onChange={handleTableChange}
+                                            bordered
+                                            rowSelection={rowSelectionConfig}
+                                            rowClassName={rowClassName}
+                                            onRow={tableOnRow}
+                                        />
+                                </EditableContext.Provider>
+                        </CellContextMenuContext.Provider>
+                    </DataContext.Provider>
+                </Form>
+                <div
+                    ref={externalHScrollRef}
+                    className="data-grid-external-hscroll"
+                    aria-hidden={!horizontalScrollVisible}
+                    onScroll={applyExternalScrollToTableTargets}
+                    onWheel={handleExternalHorizontalWheel}
+                    style={{
+                        opacity: horizontalScrollVisible ? 1 : 0,
+                        pointerEvents: horizontalScrollVisible ? 'auto' : 'none',
+                    }}
+                >
+                    <div
+                        className="data-grid-external-hscroll-inner"
+                        style={{ width: `${Math.max(horizontalScrollWidth, externalScrollbarMinWidth)}px` }}
+                    />
+                </div>
+            </div>
         ) : viewMode === 'json' ? (
             <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '8px 10px', borderBottom: darkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2996,21 +3437,23 @@ const DataGrid: React.FC<DataGridProps> = ({
                     填充到选中行 ({selectedRowKeys.length})
                 </div>
                 <div style={{ height: 1, background: darkMode ? '#303030' : '#f0f0f0', margin: '4px 0' }} />
-                <div
-                    style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        transition: 'background 0.2s',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    onClick={() => {
-                        if (cellContextMenu.record) handleCopyInsert(cellContextMenu.record);
-                        setCellContextMenu(prev => ({ ...prev, visible: false }));
-                    }}
-                >
-                    复制为 INSERT
-                </div>
+                {supportsCopyInsert && (
+                    <div
+                        style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            transition: 'background 0.2s',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        onClick={() => {
+                            if (cellContextMenu.record) handleCopyInsert(cellContextMenu.record);
+                            setCellContextMenu(prev => ({ ...prev, visible: false }));
+                        }}
+                    >
+                        复制为 INSERT
+                    </div>
+                )}
                 <div
                     style={{
                         padding: '8px 12px',
@@ -3159,25 +3602,56 @@ const DataGrid: React.FC<DataGridProps> = ({
 	                .${gridId} .data-grid-toolbar-scroll::-webkit-scrollbar-track {
 	                    background: transparent;
 	                }
-	                .${gridId} .ant-table { background: transparent !important; }
-                .${gridId} .ant-table-container { background: transparent !important; border: none !important; }
-                .${gridId} .ant-table-tbody > tr > td { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
+                .${gridId} .ant-table,
+                .${gridId} .ant-table-wrapper,
+                .${gridId} .ant-table-container {
+                    background: transparent !important;
+                    border-radius: ${panelRadius}px !important;
+                }
+                .${gridId} .ant-table-wrapper,
+                .${gridId} .ant-table-container {
+                    border: none !important;
+                    overflow: hidden !important;
+                }
+                .${gridId} .ant-table-tbody > tr > td,
+                .${gridId} .ant-table-tbody .ant-table-row > .ant-table-cell { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
+                .${gridId} .ant-table-thead > tr:first-child > th:first-child,
+                .${gridId} .ant-table-header table > thead > tr:first-child > th:first-child {
+                    border-top-left-radius: ${panelRadius}px !important;
+                }
+                .${gridId} .ant-table-thead > tr:first-child > th:last-child,
+                .${gridId} .ant-table-header table > thead > tr:first-child > th:last-child {
+                    border-top-right-radius: ${panelRadius}px !important;
+                }
+                .${gridId} .ant-table-body {
+                    border-bottom-left-radius: ${panelRadius}px !important;
+                    border-bottom-right-radius: ${panelRadius}px !important;
+                }
                 .${gridId} .ant-table-thead > tr > th::before { display: none !important; }
                 .${gridId} .ant-table-thead > tr > th .ant-table-column-sorters { cursor: default !important; }
                 .${gridId} .ant-table-thead > tr > th .ant-table-column-sorter,
                 .${gridId} .ant-table-thead > tr > th .ant-table-column-sorter * { cursor: pointer !important; }
-                .${gridId} .ant-table-tbody > tr:hover > td { background-color: ${darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'} !important; }
-                .${gridId} .ant-table-tbody > tr.ant-table-row-selected > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.15)' : 'rgba(24, 144, 255, 0.08)'} !important; }
-                .${gridId} .ant-table-tbody > tr.ant-table-row-selected:hover > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.25)' : 'rgba(24, 144, 255, 0.12)'} !important; }
-	            .${gridId} .row-added td { background-color: ${rowAddedBg} !important; color: ${darkMode ? '#e6fffb' : 'inherit'}; }
-	            .${gridId} .row-modified td { background-color: ${rowModBg} !important; color: ${darkMode ? '#e6f7ff' : 'inherit'}; }
-                .${gridId} .ant-table-tbody > tr.row-added:hover > td { background-color: ${rowAddedHover} !important; }
-                .${gridId} .ant-table-tbody > tr.row-modified:hover > td { background-color: ${rowModHover} !important; }
-                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-col-name] { user-select: none; -webkit-user-select: none; cursor: crosshair; }
-                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-cell-selected="true"] {
-                    box-shadow: inset 0 0 0 2px #1890ff;
-                    background-image: linear-gradient(${darkMode ? 'rgba(24, 144, 255, 0.18)' : 'rgba(24, 144, 255, 0.08)'}, ${darkMode ? 'rgba(24, 144, 255, 0.18)' : 'rgba(24, 144, 255, 0.08)'});
+                .${gridId} .ant-table-tbody > tr:hover > td,
+                .${gridId} .ant-table-tbody .ant-table-row:hover > .ant-table-cell { background-color: ${darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'} !important; }
+                .${gridId} .ant-table-tbody > tr.ant-table-row-selected > td,
+                .${gridId} .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell { background-color: ${darkMode ? `rgba(${selectionAccentRgb}, 0.18)` : `rgba(${selectionAccentRgb}, 0.08)`} !important; }
+                .${gridId} .ant-table-tbody > tr.ant-table-row-selected:hover > td,
+                .${gridId} .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell { background-color: ${darkMode ? `rgba(${selectionAccentRgb}, 0.28)` : `rgba(${selectionAccentRgb}, 0.12)`} !important; }
+	            .${gridId} .row-added td,
+	            .${gridId} .row-added > .ant-table-cell { background-color: ${rowAddedBg} !important; color: ${darkMode ? '#e6fffb' : 'inherit'}; }
+	            .${gridId} .row-modified td,
+	            .${gridId} .row-modified > .ant-table-cell { background-color: ${rowModBg} !important; color: ${darkMode ? '#e6f7ff' : 'inherit'}; }
+                .${gridId} .ant-table-tbody > tr.row-added:hover > td,
+                .${gridId} .ant-table-tbody .ant-table-row.row-added:hover > .ant-table-cell { background-color: ${rowAddedHover} !important; }
+                .${gridId} .ant-table-tbody > tr.row-modified:hover > td,
+                .${gridId} .ant-table-tbody .ant-table-row.row-modified:hover > .ant-table-cell { background-color: ${rowModHover} !important; }
+                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-col-name],
+                .${gridId}.cell-edit-mode .ant-table-tbody .ant-table-row > .ant-table-cell[data-col-name] { user-select: none; -webkit-user-select: none; cursor: crosshair; }
+                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-cell-selected="true"],
+                .${gridId}.cell-edit-mode .ant-table-tbody .ant-table-row > .ant-table-cell[data-cell-selected="true"] {
+                    box-shadow: inset 0 0 0 2px ${selectionAccentHex};
+                    background-image: linear-gradient(${darkMode ? `rgba(${selectionAccentRgb}, 0.20)` : `rgba(${selectionAccentRgb}, 0.08)`}, ${darkMode ? `rgba(${selectionAccentRgb}, 0.20)` : `rgba(${selectionAccentRgb}, 0.08)`});
                 }
                 .${gridId} .ant-table-content,
                 .${gridId} .ant-table-body {
@@ -3188,13 +3662,103 @@ const DataGrid: React.FC<DataGridProps> = ({
                     box-sizing: border-box;
                     scroll-padding-bottom: ${tableBodyBottomPadding}px;
                 }
-                .${gridId} .ant-table-sticky-scroll {
-                    height: 10px !important;
-                    background: ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'};
-                    z-index: 20 !important;
+                .${gridId} .data-grid-table-wrap {
+                    width: 100%;
+                    max-width: 100%;
+                    overflow: hidden;
                 }
-                .${gridId} .ant-table-sticky-scroll-bar {
-                    background: ${darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.28)'} !important;
+                .${gridId} .ant-table-sticky-scroll {
+                    display: none !important;
+                }
+                .${gridId} .ant-table-tbody-virtual-scrollbar.ant-table-tbody-virtual-scrollbar-horizontal {
+                    height: ${floatingScrollbarHeight + 4}px !important;
+                    bottom: ${floatingScrollbarGap}px !important;
+                    left: ${floatingScrollbarInset}px !important;
+                    right: ${floatingScrollbarInset}px !important;
+                    background: transparent !important;
+                    visibility: visible !important;
+                    pointer-events: auto !important;
+                    z-index: 24;
+                }
+                .${gridId} .ant-table-tbody-virtual-scrollbar.ant-table-tbody-virtual-scrollbar-horizontal .ant-table-tbody-virtual-scrollbar-thumb {
+                    background: ${horizontalScrollbarThumbBg} !important;
+                    border: 1px solid ${horizontalScrollbarThumbBorderColor} !important;
+                    border-radius: 999px !important;
+                    box-shadow: ${horizontalScrollbarThumbShadow} !important;
+                    height: ${floatingScrollbarHeight}px !important;
+                    margin-top: 2px;
+                }
+                .${gridId} .data-grid-table-wrap.data-grid-table-wrap-external-active .ant-table-content {
+                    overflow-x: hidden !important;
+                }
+                .${gridId} .data-grid-table-wrap.data-grid-table-wrap-external-active .ant-table-body {
+                    overflow-x: hidden !important;
+                    overflow-y: auto !important;
+                }
+                .${gridId} .ant-table-body {
+                    scrollbar-width: thin;
+                    scrollbar-color: ${floatingScrollbarThumbBg} transparent;
+                }
+                .${gridId} .ant-table-body::-webkit-scrollbar {
+                    width: ${floatingScrollbarHeight}px;
+                    height: 0;
+                }
+                .${gridId} .ant-table-body::-webkit-scrollbar-track {
+                    background: transparent;
+                    margin: 8px 0;
+                }
+                .${gridId} .ant-table-body::-webkit-scrollbar-thumb {
+                    background: ${floatingScrollbarThumbBg};
+                    border: 1px solid ${floatingScrollbarThumbBorderColor};
+                    border-radius: 999px;
+                    box-shadow: ${floatingScrollbarThumbShadow};
+                }
+                .${gridId} .rc-virtual-list-holder {
+                    scrollbar-width: thin;
+                    scrollbar-color: ${floatingScrollbarThumbBg} transparent;
+                }
+                .${gridId} .rc-virtual-list-holder::-webkit-scrollbar {
+                    width: ${floatingScrollbarHeight}px;
+                    height: 0;
+                }
+                .${gridId} .rc-virtual-list-holder::-webkit-scrollbar-track {
+                    background: transparent;
+                    margin: 8px 0;
+                }
+                .${gridId} .rc-virtual-list-holder::-webkit-scrollbar-thumb {
+                    background: ${floatingScrollbarThumbBg};
+                    border: 1px solid ${floatingScrollbarThumbBorderColor};
+                    border-radius: 999px;
+                    box-shadow: ${floatingScrollbarThumbShadow};
+                }
+                .${gridId} .data-grid-external-hscroll {
+                    position: absolute;
+                    left: ${floatingScrollbarInset}px;
+                    right: ${floatingScrollbarInset}px;
+                    bottom: ${floatingScrollbarGap}px;
+                    height: ${floatingScrollbarHeight + 4}px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    background: transparent;
+                    z-index: 24;
+                }
+                .${gridId} .data-grid-external-hscroll::-webkit-scrollbar {
+                    height: ${floatingScrollbarHeight}px;
+                }
+                .${gridId} .data-grid-external-hscroll::-webkit-scrollbar-track {
+                    background: ${horizontalScrollbarTrackBg};
+                    border: 1px solid ${horizontalScrollbarTrackBorderColor};
+                    border-radius: 999px;
+                    box-shadow: ${horizontalScrollbarTrackShadow};
+                }
+                .${gridId} .data-grid-external-hscroll::-webkit-scrollbar-thumb {
+                    background: ${horizontalScrollbarThumbBg};
+                    border: 1px solid ${horizontalScrollbarThumbBorderColor};
+                    border-radius: 999px;
+                    box-shadow: ${horizontalScrollbarThumbShadow};
+                }
+                .${gridId} .data-grid-external-hscroll-inner {
+                    height: 1px;
                 }
 	        `}</style>
        
@@ -3207,7 +3771,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                bottom: 0, // Fits container height
                left: 0,
                width: '2px',
-               background: '#1890ff',
+               background: selectionAccentHex,
                zIndex: 9999,
                display: 'none',
                pointerEvents: 'none',
