@@ -137,10 +137,10 @@ jobs:
         continue-on-error: true
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-x86_64-gcc  
+            mingw-w64-ucrt-x86_64-gcc
 
       - name: Configure DuckDB CGO Toolchain (Windows AMD64)
         if: ${{ matrix.build_optional_agents && matrix.platform == 'windows/amd64' }}
@@ -164,28 +164,26 @@ jobs:
           $msys2Location = "${{ steps.msys2_duckdb.outputs['msys2-location'] }}"
           $candidateBins = @()
           if (-not [string]::IsNullOrWhiteSpace($msys2Location)) {
-            $candidateBins += Join-Path $msys2Location 'mingw64\bin'
+            $candidateBins += Join-Path $msys2Location 'ucrt64\bin'
           }
           $candidateBins += @(
-            'C:\msys64\mingw64\bin',
-            'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
+            'C:\msys64\ucrt64\bin',
+            'D:\a\_temp\msys64\ucrt64\bin'
           )
           $candidateBins = @($candidateBins | Select-Object -Unique)
 
           $mingwBin = Find-MingwBin $candidateBins
           if (-not $mingwBin) {
             if ($msys2Outcome -ne 'success') {
-              Write-Warning "⚠️ MSYS2 安装步骤结果为 $msys2Outcome，回退到本机探测/Chocolatey 安装 MinGW"
+              Write-Warning "⚠️ MSYS2 安装步骤结果为 $msys2Outcome，回退到 UCRT64 本机路径探测"
             } else {
-              Write-Warning "⚠️ MSYS2 已执行，但未找到 gcc/g++，回退到本机探测/Chocolatey 安装 MinGW"
+              Write-Warning "⚠️ MSYS2 已执行，但未找到 UCRT64 gcc/g++，回退到本机路径探测"
             }
-
-            choco install mingw --yes --no-progress
             $mingwBin = Find-MingwBin $candidateBins
           }
 
           if (-not $mingwBin) {
-            Write-Error "❌ 未找到可用的 DuckDB 编译器。已检查：$($candidateBins -join ', ')"
+            Write-Error "❌ 未找到可用的 DuckDB UCRT64 编译器。已检查：$($candidateBins -join ', ')"
             exit 1
           }
 
