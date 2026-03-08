@@ -36,8 +36,14 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, 
 	import { SavedConnection } from '../types';
 	import { DBGetDatabases, DBGetTables, DBQuery, DBShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase, RenameDatabase, DropDatabase, RenameTable, DropTable, DropView, DropFunction, RenameView } from '../../wailsjs/go/app/App';
   import { normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
+import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 
 const { Search } = Input;
+
+const isForceReadOnlyNode = (node: any): boolean => {
+  const config = node?.dataRef?.config || node?.dataRef;
+  return getDataSourceCapabilities(config as any).forceReadOnlyQueryResult;
+};
 
 interface TreeNode {
   title: string;
@@ -3154,14 +3160,41 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                    });
                }
              },
-             {
-                 key: 'run-sql',
-                 label: '运行 SQL 文件...',
-                 icon: <FileAddOutlined />,
-                 onClick: () => handleRunSQLFile(node)
-             }
-       ];
+        ];
     } else if (node.type === 'view') {
+        const forceReadOnlyNode = isForceReadOnlyNode(node);
+        if (forceReadOnlyNode) {
+            return [
+                {
+                    key: 'open-view',
+                    label: '浏览视图数据',
+                    icon: <EyeOutlined />,
+                    onClick: () => onDoubleClick(null, node)
+                },
+                {
+                    key: 'view-definition',
+                    label: '查看视图定义',
+                    icon: <CodeOutlined />,
+                    onClick: () => openViewDefinition(node)
+                },
+                { type: 'divider' },
+                {
+                    key: 'new-query',
+                    label: '新建查询',
+                    icon: <ConsoleSqlOutlined />,
+                    onClick: () => {
+                        addTab({
+                            id: `query-${Date.now()}`,
+                            title: `新建查询`,
+                            type: 'query',
+                            connectionId: node.dataRef.id,
+                            dbName: node.dataRef.dbName,
+                            query: ""
+                        });
+                    }
+                },
+            ];
+        }
         return [
             {
                 key: 'open-view',
@@ -3193,7 +3226,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                         type: 'query',
                         connectionId: node.dataRef.id,
                         dbName: node.dataRef.dbName,
-                        query: ''
+                        query: ""
                     });
                 }
             },
@@ -3242,6 +3275,45 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
             },
         ];
     } else if (node.type === 'table') {
+        const forceReadOnlyNode = isForceReadOnlyNode(node);
+        if (forceReadOnlyNode) {
+            return [
+                {
+                    key: 'open-table',
+                    label: '浏览数据',
+                    icon: <EyeOutlined />,
+                    onClick: () => onDoubleClick(null, node)
+                },
+                {
+                    key: 'new-query',
+                    label: '新建查询',
+                    icon: <ConsoleSqlOutlined />,
+                    onClick: () => {
+                       addTab({
+                           id: `query-${Date.now()}`,
+                           title: `新建查询`,
+                           type: 'query',
+                           connectionId: node.dataRef.id,
+                           dbName: node.dataRef.dbName,
+                           query: ""
+                       });
+                    }
+                },
+                { type: 'divider' },
+                {
+                    key: 'export',
+                    label: '导出表数据',
+                    icon: <ExportOutlined />,
+                    children: [
+                        { key: 'export-csv', label: '导出 CSV', onClick: () => handleExport(node, 'csv') },
+                        { key: 'export-xlsx', label: '导出 Excel (XLSX)', onClick: () => handleExport(node, 'xlsx') },
+                        { key: 'export-json', label: '导出 JSON', onClick: () => handleExport(node, 'json') },
+                        { key: 'export-md', label: '导出 Markdown', onClick: () => handleExport(node, 'md') },
+                        { key: 'export-html', label: '导出 HTML', onClick: () => handleExport(node, 'html') },
+                    ]
+                }
+            ];
+        }
         return [
             {
                 key: 'new-query',
@@ -3254,7 +3326,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                        type: 'query',
                        connectionId: node.dataRef.id,
                        dbName: node.dataRef.dbName,
-                       query: ''
+                       query: ""
                    });
                 }
             },

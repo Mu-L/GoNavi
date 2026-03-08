@@ -40,7 +40,7 @@ GoNavi is designed for developers and DBAs who need a unified desktop experience
 | Search | Sphinx | Optional driver agent | SphinxQL querying and object browsing |
 | Relational | SQL Server | Optional driver agent | Schema browsing, SQL query, object management |
 | File-based | SQLite | Optional driver agent | Local DB browsing, editing, export |
-| File-based | DuckDB | Optional driver agent | Large-table query, pagination, file-DB workflow |
+| File-based | DuckDB | Optional driver agent | Large-table query, pagination, file-DB workflow, Parquet mounting |
 | Domestic DB | Dameng | Optional driver agent | Querying, object browsing, data editing |
 | Domestic DB | Kingbase | Optional driver agent | Querying, object browsing, data editing |
 | Domestic DB | HighGo | Optional driver agent | Querying, object browsing, data editing |

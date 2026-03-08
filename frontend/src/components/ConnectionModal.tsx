@@ -3,6 +3,7 @@ import { Modal, Form, Input, InputNumber, Button, message, Checkbox, Divider, Se
 import { DatabaseOutlined, ConsoleSqlOutlined, FileTextOutlined, CloudServerOutlined, AppstoreAddOutlined, CloudOutlined, CheckCircleFilled, CloseCircleFilled, LinkOutlined, EditOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
+import { looksLikeDuckDBParquetPath, resolveDuckDBMode } from '../utils/duckdb';
 import { DBGetDatabases, GetDriverStatusList, MongoDiscoverMembers, TestConnection, RedisConnect, SelectDatabaseFile, SelectSSHKeyFile } from '../../wailsjs/go/app/App';
 import { ConnectionConfig, MongoMemberInfo, SavedConnection } from '../types';
 
@@ -118,6 +119,9 @@ const ConnectionModal: React.FC<{
   const [driverStatusLoaded, setDriverStatusLoaded] = useState(false);
   const [selectingDbFile, setSelectingDbFile] = useState(false);
   const [selectingSSHKey, setSelectingSSHKey] = useState(false);
+  const watchedDuckDBMode = Form.useWatch('duckdbMode', form);
+  const isDuckDBParquetMode = dbType === 'duckdb'
+      && resolveDuckDBMode(watchedDuckDBMode, String(form.getFieldValue('host') || '')) === 'parquet';
   const testInFlightRef = useRef(false);
   const testTimerRef = useRef<number | null>(null);
   const addConnection = useStore((state) => state.addConnection);
@@ -245,15 +249,17 @@ const ConnectionModal: React.FC<{
       }
   };
 
-  const resolveDriverUnavailableReason = async (type: string): Promise<string> => {
+  const resolveDriverUnavailableReason = async (type: string, options?: { allowFetch?: boolean }): Promise<string> => {
       const normalized = normalizeDriverType(type);
       if (!normalized || normalized === 'custom') {
           return '';
       }
+      const allowFetch = options?.allowFetch !== false;
       let snapshot = driverStatusMap;
-      if (!snapshot[normalized]) {
+      if (!snapshot[normalized] && allowFetch) {
           snapshot = await fetchDriverStatusMap();
           setDriverStatusMap(snapshot);
+          setDriverStatusLoaded(true);
       }
       const status = snapshot[normalized];
       if (!status || status.connectable) {
@@ -533,14 +539,25 @@ const ConnectionModal: React.FC<{
       }
 
       if (isFileDatabaseType(type)) {
-          const rawPath = trimmedUri
+          let rawPath = trimmedUri
               .replace(/^sqlite:\/\//i, '')
               .replace(/^duckdb:\/\//i, '')
               .trim();
+          let duckdbMode = 'database';
+          if (type === 'duckdb') {
+              const queryIndex = rawPath.indexOf('?');
+              const searchText = queryIndex >= 0 ? rawPath.slice(queryIndex + 1) : '';
+              if (queryIndex >= 0) {
+                  rawPath = rawPath.slice(0, queryIndex).trim();
+              }
+              duckdbMode = resolveDuckDBMode(new URLSearchParams(searchText).get('mode'), safeDecode(rawPath));
+          }
           if (!rawPath) {
               return null;
           }
-          return { host: normalizeFileDbPath(safeDecode(rawPath)) };
+          return type === 'duckdb'
+              ? { host: normalizeFileDbPath(safeDecode(rawPath)), duckdbMode }
+              : { host: normalizeFileDbPath(safeDecode(rawPath)) };
       }
 
       if (type === 'redis') {
@@ -753,7 +770,9 @@ const ConnectionModal: React.FC<{
       }
       if (isFileDatabaseType(dbType)) {
           return dbType === 'duckdb'
-              ? 'duckdb:///Users/name/demo.duckdb'
+              ? (isDuckDBParquetMode
+                  ? 'duckdb:///Users/name/demo.parquet?mode=parquet'
+                  : 'duckdb:///Users/name/demo.duckdb')
               : 'sqlite:///Users/name/demo.sqlite';
       }
       if (dbType === 'mongodb') {
@@ -839,11 +858,19 @@ const ConnectionModal: React.FC<{
           const scheme = values.useSSL ? 'rediss' : 'redis';
           return `${scheme}://${redisAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
       }
-
       if (isFileDatabaseType(type)) {
           const pathText = normalizeFileDbPath(String(values.host || '').trim());
           if (!pathText) {
               return `${type}://`;
+          }
+          if (type === 'duckdb') {
+              const params = new URLSearchParams();
+              const duckdbMode = resolveDuckDBMode(values.duckdbMode, pathText);
+              if (duckdbMode === 'parquet') {
+                  params.set('mode', 'parquet');
+              }
+              const query = params.toString();
+              return `${type}://${encodeURI(pathText)}${query ? `?${query}` : ''}`;
           }
           return `${type}://${encodeURI(pathText)}`;
       }
@@ -1027,7 +1054,15 @@ const ConnectionModal: React.FC<{
               const data = res.data || {};
               const selectedPath = typeof data === 'string' ? data : String(data.path || '').trim();
               if (selectedPath) {
-                  form.setFieldValue('host', normalizeFileDbPath(selectedPath));
+                  const normalizedPath = normalizeFileDbPath(selectedPath);
+                  if (dbType === 'duckdb') {
+                      form.setFieldsValue({
+                          host: normalizedPath,
+                          duckdbMode: looksLikeDuckDBParquetPath(normalizedPath) ? 'parquet' : 'database',
+                      });
+                  } else {
+                      form.setFieldValue('host', normalizedPath);
+                  }
               }
           } else if (res?.message !== 'Cancelled') {
               message.error(`选择数据库文件失败: ${res?.message || '未知错误'}`);
@@ -1086,6 +1121,7 @@ const ConnectionModal: React.FC<{
                   user: config.user,
                   password: config.password,
                   database: config.database,
+                  duckdbMode: configType === 'duckdb' ? resolveDuckDBMode((config as any).duckdbMode, primaryHost) : 'database',
                   uri: config.uri || '',
                   includeDatabases: initialValues.includeDatabases,
                   includeRedisDatabases: initialValues.includeRedisDatabases,
@@ -1194,7 +1230,7 @@ const ConnectionModal: React.FC<{
       const isRedisType = values.type === 'redis';
       const newConn = {
         id: initialValues ? initialValues.id : Date.now().toString(),
-        name: values.name || (isFileDatabaseType(values.type) ? (values.type === 'duckdb' ? 'DuckDB DB' : 'SQLite DB') : (values.type === 'redis' ? `Redis ${displayHost}` : displayHost)),
+        name: values.name || (isFileDatabaseType(values.type) ? (values.type === 'duckdb' ? (resolveDuckDBMode(values.duckdbMode, String(values.host || '')) === 'parquet' ? 'DuckDB Parquet' : 'DuckDB DB') : 'SQLite DB') : (values.type === 'redis' ? 'Redis ' + displayHost : displayHost)),
         config: config,
         includeDatabases: values.includeDatabases,
         includeRedisDatabases: isRedisType ? values.includeRedisDatabases : undefined
@@ -1514,6 +1550,7 @@ const ConnectionModal: React.FC<{
           password: keepPassword ? (mergedValues.password || "") : "",
           savePassword: savePassword,
           database: mergedValues.database || "",
+          duckdbMode: type === 'duckdb' ? resolveDuckDBMode(mergedValues.duckdbMode, primaryHost) : undefined,
           useSSL: effectiveUseSSL,
           sslMode: effectiveUseSSL ? sslMode : 'disable',
           sslCertPath: sslCertPath,
@@ -1544,9 +1581,8 @@ const ConnectionModal: React.FC<{
           mongoReplicaPassword: keepPassword ? mongoReplicaPassword : "",
       };
   };
-
   const handleTypeSelect = async (type: string) => {
-      const unavailableReason = await resolveDriverUnavailableReason(type);
+      const unavailableReason = await resolveDriverUnavailableReason(type, { allowFetch: false });
       if (unavailableReason) {
           const normalized = normalizeDriverType(type);
           const driverName = driverStatusMap[normalized]?.name || type;
@@ -1556,6 +1592,9 @@ const ConnectionModal: React.FC<{
       setTypeSelectWarning(null);
       setDbType(type);
       form.setFieldsValue({ type: type });
+      if (!driverStatusLoaded) {
+          void refreshDriverStatus();
+      }
 
       const defaultPort = getDefaultPortByType(type);
       if (isFileDatabaseType(type)) {
@@ -1569,6 +1608,7 @@ const ConnectionModal: React.FC<{
               user: '',
               password: '',
               database: '',
+              duckdbMode: type === 'duckdb' ? 'database' : undefined,
               useSSL: false,
               sslMode: 'preferred',
               sslCertPath: '',
@@ -1811,15 +1851,29 @@ const ConnectionModal: React.FC<{
                   </>
               ) : (
                   <>
+                      {dbType === 'duckdb' && (
+                          <Form.Item
+                              name="duckdbMode"
+                              label="文件模式"
+                              help={isDuckDBParquetMode ? 'Parquet 会以只读视图挂载到 DuckDB，适合浏览与查询。' : '数据库文件模式保持 DuckDB 原生文件库行为。'}
+                          >
+                              <Select
+                                  options={[
+                                      { value: 'database', label: '数据库文件' },
+                                      { value: 'parquet', label: 'Parquet 文件' },
+                                  ]}
+                              />
+                          </Form.Item>
+                      )}
                       <div style={{ display: 'grid', gridTemplateColumns: isFileDb ? 'minmax(0, 1fr) 120px' : 'minmax(0, 1fr) 120px', gap: 16, alignItems: 'start' }}>
                           <Form.Item
                               name="host"
-                              label={isFileDb ? '文件路径 (绝对路径)' : '主机地址 (Host)'}
+                              label={isFileDb ? (isDuckDBParquetMode ? 'Parquet 文件路径 (绝对路径)' : '文件路径 (绝对路径)') : '主机地址 (Host)'}
                               rules={[createUriAwareRequiredRule('请输入地址/路径')]}
                               style={{ marginBottom: 0 }}
                           >
                               <Input
-                                  placeholder={isFileDb ? (dbType === 'duckdb' ? '/path/to/db.duckdb' : '/path/to/db.sqlite') : 'localhost'}
+                                  placeholder={isFileDb ? (dbType === 'duckdb' ? (isDuckDBParquetMode ? '/path/to/data.parquet' : '/path/to/db.duckdb') : '/path/to/db.sqlite') : 'localhost'}
                                   onDoubleClick={requestTest}
                               />
                           </Form.Item>
@@ -2330,6 +2384,7 @@ const ConnectionModal: React.FC<{
                   httpTunnelPort: 8080,
                   timeout: 30,
                   uri: '',
+                  duckdbMode: 'database',
                   mysqlTopology: 'single',
                   redisTopology: 'single',
                   mongoTopology: 'single',
@@ -2351,7 +2406,7 @@ const ConnectionModal: React.FC<{
                       setTestResult(null);
                       setTestErrorLogOpen(false);
                   }
-                  if (changed.uri !== undefined || changed.type !== undefined) {
+                  if (changed.uri !== undefined || changed.type !== undefined || changed.duckdbMode !== undefined) {
                       setUriFeedback(null);
                   }
                   if (changed.useSSL !== undefined) {

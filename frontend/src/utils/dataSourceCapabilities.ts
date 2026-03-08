@@ -1,6 +1,7 @@
 import type { ConnectionConfig } from '../types';
+import { resolveDuckDBMode } from './duckdb';
 
-type ConnectionLike = Pick<ConnectionConfig, 'type' | 'driver'> | null | undefined;
+type ConnectionLike = Pick<ConnectionConfig, 'type' | 'driver' | 'duckdbMode'> | null | undefined;
 
 const normalizeDataSourceToken = (raw: string): string => {
   const normalized = String(raw || '').trim().toLowerCase();
@@ -65,6 +66,11 @@ const COPY_INSERT_TYPES = new Set([
 const QUERY_EDITOR_DISABLED_TYPES = new Set(['redis']);
 const FORCE_READ_ONLY_QUERY_TYPES = new Set(['tdengine', 'clickhouse']);
 
+const isDuckDBParquetConnection = (config: ConnectionLike): boolean => {
+  return resolveDataSourceType(config) === 'duckdb'
+    && resolveDuckDBMode(config?.duckdbMode, '') === 'parquet';
+};
+
 export type DataSourceCapabilities = {
   type: string;
   supportsQueryEditor: boolean;
@@ -80,7 +86,7 @@ export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCap
     supportsQueryEditor: !QUERY_EDITOR_DISABLED_TYPES.has(type),
     supportsSqlQueryExport: SQL_QUERY_EXPORT_TYPES.has(type),
     supportsCopyInsert: COPY_INSERT_TYPES.has(type),
-    forceReadOnlyQueryResult: FORCE_READ_ONLY_QUERY_TYPES.has(type),
+    forceReadOnlyQueryResult: FORCE_READ_ONLY_QUERY_TYPES.has(type) || isDuckDBParquetConnection(config),
   };
 };
 

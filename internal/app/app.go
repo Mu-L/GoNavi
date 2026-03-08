@@ -112,6 +112,11 @@ func normalizeCacheKeyConfig(config connection.ConnectionConfig) connection.Conn
 		// DuckDB/SQLite 仅基于文件来源识别连接，其他网络字段不参与键计算。
 		normalized.Host = dsn
 		normalized.Database = ""
+		if normalized.Type == "duckdb" {
+			normalized.DuckDBMode = normalizeDuckDBConnectionMode(normalized.DuckDBMode, dsn)
+		} else {
+			normalized.DuckDBMode = ""
+		}
 		normalized.Port = 0
 		normalized.User = ""
 		normalized.Password = ""
@@ -131,6 +136,9 @@ func normalizeCacheKeyConfig(config connection.ConnectionConfig) connection.Conn
 		normalized.HTTPTunnel = connection.HTTPTunnelConfig{}
 	}
 
+	if normalized.Type != "duckdb" {
+		normalized.DuckDBMode = ""
+	}
 	return normalized
 }
 
@@ -143,6 +151,21 @@ func resolveFileDatabaseDSN(config connection.ConnectionConfig) string {
 		dsn = ":memory:"
 	}
 	return dsn
+}
+
+func normalizeDuckDBConnectionMode(raw string, sourcePath string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "parquet" {
+		return "parquet"
+	}
+	if mode == "database" {
+		return "database"
+	}
+	lowerPath := strings.ToLower(strings.TrimSpace(sourcePath))
+	if strings.HasSuffix(lowerPath, ".parquet") || strings.HasSuffix(lowerPath, ".parq") {
+		return "parquet"
+	}
+	return "database"
 }
 
 // Helper: Generate a unique key for the connection config
@@ -266,7 +289,12 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		if path == "" {
 			path = "(未配置)"
 		}
-		b.WriteString(fmt.Sprintf("类型=%s 路径=%s 超时=%ds", config.Type, path, timeoutSeconds))
+		if normalizedType == "duckdb" {
+			mode := normalizeDuckDBConnectionMode(config.DuckDBMode, path)
+			b.WriteString(fmt.Sprintf("类型=%s 模式=%s 路径=%s 超时=%ds", config.Type, mode, path, timeoutSeconds))
+		} else {
+			b.WriteString(fmt.Sprintf("类型=%s 路径=%s 超时=%ds", config.Type, path, timeoutSeconds))
+		}
 	} else {
 		b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
 			config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds))

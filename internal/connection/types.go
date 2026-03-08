@@ -35,6 +35,7 @@ type ConnectionConfig struct {
 	Password             string           `json:"password"`
 	SavePassword         bool             `json:"savePassword,omitempty"` // Persist password in saved connection
 	Database             string           `json:"database"`
+	DuckDBMode           string           `json:"duckdbMode,omitempty"`
 	UseSSL               bool             `json:"useSSL,omitempty"`      // MySQL-like SSL/TLS switch
 	SSLMode              string           `json:"sslMode,omitempty"`     // preferred | required | skip-verify | disable
 	SSLCertPath          string           `json:"sslCertPath,omitempty"` // TLS client certificate path (e.g., Dameng)

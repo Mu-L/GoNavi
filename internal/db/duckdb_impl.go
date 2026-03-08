@@ -6,8 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/utils"
@@ -16,6 +18,9 @@ import (
 type DuckDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
+	mode        string
+	sourcePath  string
+	mountedView string
 }
 
 func (d *DuckDB) Connect(config connection.ConnectionConfig) error {
@@ -23,11 +28,18 @@ func (d *DuckDB) Connect(config connection.ConnectionConfig) error {
 		return fmt.Errorf("DuckDB 驱动不可用：%s", reason)
 	}
 
-	dsn := strings.TrimSpace(config.Host)
-	if dsn == "" {
-		dsn = strings.TrimSpace(config.Database)
+	sourcePath := strings.TrimSpace(config.Host)
+	if sourcePath == "" {
+		sourcePath = strings.TrimSpace(config.Database)
 	}
-	if dsn == "" {
+	mode := normalizeDuckDBConnectionMode(config.DuckDBMode, sourcePath)
+	dsn := sourcePath
+	if mode == "parquet" {
+		if strings.TrimSpace(sourcePath) == "" || sourcePath == ":memory:" {
+			return fmt.Errorf("Parquet 文件模式要求提供 .parquet 或 .parq 文件路径")
+		}
+		dsn = ":memory:"
+	} else if dsn == "" {
 		dsn = ":memory:"
 	}
 
@@ -37,11 +49,21 @@ func (d *DuckDB) Connect(config connection.ConnectionConfig) error {
 	}
 	d.conn = db
 	d.pingTimeout = getConnectTimeout(config)
+	d.mode = mode
+	d.sourcePath = sourcePath
+	d.mountedView = ""
 
 	if err := d.Ping(); err != nil {
 		_ = db.Close()
 		d.conn = nil
 		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	if mode == "parquet" {
+		if err := d.mountParquetView(sourcePath); err != nil {
+			_ = db.Close()
+			d.conn = nil
+			return fmt.Errorf("连接建立后挂载 Parquet 失败：%w", err)
+		}
 	}
 	return nil
 }
@@ -399,6 +421,26 @@ func (d *DuckDB) ApplyChanges(tableName string, changes connection.ChangeSet) er
 	return tx.Commit()
 }
 
+func (d *DuckDB) mountParquetView(sourcePath string) error {
+	if d.conn == nil {
+		return fmt.Errorf("connection not open")
+	}
+	viewName := deriveDuckDBParquetViewName(sourcePath)
+	if viewName == "" {
+		viewName = "parquet_data"
+	}
+	query := fmt.Sprintf(
+		"CREATE OR REPLACE VIEW %s AS SELECT * FROM read_parquet('%s')",
+		quoteDuckDBQualifiedTable("main", viewName),
+		escapeDuckDBLiteral(sourcePath),
+	)
+	if _, err := d.conn.Exec(query); err != nil {
+		return err
+	}
+	d.mountedView = viewName
+	return nil
+}
+
 func normalizeDuckDBSchemaAndTable(dbName string, tableName string) (string, string) {
 	schema := strings.TrimSpace(dbName)
 	table := strings.TrimSpace(tableName)
@@ -463,4 +505,50 @@ func duckDBRowString(row map[string]interface{}, keys ...string) string {
 
 func escapeDuckDBLiteral(raw string) string {
 	return strings.ReplaceAll(raw, "'", "''")
+}
+
+func normalizeDuckDBConnectionMode(raw string, sourcePath string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "parquet" {
+		return "parquet"
+	}
+	if mode == "database" {
+		return "database"
+	}
+	lowerPath := strings.ToLower(strings.TrimSpace(sourcePath))
+	if strings.HasSuffix(lowerPath, ".parquet") || strings.HasSuffix(lowerPath, ".parq") {
+		return "parquet"
+	}
+	return "database"
+}
+
+func deriveDuckDBParquetViewName(sourcePath string) string {
+	baseName := strings.TrimSpace(filepath.Base(strings.TrimSpace(sourcePath)))
+	if ext := filepath.Ext(baseName); ext != "" {
+		baseName = strings.TrimSuffix(baseName, ext)
+	}
+	if baseName == "" {
+		return "parquet_data"
+	}
+
+	var builder strings.Builder
+	for _, r := range baseName {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			builder.WriteRune(unicode.ToLower(r))
+		case r == '_':
+			builder.WriteRune(r)
+		default:
+			builder.WriteRune('_')
+		}
+	}
+
+	name := strings.Trim(builder.String(), "_")
+	if name == "" {
+		name = "parquet_data"
+	}
+	if unicode.IsDigit(rune(name[0])) {
+		name = "parquet_" + name
+	}
+	return name
 }

@@ -148,7 +148,7 @@ func (a *App) SelectDatabaseFile(currentPath string, driverType string) connecti
 	filters := []runtime.FileFilter{
 		{
 			DisplayName: "数据库文件",
-			Pattern:     "*.db;*.sqlite;*.sqlite3;*.db3;*.duckdb;*.ddb",
+			Pattern:     "*.db;*.sqlite;*.sqlite3;*.db3;*.duckdb;*.ddb;*.parquet;*.parq",
 		},
 		{
 			DisplayName: "所有文件",
@@ -170,11 +170,11 @@ func (a *App) SelectDatabaseFile(currentPath string, driverType string) connecti
 			},
 		}
 	case "duckdb":
-		title = "选择 DuckDB 数据文件"
+		title = "选择 DuckDB / Parquet 文件"
 		filters = []runtime.FileFilter{
 			{
-				DisplayName: "DuckDB 文件",
-				Pattern:     "*.duckdb;*.ddb;*.db",
+				DisplayName: "DuckDB / Parquet 文件",
+				Pattern:     "*.duckdb;*.ddb;*.db;*.parquet;*.parq",
 			},
 			{
 				DisplayName: "所有文件",

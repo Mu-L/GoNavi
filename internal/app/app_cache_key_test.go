@@ -61,3 +61,34 @@ func TestGetCacheKey_KeepDatabaseIsolation(t *testing.T) {
 		t.Fatalf("expected different cache key for different database targets")
 	}
 }
+
+func TestGetCacheKey_DuckDBModeAffectsKey(t *testing.T) {
+	databaseMode := connection.ConnectionConfig{
+		Type:       "duckdb",
+		Host:       `D:\data\songs.parquet`,
+		DuckDBMode: "database",
+	}
+	parquetMode := databaseMode
+	parquetMode.DuckDBMode = "parquet"
+
+	left := getCacheKey(databaseMode)
+	right := getCacheKey(parquetMode)
+	if left == right {
+		t.Fatalf("expected different cache key for duckdb file modes")
+	}
+}
+
+func TestGetCacheKey_DuckDBParquetModeInferenceConsistent(t *testing.T) {
+	inferred := connection.ConnectionConfig{
+		Type: "duckdb",
+		Host: `D:\data\songs.parquet`,
+	}
+	explicit := inferred
+	explicit.DuckDBMode = "parquet"
+
+	left := getCacheKey(inferred)
+	right := getCacheKey(explicit)
+	if left != right {
+		t.Fatalf("expected same cache key for inferred and explicit parquet mode, got %s vs %s", left, right)
+	}
+}
