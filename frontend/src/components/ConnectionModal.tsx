@@ -568,6 +568,7 @@ const ConnectionModal: React.FC<{
           return {
               host: primary?.host || 'localhost',
               port: primary?.port || 6379,
+              user: parsed.username || '',
               password: parsed.password || '',
               useSSL: isRediss,
               sslMode: isRediss ? (skipVerify ? 'skip-verify' : 'required') : 'disable',
@@ -823,8 +824,15 @@ const ConnectionModal: React.FC<{
           if (hosts.length > 1 || values.redisTopology === 'cluster') {
               params.set('topology', 'cluster');
           }
+          const redisUser = String(values.user || '').trim();
           const redisPassword = String(values.password || '');
-          const redisAuth = redisPassword ? `:${encodeURIComponent(redisPassword)}@` : '';
+          let redisAuth = '';
+          if (redisUser || redisPassword) {
+              const encodedPassword = redisPassword ? encodeURIComponent(redisPassword) : '';
+              redisAuth = redisUser
+                  ? `${encodeURIComponent(redisUser)}${redisPassword ? `:${encodedPassword}` : ''}@`
+                  : `:${encodedPassword}@`;
+          }
           const redisDB = Number.isFinite(Number(values.redisDB))
               ? Math.max(0, Math.min(15, Math.trunc(Number(values.redisDB))))
               : 0;
@@ -1368,6 +1376,16 @@ const ConnectionModal: React.FC<{
       const defaultPort = getDefaultPortByType(type);
       const isFileDbType = isFileDatabaseType(type);
       const sslCapableType = supportsSSLForType(type);
+
+      // Redis 默认不展示用户名字段；若 URI 可解析则以 URI 为准覆盖 user，
+      // 同时清理历史默认值 root，避免 go-redis 发送 ACL AUTH(user, pass) 导致 WRONGPASS。
+      if (type === 'redis') {
+          if (parsedUriValues && Object.prototype.hasOwnProperty.call(parsedUriValues, 'user')) {
+              mergedValues.user = String((parsedUriValues as any).user || '');
+          } else if (String(mergedValues.user || '').trim() === 'root') {
+              mergedValues.user = '';
+          }
+      }
       const sslModeRaw = String(mergedValues.sslMode || 'preferred').trim().toLowerCase();
       const sslMode: 'preferred' | 'required' | 'skip-verify' | 'disable' = sslModeRaw === 'required'
           ? 'required'
@@ -1618,7 +1636,11 @@ const ConnectionModal: React.FC<{
               redisDB: 0,
           });
       } else if (type !== 'custom') {
-          const defaultUser = type === 'clickhouse' ? 'default' : 'root';
+          const defaultUser = type === 'clickhouse'
+              ? 'default'
+              : type === 'redis'
+                  ? ''
+                  : 'root';
           const sslCapableType = supportsSSLForType(type);
           setUseSSL(false);
           setUseHttpTunnel(false);
