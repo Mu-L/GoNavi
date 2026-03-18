@@ -3300,17 +3300,26 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [resolveVirtualHorizontalElements]);
 
   const applyVirtualHorizontalOffset = useCallback((tableContainer: HTMLElement, nextOffset: number) => {
-      const { holderEl, innerEl, headerEl } = resolveVirtualHorizontalElements(tableContainer);
+      const { holderEl, innerEl } = resolveVirtualHorizontalElements(tableContainer);
       if (!(holderEl instanceof HTMLElement) || !(innerEl instanceof HTMLElement)) {
           return false;
       }
 
       const maxScroll = Math.max(0, tableScrollX - holderEl.clientWidth);
       const clampedOffset = Math.max(0, Math.min(maxScroll, nextOffset));
-      innerEl.style.marginLeft = `${-clampedOffset}px`;
-      if (headerEl) {
-          headerEl.scrollLeft = clampedOffset;
-      }
+      const currentOffset = Math.abs(parseFloat(innerEl.style.marginLeft) || 0);
+      const deltaX = clampedOffset - currentOffset;
+      if (Math.abs(deltaX) < 0.5) return true;
+
+      // 通过合成 WheelEvent 驱动 rc-virtual-list 内部 offsetLeft state，
+      // 让 rc-table onInternalScroll 自动同步 header scrollLeft。
+      // 不直接操作 DOM marginLeft，避免 React re-render 覆盖。
+      holderEl.dispatchEvent(new WheelEvent('wheel', {
+          deltaX: deltaX,
+          deltaY: 0,
+          bubbles: true,
+          cancelable: true,
+      }));
       return true;
   }, [resolveVirtualHorizontalElements, tableScrollX]);
 
@@ -3387,14 +3396,15 @@ const DataGrid: React.FC<DataGridProps> = ({
 
       horizontalSyncSourceRef.current = 'external';
       const tableContainer = tableContainerRef.current;
-      // 虚拟表格路径：直接操作 DOM 的 marginLeft / scrollLeft，不依赖 liveTargets。
-      // 将此分支提前到 liveTargets 检查之前，避免 targets 在数据加载时暂时为空
-      // 导致虚拟表格的横向滚动同步被永久阻塞。
+      // 虚拟表格路径：通过合成 WheelEvent 驱动 rc-virtual-list 内部状态，
+      // rc-table 自动同步 header scrollLeft。
       if (enableVirtual && tableContainer instanceof HTMLElement) {
-          if (applyVirtualHorizontalOffset(tableContainer, externalScroll.scrollLeft)) {
-              lastTableScrollLeftRef.current = externalScroll.scrollLeft;
-          }
-          horizontalSyncSourceRef.current = '';
+          applyVirtualHorizontalOffset(tableContainer, externalScroll.scrollLeft);
+          // WheelEvent 经 rc-virtual-list 处理后状态异步更新，延迟同步 ref
+          requestAnimationFrame(() => {
+              lastTableScrollLeftRef.current = readVirtualHorizontalOffset(tableContainer);
+              horizontalSyncSourceRef.current = '';
+          });
           return;
       }
       // 非虚拟表格路径：依赖 liveTargets 进行 scrollLeft 同步
@@ -3413,7 +3423,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
       lastTableScrollLeftRef.current = externalScroll.scrollLeft;
       horizontalSyncSourceRef.current = '';
-  }, [applyVirtualHorizontalOffset, enableVirtual]);
+  }, [applyVirtualHorizontalOffset, enableVirtual, readVirtualHorizontalOffset]);
 
   // 外部水平滚动条的 wheel 处理（通过原生事件绑定，确保 preventDefault 生效）
   useEffect(() => {
@@ -3469,48 +3479,47 @@ const DataGrid: React.FC<DataGridProps> = ({
           if (!Number.isFinite(horizontalDelta) || Math.abs(horizontalDelta) < 0.5) return;
           if (!isTableDataAreaTarget(event.target)) return;
 
+          if (enableVirtual) {
+              // 虚拟模式：不拦截事件，让 rc-virtual-list 原生处理 wheel。
+              // rc-virtual-list 会通过内部 setOffsetLeft → re-render → onVirtualScroll
+              // 自动同步 header scrollLeft。
+              // 仅需在状态更新后同步外部横向滚动条。
+              horizontalSyncSourceRef.current = 'table';
+              requestAnimationFrame(() => {
+                  const nextScrollLeft = readVirtualHorizontalOffset(container);
+                  lastTableScrollLeftRef.current = nextScrollLeft;
+                  const externalScroll = externalHorizontalScrollRef.current;
+                  if (externalScroll && Math.abs(externalScroll.scrollLeft - nextScrollLeft) > 1) {
+                      externalScroll.scrollLeft = nextScrollLeft;
+                      lastExternalScrollLeftRef.current = nextScrollLeft;
+                  }
+                  horizontalSyncSourceRef.current = '';
+              });
+              return;
+          }
+
+          // 非虚拟模式：拦截事件并手动同步
           const targets = pickHorizontalScrollTargets(container);
           event.preventDefault();
           event.stopPropagation();
 
           horizontalSyncSourceRef.current = 'table';
-          let nextScrollLeft = 0;
-          if (enableVirtual) {
-              const currentOffset = readVirtualHorizontalOffset(container);
-              const { holderEl } = resolveVirtualHorizontalElements(container);
-              if (!(holderEl instanceof HTMLElement)) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              const maxScrollLeft = Math.max(0, tableScrollX - holderEl.clientWidth);
-              if (maxScrollLeft <= 0) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, currentOffset + horizontalDelta));
-              if (Math.abs(nextScrollLeft - currentOffset) < 1) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              applyVirtualHorizontalOffset(container, nextScrollLeft);
-          } else {
-              const activeTarget = targets.find((target) => target.scrollWidth > target.clientWidth + 1) || targets[0];
-              if (!(activeTarget instanceof HTMLElement)) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              const maxScrollLeft = Math.max(0, activeTarget.scrollWidth - activeTarget.clientWidth);
-              if (maxScrollLeft <= 0) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, activeTarget.scrollLeft + horizontalDelta));
-              if (Math.abs(nextScrollLeft - activeTarget.scrollLeft) < 1) {
-                  horizontalSyncSourceRef.current = '';
-                  return;
-              }
-              activeTarget.scrollLeft = nextScrollLeft;
+          const activeTarget = targets.find((target) => target.scrollWidth > target.clientWidth + 1) || targets[0];
+          if (!(activeTarget instanceof HTMLElement)) {
+              horizontalSyncSourceRef.current = '';
+              return;
           }
+          const maxScrollLeft = Math.max(0, activeTarget.scrollWidth - activeTarget.clientWidth);
+          if (maxScrollLeft <= 0) {
+              horizontalSyncSourceRef.current = '';
+              return;
+          }
+          const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, activeTarget.scrollLeft + horizontalDelta));
+          if (Math.abs(nextScrollLeft - activeTarget.scrollLeft) < 1) {
+              horizontalSyncSourceRef.current = '';
+              return;
+          }
+          activeTarget.scrollLeft = nextScrollLeft;
           lastTableScrollLeftRef.current = nextScrollLeft;
 
           const externalScroll = externalHorizontalScrollRef.current;
@@ -3525,7 +3534,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       return () => {
           container.removeEventListener('wheel', handleContainerHorizontalWheel, { capture: true } as EventListenerOptions);
       };
-  }, [applyVirtualHorizontalOffset, enableVirtual, pickHorizontalScrollTargets, readVirtualHorizontalOffset, resolveVirtualHorizontalElements, tableScrollX, viewMode]);
+  }, [enableVirtual, pickHorizontalScrollTargets, readVirtualHorizontalOffset, viewMode]);
 
   useEffect(() => {
       if (viewMode !== 'table') return;
