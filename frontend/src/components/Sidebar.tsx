@@ -2189,7 +2189,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               ...conn.config, 
               port: Number(conn.config.port),
               password: conn.config.password || "",
-              database: "", // No db selected
+              database: (conn.config.type === 'oracle' || conn.config.type === 'dameng') ? (conn.config.database || "") : "",
               useSSH: conn.config.useSSH || false,
               ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
           };

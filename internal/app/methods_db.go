@@ -109,6 +109,8 @@ func (a *App) CreateDatabase(config connection.ConnectionConfig, dbName string) 
 		// MariaDB uses same syntax as MySQL
 	} else if dbType == "sphinx" {
 		return connection.QueryResult{Success: false, Message: "Sphinx 暂不支持创建数据库"}
+	} else if dbType == "oracle" || dbType == "dameng" {
+		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源（%s）的「数据库」实际为用户/Schema，暂不支持通过此入口创建，请使用 SQL 编辑器执行 CREATE USER 语句", dbType)}
 	}
 
 	_, err = dbInst.Exec(query)
