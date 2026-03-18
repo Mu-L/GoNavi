@@ -1373,6 +1373,25 @@ const DataGrid: React.FC<DataGridProps> = ({
                 .${gridId} .ant-table-tbody > tr > td,
                 .${gridId} .ant-table-tbody .ant-table-row > .ant-table-cell { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
+                /* 选择列对齐：header TH 无 class（Ant Design 虚拟模式），需用 :first-child 匹配 */
+                .${gridId} .ant-table-selection-col,
+                .${gridId} .ant-table-bordered .ant-table-selection-col,
+                .${gridId} .ant-table-selection-col.ant-table-selection-col-with-dropdown {
+                    width: ${selectionColumnWidth}px !important;
+                }
+                .${gridId} .ant-table-header th:first-child,
+                .${gridId} .ant-table-thead > tr > th:first-child {
+                    text-align: center !important;
+                    padding-inline-start: 0 !important;
+                    padding-inline-end: 0 !important;
+                    padding-left: 0 !important;
+                    padding-right: 0 !important;
+                }
+                .${gridId} .ant-table-selection-column {
+                    text-align: center !important;
+                    padding-inline-start: 0 !important;
+                    padding-inline-end: 0 !important;
+                }
                 .${gridId} .ant-table-thead > tr:first-child > th:first-child,
                 .${gridId} .ant-table-header table > thead > tr:first-child > th:first-child {
                     border-top-left-radius: ${panelRadius}px !important;
