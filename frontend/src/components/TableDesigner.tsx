@@ -1397,14 +1397,23 @@ ${selectedTrigger.statement}`;
           ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
       };
       try {
-          const res = await DBQuery(config as any, tab.dbName || '', sql);
-          if (res.success) {
-              message.success(successMessage);
-              await fetchData();
-              return true;
+          // 多条 DDL 语句（如 DROP INDEX + CREATE INDEX）需要逐条执行，
+          // 因为 Go MySQL 驱动默认不支持多语句 Exec。
+          const statements = sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean);
+          for (let i = 0; i < statements.length; i++) {
+              let stmt = statements[i];
+              if (!stmt.endsWith(';')) stmt += ';';
+              const res = await DBQuery(config as any, tab.dbName || '', stmt);
+              if (!res.success) {
+                  const prefix = statements.length > 1 ? `第 ${i + 1}/${statements.length} 条语句执行失败: ` : '执行失败: ';
+                  message.error(prefix + res.message);
+                  if (i > 0) await fetchData();
+                  return false;
+              }
           }
-          message.error('执行失败: ' + res.message);
-          return false;
+          message.success(successMessage);
+          await fetchData();
+          return true;
       } catch (e: any) {
           message.error('执行失败: ' + (e?.message || String(e)));
           return false;
