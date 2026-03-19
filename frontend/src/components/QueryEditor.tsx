@@ -170,6 +170,9 @@ const SQL_FUNCTIONS: { name: string; detail: string }[] = [
     { name: 'SLEEP', detail: '工具 - 延时' },
 ];
 
+// 模块级标志：确保 SQL completion provider 全局只注册一次
+let sqlCompletionRegistered = false;
+
 const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [query, setQuery] = useState(tab.query || 'SELECT * FROM ');
   
@@ -428,6 +431,9 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
       // 应用透明主题（主题已在 main.tsx 全局注册）
       monaco.editor.setTheme(darkMode ? 'transparent-dark' : 'transparent-light');
 
+      // 全局只注册一次 SQL completion provider，避免多 tab 重复注册导致补全项重复
+      if (!sqlCompletionRegistered) {
+      sqlCompletionRegistered = true;
       monaco.languages.registerCompletionItemProvider('sql', {
           triggerCharacters: ['.'],
           provideCompletionItems: async (model: any, position: any) => {
@@ -783,6 +789,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
               return { suggestions };
           }
       });
+      } // end sqlCompletionRegistered guard
   };
 
   const handleFormat = () => {
