@@ -1,7 +1,8 @@
 // cspell:ignore anticon sqls uuidv uuidv4 hscroll
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal, Checkbox, Segmented, Tooltip, Popover } from 'antd';
+import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal, Checkbox, Segmented, Tooltip, Popover, DatePicker, TimePicker } from 'antd';
+import dayjs from 'dayjs';
 import type { SortOrder, ColumnType } from 'antd/es/table/interface';
 import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, UndoOutlined, FilterOutlined, CloseOutlined, ConsoleSqlOutlined, FileTextOutlined, CopyOutlined, ClearOutlined, EditOutlined, VerticalAlignBottomOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
@@ -154,6 +155,43 @@ const isTemporalColumnType = (columnType?: string): boolean => {
     if (raw.includes('datetime') || raw.includes('timestamp')) return true;
     const base = raw.split(/[ (]/)[0];
     return base === 'date' || base === 'time' || base === 'year';
+};
+
+// 根据列类型返回 DatePicker 的 picker 模式
+type TemporalPickerType = 'datetime' | 'date' | 'time' | 'year' | null;
+const getTemporalPickerType = (columnType?: string): TemporalPickerType => {
+    const raw = String(columnType || '').trim().toLowerCase();
+    if (!raw) return null;
+    if (raw.includes('datetime') || raw.includes('timestamp')) return 'datetime';
+    const base = raw.split(/[ (]/)[0];
+    if (base === 'date') return 'date';
+    if (base === 'time') return 'time';
+    if (base === 'year') return 'year';
+    return null;
+};
+
+const TEMPORAL_FORMATS: Record<string, string> = {
+    datetime: 'YYYY-MM-DD HH:mm:ss',
+    date: 'YYYY-MM-DD',
+    time: 'HH:mm:ss',
+    year: 'YYYY',
+};
+
+// 将字符串值转为 dayjs 对象（用于 DatePicker），无效值返回 null
+const parseToDayjs = (val: any, pickerType: TemporalPickerType): dayjs.Dayjs | null => {
+    if (val === null || val === undefined || val === '') return null;
+    const str = String(val).trim();
+    if (!str || /^0{4}-0{2}-0{2}/.test(str)) return null; // 无效日期
+    const fmt = TEMPORAL_FORMATS[pickerType || 'datetime'];
+    const d = dayjs(str, fmt);
+    return d.isValid() ? d : dayjs(str).isValid() ? dayjs(str) : null;
+};
+
+// 将 dayjs 对象格式化为对应格式字符串
+const formatFromDayjs = (val: dayjs.Dayjs | null, pickerType: TemporalPickerType): string => {
+    if (!val || !val.isValid()) return '';
+    const fmt = TEMPORAL_FORMATS[pickerType || 'datetime'];
+    return val.format(fmt);
 };
 
 // --- Helper: Format Value ---
@@ -512,6 +550,7 @@ interface EditableCellProps {
   record: Item;
   handleSave: (record: Item) => void;
   focusCell?: (record: Item, dataIndex: string, title: React.ReactNode) => void;
+  columnType?: string;
   as?: any;
   [key: string]: any;
 }
@@ -524,6 +563,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   record,
   handleSave,
   focusCell,
+  columnType,
   as: Component = 'td',
   ...restProps
 }) => {
@@ -541,9 +581,15 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   const toggleEdit = () => {
     setEditing(!editing);
     const raw = record[dataIndex];
-    const initialValue = typeof raw === 'string' ? normalizeDateTimeString(raw) : raw;
     const fieldName = getCellFieldName(record, dataIndex);
-    setCellFieldValue(form, fieldName, initialValue);
+    if (isDateTimeField) {
+      // 日期时间类型: 将字符串值转为 dayjs 对象供 DatePicker 使用
+      const dayjsVal = parseToDayjs(raw, pickerType);
+      setCellFieldValue(form, fieldName, dayjsVal);
+    } else {
+      const initialValue = typeof raw === 'string' ? normalizeDateTimeString(raw) : raw;
+      setCellFieldValue(form, fieldName, initialValue);
+    }
   };
 
   const save = async () => {
@@ -551,7 +597,13 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
       if (!form) return;
       const fieldName = getCellFieldName(record, dataIndex);
       await form.validateFields([fieldName]);
-      const nextValue = form.getFieldValue(fieldName);
+      let nextValue = form.getFieldValue(fieldName);
+      // 日期时间类型: 将 dayjs 对象转回格式化字符串
+      if (isDateTimeField && nextValue && dayjs.isDayjs(nextValue)) {
+        nextValue = formatFromDayjs(nextValue as dayjs.Dayjs, pickerType);
+      } else if (isDateTimeField && !nextValue) {
+        nextValue = null;
+      }
       toggleEdit();
       // 仅当值发生变化时才标记为修改，避免“双击-失焦”导致整行进入 modified 状态（蓝色高亮不清除）。
       if (!isCellValueEqualForDiff(record?.[dataIndex], nextValue)) {
@@ -575,30 +627,66 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
 
   let childNode = children;
 
+  const pickerType = getTemporalPickerType(columnType);
+  const isDateTimeField = !!pickerType && !(/^0{4}-0{2}-0{2}/.test(String(record?.[dataIndex] || '')));
+
   if (editable) {
     childNode = editing ? (
       <Form.Item style={{ margin: 0 }} name={getCellFieldName(record, dataIndex)}>
-        <Input
-          ref={inputRef}
-          onPressEnter={save}
-          onBlur={save}
-          onFocus={(e) => {
-            // Enter 编辑态时直接全选，便于快速替换；同时避免双击在 input 内冒泡导致关闭编辑态。
-            try {
-              (e.target as HTMLInputElement)?.select?.();
-            } catch {
-              // ignore
-            }
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            try {
-              (e.target as HTMLInputElement)?.select?.();
-            } catch {
-              // ignore
-            }
-          }}
-        />
+        {isDateTimeField ? (
+          pickerType === 'time' ? (
+            <TimePicker
+              ref={inputRef}
+              style={{ width: '100%' }}
+              format={TEMPORAL_FORMATS[pickerType]}
+              onChange={() => setTimeout(save, 0)}
+              needConfirm={false}
+            />
+          ) : pickerType === 'datetime' ? (
+            <DatePicker
+              ref={inputRef}
+              style={{ width: '100%' }}
+              showTime
+              format={TEMPORAL_FORMATS[pickerType]}
+              onOk={() => setTimeout(save, 0)}
+              onOpenChange={(open) => {
+                // 面板关闭（点击外部）且非通过"确定"按钮触发时退出编辑，不保存
+                if (!open) setTimeout(() => { if (editing) toggleEdit(); }, 0);
+              }}
+              needConfirm
+            />
+          ) : (
+            <DatePicker
+              ref={inputRef}
+              style={{ width: '100%' }}
+              format={TEMPORAL_FORMATS[pickerType]}
+              picker={pickerType as any}
+              onChange={() => setTimeout(save, 0)}
+              needConfirm={false}
+            />
+          )
+        ) : (
+          <Input
+            ref={inputRef}
+            onPressEnter={save}
+            onBlur={save}
+            onFocus={(e) => {
+              try {
+                (e.target as HTMLInputElement)?.select?.();
+              } catch {
+                // ignore
+              }
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              try {
+                (e.target as HTMLInputElement)?.select?.();
+              } catch {
+                // ignore
+              }
+            }}
+          />
+        )}
       </Form.Item>
     ) : (
       <div
@@ -2857,7 +2945,15 @@ const DataGrid: React.FC<DataGridProps> = ({
           const displayVal = (displayRow as any)?.[col];
           baseRawMap[col] = baseVal;
           displayMap[col] = toFormText(displayVal);
-          formMap[col] = displayVal === null || displayVal === undefined ? undefined : toFormText(displayVal);
+          // 日期时间类型: 将字符串值转为 dayjs 对象供 DatePicker 使用
+          const colMeta = columnMetaMap[col] || columnMetaMapByLowerName[col.toLowerCase()];
+          const rowPickerType = getTemporalPickerType(colMeta?.type);
+          if (rowPickerType && displayVal !== null && displayVal !== undefined) {
+              const dVal = parseToDayjs(displayVal, rowPickerType);
+              formMap[col] = dVal;
+          } else {
+              formMap[col] = displayVal === null || displayVal === undefined ? undefined : toFormText(displayVal);
+          }
           if (baseVal === null || baseVal === undefined) nullCols.add(col);
       });
 
@@ -2868,7 +2964,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       rowEditorForm.setFieldsValue(formMap);
       setRowEditorRowKey(keyStr);
       setRowEditorOpen(true);
-  }, [canModifyData, mergedDisplayData, data, addedRows, displayColumnNames, rowEditorForm, rowKeyStr]);
+  }, [canModifyData, mergedDisplayData, data, addedRows, displayColumnNames, rowEditorForm, rowKeyStr, columnMetaMap, columnMetaMapByLowerName]);
 
   const openRowEditor = useCallback(() => {
       if (!canModifyData) return;
@@ -3028,7 +3124,18 @@ const DataGrid: React.FC<DataGridProps> = ({
 
       const isAdded = addedRows.some(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr);
       if (isAdded) {
-          setAddedRows(prev => prev.map(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr ? { ...r, ...values } : r));
+          // 日期时间类型: 将 dayjs 对象转回格式化字符串
+          const convertedValues: Record<string, any> = {};
+          Object.entries(values).forEach(([col, val]) => {
+              if (val && dayjs.isDayjs(val)) {
+                  const colMeta = columnMetaMap[col] || columnMetaMapByLowerName[col.toLowerCase()];
+                  const rowPickerType = getTemporalPickerType(colMeta?.type);
+                  convertedValues[col] = formatFromDayjs(val as dayjs.Dayjs, rowPickerType);
+              } else {
+                  convertedValues[col] = val;
+              }
+          });
+          setAddedRows(prev => prev.map(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr ? { ...r, ...convertedValues } : r));
           closeRowEditor();
           return;
       }
@@ -3036,7 +3143,13 @@ const DataGrid: React.FC<DataGridProps> = ({
       const baseRawMap = rowEditorBaseRawRef.current || {};
       const patch: Record<string, any> = {};
       columnNames.forEach((col) => {
-          const nextVal = values[col];
+          let nextVal = values[col];
+          // 日期时间类型: 将 dayjs 对象转回格式化字符串
+          if (nextVal && dayjs.isDayjs(nextVal)) {
+              const colMeta = columnMetaMap[col] || columnMetaMapByLowerName[col.toLowerCase()];
+              const rowPickerType = getTemporalPickerType(colMeta?.type);
+              nextVal = formatFromDayjs(nextVal as dayjs.Dayjs, rowPickerType);
+          }
           const baseVal = baseRawMap[col];
           if (!isCellValueEqualForDiff(baseVal, nextVal)) patch[col] = nextVal;
       });
@@ -3124,6 +3237,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                   cellProps.title = dataIndex;
                   cellProps.handleSave = handleCellSave;
                   cellProps.focusCell = openCellEditor;
+                  cellProps.columnType = (columnMetaMap[dataIndex] || columnMetaMapByLowerName[dataIndex.toLowerCase()])?.type;
               } else if (col.editable && !enableInlineEditableCell) {
                   // 可编辑但非 inline（虚拟模式下）：双击和右键通过 onCell 绑定
                   cellProps.onDoubleClick = () => handleVirtualCellActivate(record, dataIndex, dataIndex);
@@ -3153,6 +3267,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                           record={record}
                           handleSave={handleCellSave}
                           focusCell={openCellEditor}
+                          columnType={(columnMetaMap[dataIndex] || columnMetaMapByLowerName[dataIndex.toLowerCase()])?.type}
                           as="div"
                           style={VIRTUAL_CELL_WRAPPER_STYLE}
                       >
@@ -3177,7 +3292,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               return originalRenderContent;
           }
       };
-  }), [columns, enableInlineEditableCell, enableVirtual, handleCellSave, openCellEditor, handleVirtualCellActivate, showCellContextMenu]);
+  }), [columns, enableInlineEditableCell, enableVirtual, handleCellSave, openCellEditor, handleVirtualCellActivate, showCellContextMenu, columnMetaMap, columnMetaMapByLowerName]);
 
   const handleAddRow = () => {
       const newKey = `new-${Date.now()}`;
@@ -4750,12 +4865,40 @@ const DataGrid: React.FC<DataGridProps> = ({
                             const placeholder = rowEditorNullColsRef.current?.has(col) ? '(NULL)' : undefined;
                             const isJson = looksLikeJsonText(sample);
                             const useArea = isJson || sample.includes('\n') || sample.length >= 160;
+                            const colMeta = columnMetaMap[col] || columnMetaMapByLowerName[col.toLowerCase()];
+                            const rowPickerType = getTemporalPickerType(colMeta?.type);
+                            const isRowDateTimeField = !!rowPickerType && !(/^0{4}-0{2}-0{2}/.test(String(sample || '')));
 
                             return (
                                 <Form.Item key={col} label={col} style={{ marginBottom: 12 }}>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                                         <Form.Item name={col} noStyle>
-                                            {useArea ? (
+                                            {isRowDateTimeField ? (
+                                                rowPickerType === 'time' ? (
+                                                    <TimePicker
+                                                        style={{ flex: 1, width: '100%' }}
+                                                        format={TEMPORAL_FORMATS[rowPickerType]}
+                                                        placeholder={placeholder}
+                                                        needConfirm={false}
+                                                    />
+                                                ) : rowPickerType === 'datetime' ? (
+                                                    <DatePicker
+                                                        style={{ flex: 1, width: '100%' }}
+                                                        showTime
+                                                        format={TEMPORAL_FORMATS[rowPickerType]}
+                                                        placeholder={placeholder}
+                                                        needConfirm
+                                                    />
+                                                ) : (
+                                                    <DatePicker
+                                                        style={{ flex: 1, width: '100%' }}
+                                                        format={TEMPORAL_FORMATS[rowPickerType]}
+                                                        picker={rowPickerType as any}
+                                                        placeholder={placeholder}
+                                                        needConfirm={false}
+                                                    />
+                                                )
+                                            ) : useArea ? (
                                                 <Input.TextArea
                                                     style={{ flex: 1 }}
                                                     autoSize={{ minRows: isJson ? 4 : 1, maxRows: 10 }}
