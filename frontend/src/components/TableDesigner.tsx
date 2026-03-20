@@ -290,31 +290,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
       setCommentEditorValue('');
   }, []);
 
-  // 初始化透明 Monaco Editor 主题
-  useEffect(() => {
-    loader.init().then(monaco => {
-      monaco.editor.defineTheme('transparent-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#00000000',
-          'editor.lineHighlightBackground': '#ffffff10',
-          'editorGutter.background': '#00000000',
-        }
-      });
-      monaco.editor.defineTheme('transparent-light', {
-        base: 'vs',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#00000000',
-          'editor.lineHighlightBackground': '#00000010',
-          'editorGutter.background': '#00000000',
-        }
-      });
-    });
-  }, []);
+  // 透明 Monaco Editor 主题已在 main.tsx 全局注册（含 stickyScroll 不透明背景）
 
   useEffect(() => {
       if (!containerRef.current) return;
