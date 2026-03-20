@@ -1,27 +1,21 @@
+import { describe, expect, it } from 'vitest';
+
 import { buildOverlayWorkbenchTheme } from './overlayWorkbenchTheme';
 
-const assertEqual = (actual: unknown, expected: unknown, message: string) => {
-  if (actual !== expected) {
-    throw new Error(`${message}\nactual: ${String(actual)}\nexpected: ${String(expected)}`);
-  }
-};
+describe('buildOverlayWorkbenchTheme', () => {
+  it('builds dark theme tokens', () => {
+    const darkTheme = buildOverlayWorkbenchTheme(true);
+    expect(darkTheme.isDark).toBe(true);
+    expect(darkTheme.shellBg).toMatch(/rgba\(15, 15, 17,/);
+    expect(darkTheme.sectionBg).toMatch(/rgba\(255,?\s*255,?\s*255,?\s*0\.03\)/);
+    expect(darkTheme.iconColor).toBe('#ffd666');
+  });
 
-const assertMatch = (value: string, pattern: RegExp, message: string) => {
-  if (!pattern.test(value)) {
-    throw new Error(`${message}\nactual: ${value}\npattern: ${String(pattern)}`);
-  }
-};
-
-const darkTheme = buildOverlayWorkbenchTheme(true);
-assertEqual(darkTheme.isDark, true, 'dark 主题标记应为 true');
-assertMatch(darkTheme.shellBg, /rgba\(15, 15, 17,/, 'dark 弹层背景应保持中性黑');
-assertMatch(darkTheme.sectionBg, /rgba\(255,?\s*255,?\s*255,?\s*0\.03\)/, 'dark section 背景透明度应匹配');
-assertEqual(darkTheme.iconColor, '#ffd666', 'dark 图标色应为金色强调');
-
-const lightTheme = buildOverlayWorkbenchTheme(false);
-assertEqual(lightTheme.isDark, false, 'light 主题标记应为 false');
-assertMatch(lightTheme.shellBg, /rgba\(255,255,255,0\.98\)/, 'light 弹层背景透明度应匹配');
-assertMatch(lightTheme.sectionBg, /rgba\(255,?\s*255,?\s*255,?\s*0\.84\)/, 'light section 背景透明度应匹配');
-assertEqual(lightTheme.iconColor, '#1677ff', 'light 图标色应为蓝色强调');
-
-console.log('overlayWorkbenchTheme tests passed');
+  it('builds light theme tokens', () => {
+    const lightTheme = buildOverlayWorkbenchTheme(false);
+    expect(lightTheme.isDark).toBe(false);
+    expect(lightTheme.shellBg).toMatch(/rgba\(255,255,255,0\.98\)/);
+    expect(lightTheme.sectionBg).toMatch(/rgba\(255,?\s*255,?\s*255,?\s*0\.84\)/);
+    expect(lightTheme.iconColor).toBe('#1677ff');
+  });
+});

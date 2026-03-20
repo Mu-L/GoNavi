@@ -193,6 +193,8 @@ export function SelectDriverPackageFile(arg1:string):Promise<connection.QueryRes
 
 export function SelectSSHKeyFile(arg1:string):Promise<connection.QueryResult>;
 
+export function SetMacNativeWindowControls(arg1:boolean):Promise<void>;
+
 export function SetWindowTranslucency(arg1:number,arg2:number):Promise<void>;
 
 export function TestConnection(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;

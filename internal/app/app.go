@@ -68,6 +68,12 @@ func (a *App) SetWindowTranslucency(opacity float64, blur float64) {
 	setMacWindowTranslucency(opacity, blur)
 }
 
+// SetMacNativeWindowControls toggles macOS native traffic-light window controls.
+// On non-macOS platforms this is a no-op.
+func (a *App) SetMacNativeWindowControls(enabled bool) {
+	setMacNativeWindowControls(enabled)
+}
+
 // Shutdown is called when the app terminates
 func (a *App) Shutdown(ctx context.Context) {
 	logger.Infof("应用开始关闭，准备释放资源")

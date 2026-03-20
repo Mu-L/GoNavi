@@ -12,6 +12,7 @@ import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
 import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform, isWindowsPlatform, resolveAppearanceValues } from './utils/appearance';
+import { getMacNativeTitlebarPaddingLeft, getMacNativeTitlebarPaddingRight, shouldHandleMacNativeFullscreenShortcut, shouldSuppressMacNativeEscapeExit } from './utils/macWindow';
 import { buildOverlayWorkbenchTheme } from './utils/overlayWorkbenchTheme';
 import {
   SHORTCUT_ACTION_META,
@@ -24,7 +25,7 @@ import {
   isShortcutMatch,
   normalizeShortcutCombo,
 } from './utils/shortcuts';
-import { ConfigureGlobalProxy, SetWindowTranslucency } from '../wailsjs/go/app/App';
+import { ConfigureGlobalProxy, SetMacNativeWindowControls, SetWindowTranslucency } from '../wailsjs/go/app/App';
 import './App.css';
 
 const { Sider, Content } = Layout;
@@ -722,6 +723,19 @@ function App() {
       || (runtimePlatform === '' && /mac/i.test(detectNavigatorPlatform()));
   const isWindowsRuntime = runtimePlatform === 'windows'
       || (runtimePlatform === '' && isWindowsPlatform());
+  const useNativeMacWindowControls = isMacRuntime && appearance.useNativeMacWindowControls === true;
+
+  useEffect(() => {
+      if (!isStoreHydrated || !isMacRuntime) {
+          return;
+      }
+
+      try {
+          void SetMacNativeWindowControls(useNativeMacWindowControls).catch(() => undefined);
+      } catch (e) {
+          console.warn('Wails API: SetMacNativeWindowControls unavailable', e);
+      }
+  }, [isMacRuntime, isStoreHydrated, useNativeMacWindowControls]);
 
   const formatBytes = (bytes?: number) => {
       if (!bytes || bytes <= 0) return '0 B';
@@ -1169,6 +1183,10 @@ function App() {
               await WindowUnfullscreen();
               return;
           }
+          if (useNativeMacWindowControls && isMacRuntime) {
+              await WindowFullscreen();
+              return;
+          }
           await WindowToggleMaximise();
       } catch (_) {
           // ignore
@@ -1178,6 +1196,9 @@ function App() {
   const handleTitleBarDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null;
       if (target?.closest('[data-no-titlebar-toggle="true"]')) {
+          return;
+      }
+      if (useNativeMacWindowControls) {
           return;
       }
       void handleTitleBarWindowToggle();
@@ -1331,7 +1352,33 @@ function App() {
   }, []);
 
   useEffect(() => {
+      if (!isMacRuntime || !useNativeMacWindowControls) {
+          return;
+      }
+
+      const handleMacNativeEscapeCapture = (event: KeyboardEvent) => {
+          if (!shouldSuppressMacNativeEscapeExit(isMacRuntime, useNativeMacWindowControls, useStore.getState().windowState === 'fullscreen', event)) {
+              return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+      };
+
+      window.addEventListener('keydown', handleMacNativeEscapeCapture, true);
+      return () => {
+          window.removeEventListener('keydown', handleMacNativeEscapeCapture, true);
+      };
+  }, [isMacRuntime, useNativeMacWindowControls]);
+
+  useEffect(() => {
       const handleGlobalShortcut = (event: KeyboardEvent) => {
+          if (shouldHandleMacNativeFullscreenShortcut(isMacRuntime, useNativeMacWindowControls, event)) {
+              event.preventDefault();
+              event.stopPropagation();
+              void handleTitleBarWindowToggle();
+              return;
+          }
+
           const matchedAction = SHORTCUT_ACTION_ORDER.find((action) => {
               const binding = shortcutOptions[action];
               if (!binding?.enabled) {
@@ -1376,7 +1423,7 @@ function App() {
       return () => {
           window.removeEventListener('keydown', handleGlobalShortcut);
       };
-  }, [handleNewQuery, shortcutOptions, themeMode, setTheme]);
+  }, [handleNewQuery, handleTitleBarWindowToggle, isMacRuntime, shortcutOptions, themeMode, setTheme, useNativeMacWindowControls]);
 
   useEffect(() => {
       if (!capturingShortcutAction) {
@@ -1523,40 +1570,45 @@ function App() {
                 userSelect: 'none',
                 WebkitAppRegion: 'drag', // Wails drag region
                 '--wails-draggable': 'drag',
-                paddingLeft: Math.max(12, Math.round(16 * effectiveUiScale)),
+                paddingLeft: getMacNativeTitlebarPaddingLeft(effectiveUiScale, useNativeMacWindowControls),
+                paddingRight: getMacNativeTitlebarPaddingRight(effectiveUiScale, useNativeMacWindowControls),
                 fontSize: tokenFontSize
             } as any}
           >
-              <div style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600, minWidth: 0 }}>
                   {/* Logo can be added here if available */}
                   GoNavi
               </div>
-              <div
-                data-no-titlebar-toggle="true"
-                onDoubleClick={(e) => e.stopPropagation()}
-                style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
-              >
-                  <Button 
-                    type="text" 
-                    icon={<MinusOutlined />} 
-                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
-                    onClick={WindowMinimise} 
-                  />
-                  <Button 
-                    type="text" 
-                    icon={<BorderOutlined />} 
-                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
-                    onClick={() => { void handleTitleBarWindowToggle(); }} 
-                  />
-                  <Button 
-                    type="text" 
-                    icon={<CloseOutlined />} 
-                    danger
-                    className="titlebar-close-btn"
-                    style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
-                    onClick={Quit} 
-                  />
-              </div>
+              {useNativeMacWindowControls ? (
+                  <div style={{ minWidth: Math.max(40, Math.round(48 * effectiveUiScale)) }} />
+              ) : (
+                  <div
+                    data-no-titlebar-toggle="true"
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
+                  >
+                      <Button 
+                        type="text" 
+                        icon={<MinusOutlined />} 
+                        style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                        onClick={WindowMinimise} 
+                      />
+                      <Button 
+                        type="text" 
+                        icon={<BorderOutlined />} 
+                        style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                        onClick={() => { void handleTitleBarWindowToggle(); }} 
+                      />
+                      <Button 
+                        type="text" 
+                        icon={<CloseOutlined />} 
+                        danger
+                        className="titlebar-close-btn"
+                        style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }} 
+                        onClick={Quit} 
+                      />
+                  </div>
+              )}
           </div>
 
           <Layout style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
@@ -2008,6 +2060,24 @@ function App() {
                                       </div>
                                   </div>
                               </div>
+                              {isMacRuntime ? (
+                                  <div style={utilityPanelStyle}>
+                                      <div style={{ marginBottom: 8, fontWeight: 500 }}>macOS 窗口控制</div>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                          <div>
+                                              <div style={{ fontWeight: 500 }}>使用 macOS 原生窗口控制</div>
+                                              <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>启用后显示左上角红黄绿按钮，并优先使用 macOS 原生全屏行为。</div>
+                                          </div>
+                                          <Switch
+                                              checked={appearance.useNativeMacWindowControls === true}
+                                              onChange={(checked) => setAppearance({ useNativeMacWindowControls: checked })}
+                                          />
+                                      </div>
+                                      <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 8 }}>
+                                          * 已同步隐藏右上角自定义按钮；如系统窗口样式未立即刷新，可重启应用后再确认
+                                      </div>
+                                  </div>
+                              ) : null}
                               <div style={utilityPanelStyle}>
                                   <div style={{ marginBottom: 8, fontWeight: 500 }}>启动窗口</div>
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -2020,13 +2090,13 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, paddingTop: 8, paddingBottom: 12 }}>
                                   <Button
-                                      onClick={() => {
-                                          setUiScale(DEFAULT_UI_SCALE);
-                                          setFontSize(DEFAULT_FONT_SIZE);
-                                          setAppearance({ enabled: true, opacity: 1.0, blur: 0 });
-                                      }}
-                                  >
-                                      恢复默认
+                                       onClick={() => {
+                                           setUiScale(DEFAULT_UI_SCALE);
+                                           setFontSize(DEFAULT_FONT_SIZE);
+                                           setAppearance({ enabled: true, opacity: 1.0, blur: 0, useNativeMacWindowControls: false });
+                                       }}
+                                   >
+                                       恢复默认
                                   </Button>
                               </div>
                           </div>

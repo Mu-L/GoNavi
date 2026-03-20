@@ -378,6 +378,10 @@ export function SelectSSHKeyFile(arg1) {
   return window['go']['app']['App']['SelectSSHKeyFile'](arg1);
 }
 
+export function SetMacNativeWindowControls(arg1) {
+  return window['go']['app']['App']['SetMacNativeWindowControls'](arg1);
+}
+
 export function SetWindowTranslucency(arg1, arg2) {
   return window['go']['app']['App']['SetWindowTranslucency'](arg1, arg2);
 }
