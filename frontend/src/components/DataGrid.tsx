@@ -567,12 +567,10 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (!editable) return;
+    if (!cellContextMenuContext) return;
     e.preventDefault();
     e.stopPropagation(); // 阻止冒泡到行级菜单
-    if (cellContextMenuContext) {
-      cellContextMenuContext.showMenu(e, record, dataIndex, title);
-    }
+    cellContextMenuContext.showMenu(e, record, dataIndex, title);
   };
 
   let childNode = children;
@@ -608,6 +606,13 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
         style={{ paddingRight: 24, minHeight: 20, position: 'relative' }}
         onContextMenu={handleContextMenu}
       >
+        {children}
+      </div>
+    );
+  } else if (cellContextMenuContext) {
+    // 非编辑模式（只读查询结果）也绑定右键菜单，支持复制为 INSERT/JSON/CSV 等操作
+    childNode = (
+      <div onContextMenu={handleContextMenu} style={{ minHeight: 20 }}>
         {children}
       </div>
     );
@@ -3081,8 +3086,8 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [displayColumnNames, columnWidths, sortInfo, handleResizeStart, canModifyData, onSort, renderColumnTitle]);
 
   const mergedColumns = useMemo(() => columns.map((col): ColumnType<any> => {
-      if (!col.editable) return col as ColumnType<any>;
       const dataIndex = String(col.dataIndex);
+      // 即使不可编辑，也需要通过 onCell/render 绑定右键菜单
       return {
           ...col,
           onCell: (record: Item) => {
@@ -3092,7 +3097,16 @@ const DataGrid: React.FC<DataGridProps> = ({
                   'data-col-name': dataIndex,
               };
 
-              if (!enableInlineEditableCell) {
+              if (col.editable && enableInlineEditableCell) {
+                  // 可编辑模式（非虚拟）：传递给 EditableCell 的 props
+                  cellProps.record = record;
+                  cellProps.editable = col.editable;
+                  cellProps.dataIndex = col.dataIndex;
+                  cellProps.title = dataIndex;
+                  cellProps.handleSave = handleCellSave;
+                  cellProps.focusCell = openCellEditor;
+              } else if (col.editable && !enableInlineEditableCell) {
+                  // 可编辑但非 inline（虚拟模式下）：双击和右键通过 onCell 绑定
                   cellProps.onDoubleClick = () => handleVirtualCellActivate(record, dataIndex, dataIndex);
                   cellProps.onContextMenu = (e: React.MouseEvent) => {
                       e.preventDefault();
@@ -3100,12 +3114,12 @@ const DataGrid: React.FC<DataGridProps> = ({
                       showCellContextMenu(e, record, dataIndex, dataIndex);
                   };
               } else {
-                  cellProps.record = record;
-                  cellProps.editable = col.editable;
-                  cellProps.dataIndex = col.dataIndex;
-                  cellProps.title = dataIndex;
-                  cellProps.handleSave = handleCellSave;
-                  cellProps.focusCell = openCellEditor;
+                  // 不可编辑（只读查询结果）：只绑定右键菜单
+                  cellProps.onContextMenu = (e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      showCellContextMenu(e, record, dataIndex, dataIndex);
+                  };
               }
               return cellProps;
           },

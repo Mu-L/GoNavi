@@ -1313,6 +1313,72 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
       return selected;
   };
 
+  // 精准重查询单个结果集（提交事务 / 刷新按钮使用），不会重跑整个编辑器 SQL
+  const handleReloadResult = async (resultKey: string, sql: string) => {
+      if (!sql?.trim() || !currentDb) return;
+      const conn = connections.find(c => c.id === currentConnectionId);
+      if (!conn) return;
+
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+
+      try {
+          setLoading(true);
+          // 使用 DBQueryMulti 保持和首次查询一致的后端路径
+          let queryId: string;
+          try {
+              queryId = await GenerateQueryID();
+          } catch {
+              queryId = 'reload-' + Date.now();
+          }
+          const res = await DBQueryMulti(config as any, currentDb, sql, queryId);
+          if (!res?.success) {
+              message.error('刷新失败: ' + (res?.message || '未知错误'));
+              return;
+          }
+
+          // 取第一个结果集（单条 SQL 只有一个结果集）
+          const resultSetDataArray = Array.isArray(res.data) ? (res.data as any[]) : [];
+          if (resultSetDataArray.length === 0) return;
+          const rsData = resultSetDataArray[0];
+          const isAffectedResult = Array.isArray(rsData.rows) && rsData.rows.length === 1
+              && rsData.columns && rsData.columns.length === 1
+              && rsData.columns[0] === 'affectedRows';
+          if (isAffectedResult) return; // 不应该出现，但保险起见
+
+          let rows = Array.isArray(rsData.rows) ? rsData.rows : [];
+          const maxRows = Number(queryOptions?.maxRows) || 0;
+          let truncated = false;
+          if (Number.isFinite(maxRows) && maxRows > 0 && rows.length > maxRows) {
+              truncated = true;
+              rows = rows.slice(0, maxRows);
+          }
+          const cols = (rsData.columns && rsData.columns.length > 0)
+              ? rsData.columns
+              : (rows.length > 0 ? Object.keys(rows[0]) : []);
+          rows.forEach((row: any, i: number) => {
+              if (row && typeof row === 'object') row[GONAVI_ROW_KEY] = i;
+          });
+
+          // 只更新匹配的结果集的 rows 和 columns，保留 tableName/pkColumns/readOnly 等元数据
+          setResultSets(prev => prev.map(rs =>
+              rs.key === resultKey
+                  ? { ...rs, rows, columns: cols, truncated }
+                  : rs
+          ));
+      } catch (err: any) {
+          message.error('刷新失败: ' + (err?.message || '未知错误'));
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleRun = async () => {
     const currentQuery = getCurrentQuery();
     if (!currentQuery.trim()) return;
@@ -1601,7 +1667,8 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
                     let simpleTableName: string | undefined = undefined;
                     if (rawStatement) {
-                        const tableMatch = rawStatement.match(/^\s*SELECT\s+\*\s+FROM\s+[`"]?(\w+)[`"]?\s*(?:WHERE.*)?(?:ORDER BY.*)?(?:LIMIT.*)?$/i);
+                        // 支持多行 SQL：SELECT * FROM [schema.]table [WHERE...] [ORDER BY...] [LIMIT...] 等
+                        const tableMatch = rawStatement.match(/^\s*SELECT\s+\*\s+FROM\s+(?:[\w`"]+\.)?[`"]?(\w+)[`"]?\s*(?:$|[\s;])/im);
                         if (tableMatch) {
                             simpleTableName = tableMatch[1];
                             if (!forceReadOnlyResult) {
@@ -2060,7 +2127,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                                   dbName={currentDb}
                                   connectionId={currentConnectionId}
                                   pkColumns={rs.pkColumns}
-                                  onReload={handleRun}
+                                  onReload={() => handleReloadResult(rs.key, rs.sql)}
                                   readOnly={rs.readOnly}
                               />
                           </div>
