@@ -1112,6 +1112,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   const cellEditorApplyRef = useRef<((val: string) => void) | null>(null);
   const [jsonEditorOpen, setJsonEditorOpen] = useState(false);
   const [jsonEditorValue, setJsonEditorValue] = useState('');
+
+  // --- Data Preview Panel State ---
+  const [dataPanelOpen, setDataPanelOpen] = useState(false);
+  const dataPanelOpenRef = useRef(false);
+  const [focusedCellInfo, setFocusedCellInfo] = useState<{ record: Item; dataIndex: string; title: string } | null>(null);
+  const [dataPanelValue, setDataPanelValue] = useState('');
+  const [dataPanelIsJson, setDataPanelIsJson] = useState(false);
+  const dataPanelDirtyRef = useRef(false);
   const [rowEditorOpen, setRowEditorOpen] = useState(false);
   const [rowEditorRowKey, setRowEditorRowKey] = useState<string>('');
   const rowEditorBaseRawRef = useRef<Record<string, any>>({});
@@ -1419,6 +1427,34 @@ const DataGrid: React.FC<DataGridProps> = ({
       setCellEditorIsJson(false);
       cellEditorApplyRef.current = null;
   }, []);
+
+  // --- Data Preview Panel Helpers ---
+  const updateFocusedCell = useCallback((record: Item, dataIndex: string) => {
+      if (!record || !dataIndex) return;
+      const raw = record?.[dataIndex];
+      const text = toEditableText(raw);
+      const isJson = looksLikeJsonText(text);
+      setFocusedCellInfo({ record, dataIndex, title: dataIndex });
+      // 仅在面板未被用户手动编辑时自动同步值
+      if (!dataPanelDirtyRef.current) {
+          setDataPanelValue(text);
+          setDataPanelIsJson(isJson);
+      }
+  }, []);
+
+  const handleDataPanelFormatJson = useCallback(() => {
+      if (!dataPanelIsJson) return;
+      try {
+          const obj = JSON.parse(dataPanelValue);
+          setDataPanelValue(JSON.stringify(obj, null, 2));
+          dataPanelDirtyRef.current = true;
+      } catch (e: any) {
+          void message.error('JSON 格式无效：' + (e?.message || String(e)));
+      }
+  }, [dataPanelIsJson, dataPanelValue]);
+
+  // 同步 ref 用于 onCell 闭包
+  useEffect(() => { dataPanelOpenRef.current = dataPanelOpen; }, [dataPanelOpen]);
 
   const openCellEditor = useCallback((record: Item, dataIndex: string, title: React.ReactNode, onApplyValue?: (val: string) => void) => {
       if (!record || !dataIndex) return;
@@ -2818,6 +2854,14 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
   }, [addedRows]);
 
+  const handleDataPanelSave = useCallback(() => {
+      if (!focusedCellInfo) return;
+      const nextRow: any = { ...focusedCellInfo.record, [focusedCellInfo.dataIndex]: dataPanelValue };
+      handleCellSave(nextRow);
+      dataPanelDirtyRef.current = false;
+      void message.success('已保存');
+  }, [focusedCellInfo, dataPanelValue, handleCellSave]);
+
   const handleCellSetNull = useCallback(() => {
     if (!cellContextMenu.record) return;
     handleCellSave({ ...cellContextMenu.record, [cellContextMenu.dataIndex]: null });
@@ -3227,6 +3271,12 @@ const DataGrid: React.FC<DataGridProps> = ({
               const cellProps: any = {
                   'data-row-key': rowKey === undefined || rowKey === null ? undefined : String(rowKey),
                   'data-col-name': dataIndex,
+              };
+              // 数据预览面板：单击单元格时更新聚焦信息
+              cellProps.onClick = () => {
+                  if (dataPanelOpenRef.current) {
+                      updateFocusedCell(record, dataIndex);
+                  }
               };
 
               if (col.editable && enableInlineEditableCell) {
@@ -4614,6 +4664,24 @@ const DataGrid: React.FC<DataGridProps> = ({
 
            <div style={{ marginLeft: 'auto' }} />
 	           <div style={{ flexShrink: 0 }}>
+	               <Button
+	                   icon={<EditOutlined />}
+	                   type={dataPanelOpen ? 'primary' : 'default'}
+	                   onClick={() => {
+	                       const next = !dataPanelOpen;
+	                       setDataPanelOpen(next);
+	                       if (!next) {
+	                           setFocusedCellInfo(null);
+	                           setDataPanelValue('');
+	                           setDataPanelIsJson(false);
+	                           dataPanelDirtyRef.current = false;
+	                       }
+	                   }}
+	               >
+	                   数据预览
+	               </Button>
+	           </div>
+	           <div style={{ flexShrink: 0 }}>
 	               <Popover
 	                   trigger="click"
 	                   placement="bottomRight"
@@ -5136,6 +5204,75 @@ const DataGrid: React.FC<DataGridProps> = ({
                     )) : (
                         <div style={{ fontSize: 12, color: darkMode ? '#999' : '#666', paddingTop: 4 }}>
                             当前结果集无数据
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+
+        {/* Data Preview Panel */}
+        {dataPanelOpen && viewMode === 'table' && (
+            <div style={{
+                height: 200,
+                borderTop: darkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                display: 'flex',
+                flexDirection: 'column',
+                background: darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.6)',
+                flexShrink: 0,
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    borderBottom: darkMode ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)',
+                    flexShrink: 0,
+                }}>
+                    <span style={{ color: darkMode ? '#aaa' : '#666', fontWeight: 500 }}>
+                        {focusedCellInfo ? focusedCellInfo.dataIndex : '点击单元格查看数据'}
+                    </span>
+                    {focusedCellInfo && (() => {
+                        const meta = columnMetaMap[focusedCellInfo.dataIndex] || columnMetaMapByLowerName[focusedCellInfo.dataIndex.toLowerCase()];
+                        return meta?.type ? <span style={{ color: '#888', fontSize: 11 }}>({meta.type})</span> : null;
+                    })()}
+                    <div style={{ flex: 1 }} />
+                    {dataPanelIsJson && (
+                        <Button size="small" onClick={handleDataPanelFormatJson}>格式化 JSON</Button>
+                    )}
+                    {canModifyData && focusedCellInfo && (
+                        <Button size="small" type="primary" onClick={handleDataPanelSave}>保存</Button>
+                    )}
+                </div>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                    {focusedCellInfo ? (
+                        <Editor
+                            height="100%"
+                            language={dataPanelIsJson ? 'json' : 'plaintext'}
+                            theme={darkMode ? 'transparent-dark' : 'transparent-light'}
+                            value={dataPanelValue}
+                            onChange={(val) => {
+                                setDataPanelValue(val || '');
+                                dataPanelDirtyRef.current = true;
+                            }}
+                            options={{
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                fontSize: 13,
+                                tabSize: 2,
+                                automaticLayout: true,
+                                readOnly: !canModifyData,
+                                lineNumbers: 'off',
+                                glyphMargin: false,
+                                folding: false,
+                                lineDecorationsWidth: 4,
+                                padding: { top: 6, bottom: 6 },
+                            }}
+                        />
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: 13 }}>
+                            点击表格中的单元格以预览完整数据
                         </div>
                     )}
                 </div>
