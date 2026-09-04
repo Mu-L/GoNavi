@@ -2,7 +2,7 @@ import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from './utils/aiSettingsLeaveGuard';
 import { Layout, Button, ConfigProvider, theme, message, notification, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -6339,45 +6339,56 @@ function App() {
       title,
       description,
       url,
+      copyText,
   }: {
       icon: React.ReactNode;
       title: string;
       description: string;
       url?: string;
+      copyText?: string;
   }) => (
       <button
         className="gonavi-about-project-entry"
         type="button"
         onClick={() => {
+            if (copyText) {
+                void navigator.clipboard.writeText(copyText).then(() => {
+                    void message.success(t('app.about.project.wechat.copied'));
+                });
+                return;
+            }
             if (url) {
                 BrowserOpenURL(url);
             }
         }}
-        disabled={!url}
+        disabled={!url && !copyText}
         style={{
             width: '100%',
-            display: 'grid',
-            gridTemplateColumns: '40px minmax(0, 1fr) auto',
-            alignItems: 'center',
-            gap: 12,
-            padding: '18px 4px',
-            border: 'none',
-            borderBottom: `1px solid ${darkMode ? 'rgba(255,255,255,0.09)' : 'rgba(16,24,40,0.09)'}`,
-            background: 'transparent',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: '10px 12px',
+            border: `1px solid ${darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)'}`,
+            borderRadius: 8,
+            background: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.72)',
             color: darkMode ? 'rgba(255,255,255,0.90)' : '#101828',
-            cursor: url ? 'pointer' : 'not-allowed',
-            opacity: url ? 1 : 0.58,
+            cursor: url || copyText ? 'pointer' : 'not-allowed',
+            opacity: url || copyText ? 1 : 0.58,
             textAlign: 'left',
         }}
       >
-          <span style={{ fontSize: 24, display: 'grid', placeItems: 'center', color: darkMode ? '#f8fafc' : '#0f172a' }}>
+          <span style={{ fontSize: 18, display: 'grid', placeItems: 'center', marginTop: 1, color: overlayTheme.iconColor }}>
               {icon}
           </span>
-          <span style={{ minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 16, fontWeight: 700, lineHeight: 1.4 }}>{title}</span>
-              <span style={{ ...utilityMutedTextStyle, display: 'block', marginTop: 3, lineHeight: 1.45 }}>{description}</span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35 }}>{title}</span>
+                  {copyText
+                    ? <CopyOutlined style={{ color: overlayTheme.mutedText, fontSize: 12, flexShrink: 0 }} />
+                    : <RightOutlined style={{ color: overlayTheme.mutedText, fontSize: 12, flexShrink: 0 }} />}
+              </span>
+              <span style={{ ...utilityMutedTextStyle, display: 'block', marginTop: 3, lineHeight: 1.4 }}>{description}</span>
           </span>
-          <RightOutlined style={{ color: overlayTheme.mutedText, fontSize: 18 }} />
       </button>
   );
 
@@ -6447,233 +6458,182 @@ function App() {
           : { cst: '#d97706', bero: '#0284c7', github: '#475569' })[downloadSource] || '#94a3b8';
 
       return (
-          <div className="gonavi-about-pane" style={{ display: 'flex', flexDirection: 'column' }}>
-              <section
-                aria-label="GoNavi"
-                style={{
-                    padding: '24px 6px',
-                    borderBottom: `1px solid ${dividerColor}`,
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(0, 1fr) auto',
-                    alignItems: 'center',
-                    gap: 24,
-                }}
-              >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 0 }}>
-                      <img
-                        src={resolveBrandAboutSrc(brandIconId)}
-                        alt="GoNavi"
-                        width={92}
-                        height={92}
-                        draggable={false}
-                        style={{
-                            width: 92,
-                            height: 92,
-                            objectFit: 'contain',
-                            background: 'transparent',
-                            boxShadow: 'none',
-                            flexShrink: 0,
-                        }}
-                      />
-                      <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 800, color: overlayTheme.titleText }}>GoNavi</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: mutedText, fontWeight: 600 }}>
-                                  <TagOutlined />
-                                  {aboutDisplayVersion}
+          <div className="gonavi-about-pane">
+              <section className="gonavi-about-identity" aria-label="GoNavi">
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <div style={{ fontSize: 18, lineHeight: 1.15, fontWeight: 800, color: overlayTheme.titleText }}>GoNavi</div>
+                          {hasUpdate ? (
+                              <span style={{ color: darkMode ? '#86efac' : '#16a34a', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}>
+                                  <UpCircleOutlined />
+                                  {updateStatusText}
                               </span>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: mutedText, fontWeight: 600 }}>
-                                  <UserOutlined />
-                                  {aboutInfo?.author || t('common.unknown')}
-                              </span>
-                          </div>
+                          ) : null}
                       </div>
-                  </div>
-                  <div
-                    style={{
-                        color: hasUpdate ? (darkMode ? '#86efac' : '#16a34a') : mutedText,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'flex-end',
-                        gap: 8,
-                        fontSize: 14,
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap',
-                    }}
-                  >
-                      <UpCircleOutlined style={{ fontSize: 19 }} />
-                      {updateStatusText}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap', color: mutedText, fontWeight: 600, fontSize: 12 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <TagOutlined />
+                              {aboutDisplayVersion}
+                          </span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <UserOutlined />
+                              {aboutInfo?.author || t('common.unknown')}
+                          </span>
+                      </div>
                   </div>
               </section>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)' }}>
-                  <section aria-labelledby="gonavi-about-version-heading" style={{ padding: '24px 28px 8px 6px', minWidth: 0 }}>
-                      <div id="gonavi-about-version-heading" style={{ marginBottom: 22, fontSize: 18, fontWeight: 800, color: overlayTheme.titleText }}>
-                          {t('app.about.version_update.title')}
+              <section className="gonavi-about-section" aria-label={t('app.about.version_update.title')}>
+                  <div className="gonavi-about-setting">
+                      <div className="gonavi-about-field">
+                          <div className="gonavi-about-field-label" style={{ color: overlayTheme.titleText }}>{t('app.about.field.update_channel')}</div>
+                          <Segmented
+                            className="gonavi-about-update-channel"
+                            value={updateChannel}
+                            options={[
+                                { value: 'latest', label: t('app.about.update_channel.latest') },
+                                { value: 'dev', label: t('app.about.update_channel.dev') },
+                            ]}
+                            onChange={(value) => {
+                                void changeUpdateChannel(String(value));
+                            }}
+                            disabled={
+                                isUpdateChannelLoading
+                                || isUpdateChannelSaving
+                                || updateDownloadProgress.status === 'start'
+                                || updateDownloadProgress.status === 'downloading'
+                            }
+                          />
                       </div>
-                      <div>
-                          <div style={{ display: 'grid', gap: 8 }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', alignItems: 'center', gap: 16 }}>
-                                  <div style={{ fontSize: 15, fontWeight: 600, color: overlayTheme.titleText, whiteSpace: 'nowrap' }}>{t('app.about.field.update_channel')}</div>
-                                  <Segmented
-                                    className="gonavi-about-update-channel"
-                                    value={updateChannel}
-                                    options={[
-                                        { value: 'latest', label: t('app.about.update_channel.latest') },
-                                        { value: 'dev', label: t('app.about.update_channel.dev') },
-                                    ]}
-                                    onChange={(value) => {
-                                        void changeUpdateChannel(String(value));
-                                    }}
-                                    disabled={
-                                        isUpdateChannelLoading
-                                        || isUpdateChannelSaving
-                                        || updateDownloadProgress.status === 'start'
-                                        || updateDownloadProgress.status === 'downloading'
-                                    }
-                                    style={{ flexShrink: 0 }}
+                      <div className="gonavi-about-field-hint" style={utilityMutedTextStyle}>
+                          {updateChannel === 'dev'
+                              ? t('app.about.version_update.channel_hint.dev')
+                              : t('app.about.version_update.channel_hint.latest')}
+                      </div>
+                  </div>
+                  <div className="gonavi-about-setting">
+                      <div className="gonavi-about-field">
+                          <div className="gonavi-about-field-label" style={{ color: overlayTheme.titleText }}>{t('app.about.field.auto_check_updates')}</div>
+                          <Switch
+                            checked={autoCheckForUpdates}
+                            onChange={(checked) => setAutoCheckForUpdates(checked)}
+                          />
+                      </div>
+                      {autoCheckForUpdates ? (
+                          <>
+                              <div className="gonavi-about-field">
+                                  <div className="gonavi-about-field-label" style={{ color: overlayTheme.titleText }}>{t('app.about.field.auto_check_interval')}</div>
+                                  <Select
+                                    className="gonavi-about-auto-check-interval"
+                                    value={autoCheckForUpdatesIntervalMinutes}
+                                    options={AUTO_CHECK_FOR_UPDATES_INTERVAL_OPTIONS.map((minutes) => ({
+                                      value: minutes,
+                                      label: minutes >= 60 && minutes % 60 === 0
+                                        ? t('app.about.auto_check_interval.hours', { hours: minutes / 60 })
+                                        : t('app.about.auto_check_interval.minutes', { minutes }),
+                                    }))}
+                                    onChange={(value) => setAutoCheckForUpdatesIntervalMinutes(Number(value))}
                                   />
                               </div>
-                              <div style={{ ...utilityMutedTextStyle, lineHeight: 1.55, maxWidth: 360 }}>
-                                  {updateChannel === 'dev'
-                                      ? t('app.about.version_update.channel_hint.dev')
-                                      : t('app.about.version_update.channel_hint.latest')}
+                              <div className="gonavi-about-field-hint" style={utilityMutedTextStyle}>{t('app.about.version_update.auto_check_hint')}</div>
+                          </>
+                      ) : (
+                          <div className="gonavi-about-field-hint" style={utilityMutedTextStyle}>{t('app.about.version_update.auto_check_disabled_hint')}</div>
+                      )}
+                  </div>
+                  <div className="gonavi-about-facts" style={{ borderTop: `1px solid ${dividerColor}` }}>
+                      {versionRows.map(([label, value]) => (
+                          <div key={label} className="gonavi-about-fact">
+                              <div className="gonavi-about-field-label" style={{ color: overlayTheme.titleText }}>{label}</div>
+                              <div style={{ color: label === t('app.about.version.latest') && hasUpdate ? (darkMode ? '#86efac' : '#16a34a') : mutedText, fontWeight: label === t('app.about.version.latest') && hasUpdate ? 700 : 500, lineHeight: 1.45, minWidth: 0, overflowWrap: 'anywhere' }}>
+                                  {value}
                               </div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', alignItems: 'center', gap: 16, marginTop: 10 }}>
-                                  <div style={{ fontSize: 15, fontWeight: 600, color: overlayTheme.titleText, whiteSpace: 'nowrap' }}>{t('app.about.field.auto_check_updates')}</div>
-                                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                      <Switch
-                                        checked={autoCheckForUpdates}
-                                        onChange={(checked) => setAutoCheckForUpdates(checked)}
-                                      />
-                                  </div>
-                              </div>
-                              {autoCheckForUpdates ? (
-                                  <>
-                                      <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', alignItems: 'center', gap: 16, marginTop: 10 }}>
-                                          <div style={{ fontSize: 15, fontWeight: 600, color: overlayTheme.titleText, whiteSpace: 'nowrap' }}>{t('app.about.field.auto_check_interval')}</div>
-                                          <Select
-                                            className="gonavi-about-auto-check-interval"
-                                            value={autoCheckForUpdatesIntervalMinutes}
-                                            options={AUTO_CHECK_FOR_UPDATES_INTERVAL_OPTIONS.map((minutes) => ({
-                                              value: minutes,
-                                              label: minutes >= 60 && minutes % 60 === 0
-                                                ? t('app.about.auto_check_interval.hours', { hours: minutes / 60 })
-                                                : t('app.about.auto_check_interval.minutes', { minutes }),
-                                            }))}
-                                            onChange={(value) => setAutoCheckForUpdatesIntervalMinutes(Number(value))}
-                                          />
-                                      </div>
-                                      <div style={{ ...utilityMutedTextStyle, lineHeight: 1.55, maxWidth: 360 }}>{t('app.about.version_update.auto_check_hint')}</div>
-                                  </>
-                              ) : (
-                                  <div style={{ ...utilityMutedTextStyle, lineHeight: 1.55, maxWidth: 360 }}>{t('app.about.version_update.auto_check_disabled_hint')}</div>
-                              )}
                           </div>
-                          <div style={{ height: 1, background: dividerColor, margin: '18px 0' }} />
-                          <div style={{ display: 'grid', gap: 13 }}>
-                              {versionRows.map(([label, value]) => (
-                                  <div key={label} style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
-                                      <div style={{ fontWeight: 600, color: overlayTheme.titleText, lineHeight: 1.45 }}>{label}</div>
-                                      <div style={{ color: label === t('app.about.version.latest') && hasUpdate ? (darkMode ? '#86efac' : '#16a34a') : mutedText, fontWeight: label === t('app.about.version.latest') && hasUpdate ? 700 : 500, lineHeight: 1.45, minWidth: 0, overflowWrap: 'anywhere' }}>
-                                          {value}
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                          <div
-                            className="gonavi-about-download-source"
-                            data-download-source={downloadSource}
-                            style={{
-                                marginTop: 18,
-                                padding: '12px 14px',
-                                borderRadius: 12,
-                                border: `1px solid ${dividerColor}`,
-                                background: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: 12,
-                                flexWrap: 'wrap',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                                <span
-                                  aria-hidden="true"
-                                  style={{
-                                      width: 8,
-                                      height: 8,
-                                      borderRadius: 999,
-                                      background: aboutDownloadSourceDot,
-                                      flexShrink: 0,
-                                  }}
-                                />
-                                <span style={{ color: mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
-                                    {t('driver_manager.mirror_source.label')}
-                                </span>
-                                <span style={{ color: overlayTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                    {t(`app.download_source.option.${downloadSource}`)}
-                                </span>
-                            </div>
-                            <Button
-                              type="link"
-                              size="small"
-                              onClick={handleOpenDownloadSourceSettings}
-                              style={{ padding: 0, height: 'auto', fontWeight: 600 }}
-                            >
-                                {t('driver_manager.mirror_source.switch')}
-                            </Button>
-                          </div>
-                      </div>
-                  </section>
-
-                  <section
-                    aria-labelledby="gonavi-about-project-heading"
-                    style={{ borderLeft: `1px solid ${dividerColor}`, padding: '24px 4px 8px 28px', minWidth: 0 }}
+                      ))}
+                  </div>
+                  <div
+                    className="gonavi-about-download-source"
+                    data-download-source={downloadSource}
+                    style={{
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: `1px solid ${dividerColor}`,
+                        background: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                    }}
                   >
-                      <div id="gonavi-about-project-heading" style={{ fontSize: 18, fontWeight: 800, color: overlayTheme.titleText, marginBottom: 8 }}>
-                          {t('app.about.project_links')}
-                      </div>
-                      <div style={{ borderTop: `1px solid ${dividerColor}` }}>
-                          {renderSettingsCenterAboutProjectEntry({
-                              icon: <GithubOutlined />,
-                              title: t('app.about.project.github.title'),
-                              description: t('app.about.project.github.description'),
-                              url: aboutInfo?.repoUrl,
-                          })}
-                          {renderSettingsCenterAboutProjectEntry({
-                              icon: <MessageOutlined />,
-                              title: t('app.about.project.issues.title'),
-                              description: t('app.about.project.issues.description'),
-                              url: aboutInfo?.issueUrl,
-                          })}
-                          {renderSettingsCenterAboutProjectEntry({
-                              icon: <FileTextOutlined />,
-                              title: t('app.about.project.releases.title'),
-                              description: t('app.about.project.releases.description'),
-                              url: lastUpdateInfo?.releaseNotesUrl || aboutInfo?.releaseUrl,
-                          })}
-                      </div>
-                  </section>
-              </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 999,
+                              background: aboutDownloadSourceDot,
+                              flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ color: mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
+                            {t('driver_manager.mirror_source.label')}
+                        </span>
+                        <span style={{ color: overlayTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {t(`app.download_source.option.${downloadSource}`)}
+                        </span>
+                    </div>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={handleOpenDownloadSourceSettings}
+                      style={{ padding: 0, height: 'auto', fontWeight: 600 }}
+                    >
+                        {t('driver_manager.mirror_source.switch')}
+                    </Button>
+                  </div>
+              </section>
+
+              <section className="gonavi-about-section" aria-labelledby="gonavi-about-project-heading">
+                  <div id="gonavi-about-project-heading" className="gonavi-about-section-title" style={{ color: overlayTheme.titleText }}>
+                      {t('app.about.project_links')}
+                  </div>
+                  <div className="gonavi-about-link-grid">
+                      {renderSettingsCenterAboutProjectEntry({
+                          icon: <GithubOutlined />,
+                          title: t('app.about.project.github.title'),
+                          description: t('app.about.project.github.description'),
+                          url: aboutInfo?.repoUrl,
+                      })}
+                      {renderSettingsCenterAboutProjectEntry({
+                          icon: <MessageOutlined />,
+                          title: t('app.about.project.issues.title'),
+                          description: t('app.about.project.issues.description'),
+                          url: aboutInfo?.issueUrl,
+                      })}
+                      {renderSettingsCenterAboutProjectEntry({
+                          icon: <FileTextOutlined />,
+                          title: t('app.about.project.releases.title'),
+                          description: t('app.about.project.releases.description'),
+                          url: lastUpdateInfo?.releaseNotesUrl || aboutInfo?.releaseUrl,
+                      })}
+                      {renderSettingsCenterAboutProjectEntry({
+                          icon: <WechatOutlined />,
+                          title: t('app.about.project.wechat.title'),
+                          description: t('app.about.project.wechat.description'),
+                          copyText: t('app.about.project.wechat.id'),
+                      })}
+                  </div>
+              </section>
           </div>
       );
   };
 
   const renderSettingsCenterAboutFooter = () => (
-      <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, color: overlayTheme.mutedText, fontWeight: 600 }}>
-              <SyncOutlined style={{ color: darkMode ? '#86efac' : '#16a34a', fontSize: 22 }} />
-              <span>
-                  {aboutLastCheckedAt
-                      ? t('app.about.last_checked_at', { time: aboutLastCheckedAt })
-                      : t('app.about.last_checked_never')}
-              </span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {renderAboutUpdateActions('settings-center')}
-          </div>
-      </>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {renderAboutUpdateActions('settings-center')}
+      </div>
   );
 
   const renderThemeSettingsSection = (title: React.ReactNode, children: React.ReactNode, hint?: React.ReactNode) => (
@@ -9896,114 +9856,28 @@ function App() {
                 <div style={toolCenterModalWorkspaceStyle}>
                     <div className="gonavi-settings-center-layout" style={toolCenterModalSplitStyle}>
                     <div className="gonavi-settings-center-groups" style={toolCenterNavPanelStyle}>
-                      <div style={toolCenterNavScrollStyle} role="tablist" aria-orientation="vertical">
-                        {combinedSettingsCenterGroups.map((group, groupIndex) => {
-                          const active = group.key === activeSettingsCenterGroup.key;
-                          return (
-                            <button
-                              className={`gonavi-settings-center-group-tab${active ? ' is-active' : ''}`}
-                              key={group.key}
-                              id={`gonavi-settings-center-group-tab-${group.key}`}
-                              type="button"
-                              role="tab"
-                              aria-label={group.title}
-                              aria-selected={active}
-                              aria-controls={`gonavi-settings-center-group-panel-${group.key}`}
-                              tabIndex={active ? 0 : -1}
-                              title={`${group.title} - ${group.description}`}
-                              onClick={() => activateSettingsCenterGroup(group)}
-                              onKeyDown={(event) => {
-                                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                                  return;
-                                }
-                                event.preventDefault();
-                                const nextIndex = event.key === 'Home'
-                                  ? 0
-                                  : event.key === 'End'
-                                    ? combinedSettingsCenterGroups.length - 1
-                                    : event.key === 'ArrowDown'
-                                      ? (groupIndex + 1) % combinedSettingsCenterGroups.length
-                                      : (groupIndex - 1 + combinedSettingsCenterGroups.length) % combinedSettingsCenterGroups.length;
-                                activateSettingsCenterGroup(combinedSettingsCenterGroups[nextIndex]);
-                                const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]');
-                                tabs?.[nextIndex]?.focus();
-                              }}
-                              style={{
-                                position: 'relative',
-                                textAlign: 'left',
-                                width: '100%',
-                                padding: '10px 6px 10px 12px',
-                                borderRadius: 4,
-                                border: 'none',
-                                background: active
-                                  ? overlayTheme.selectedBg
-                                  : 'transparent',
-                                color: active ? (darkMode ? '#f5f7ff' : '#162033') : (darkMode ? 'rgba(255,255,255,0.82)' : '#3f4b5e'),
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <span
-                                aria-hidden="true"
-                                style={{
-                                  position: 'absolute',
-                                  left: 0,
-                                  top: 10,
-                                  bottom: 10,
-                                  width: 3,
-                                  borderRadius: 999,
-                                  background: active
-                                    ? overlayTheme.selectedText
-                                    : 'transparent',
-                                }}
-                              />
-                              <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                                  <span
-                                    style={{
-                                      width: 20,
-                                      height: 20,
-                                      borderRadius: 0,
-                                      display: 'grid',
-                                      placeItems: 'center',
-                                      fontSize: 'var(--gn-font-size, 14px)',
-                                      flexShrink: 0,
-                                      background: 'transparent',
-                                      color: active
-                                        ? overlayTheme.iconColor
-                                        : overlayTheme.mutedText,
-                                    }}
-                                  >
-                                    {group.icon}
-                                  </span>
-                                  <span
-                                    className="gonavi-settings-center-group-label"
-                                    style={{
-                                      fontSize: 'var(--gn-font-size, 14px)',
-                                      fontWeight: active ? 700 : 600,
-                                      minWidth: 0,
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}
-                                  >
-                                    {group.title}
-                                  </span>
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <SettingsCenterTreeNav
+                        groups={combinedSettingsCenterGroups}
+                        activeGroupKey={activeSettingsCenterGroup.key}
+                        activeItemKey={activeSettingsCenterTreeItemKey}
+                        darkMode={darkMode}
+                        overlayTheme={overlayTheme}
+                        ariaLabel={t('app.settings.title')}
+                        onSelectGroup={(groupKey) => {
+                          const group = combinedSettingsCenterGroups.find((entry) => entry.key === groupKey);
+                          if (group) {
+                            activateSettingsCenterGroup(group);
+                          }
+                        }}
+                      />
                     </div>
                     <div
-                      id={`gonavi-settings-center-group-panel-${activeSettingsCenterGroup.key}`}
                       className="gonavi-settings-center-content"
-                      role="tabpanel"
-                      aria-labelledby={`gonavi-settings-center-group-tab-${activeSettingsCenterGroup.key}`}
                       style={toolCenterContentPanelStyle}
                     >
                       {activeSettingsCenterPane ? (
                         <div style={activeSettingsCenterDetailPanelStyle}>
+                          {activeSettingsCenterPane.key === 'about-go-navi' ? null : (
                           <div className="gonavi-settings-center-pane-heading" style={{ paddingBottom: 10 }}>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 'calc(var(--gn-font-size, 14px) * 1.14)', fontWeight: 700, color: overlayTheme.titleText }}>
@@ -10025,9 +9899,9 @@ function App() {
                             <div
                               style={{
                                 display: 'flex',
-                                justifyContent: activeSettingsCenterPane.key === 'about-go-navi' ? 'space-between' : 'flex-end',
+                                justifyContent: 'flex-end',
                                 alignItems: 'center',
-                                gap: activeSettingsCenterPane.key === 'about-go-navi' ? 16 : 8,
+                                gap: 8,
                                 paddingTop: 10,
                                 marginTop: 10,
                                 flexShrink: 0,
@@ -10036,48 +9910,26 @@ function App() {
                               {activeSettingsCenterPane.key === 'about-go-navi' ? (
                                 renderSettingsCenterAboutFooter()
                               ) : (
-                                <>
-                                  <Button onClick={handleBackFromSettingsCenterPane}>
-                                    {t('common.back_to_settings')}
-                                  </Button>
-                                  <Button type="primary" onClick={handleCancelSettingsCenterPane}>
-                                    {t('common.close')}
-                                  </Button>
-                                </>
+                                <Button type="primary" onClick={handleCancelSettingsCenterPane}>
+                                  {t('common.close')}
+                                </Button>
                               )}
                             </div>
                           )}
                         </div>
                       ) : (
-                        <>
+                        <div style={activeSettingsCenterDetailPanelStyle}>
                           <div style={{ display: 'grid', gap: 4 }}>
                             <div style={{ fontSize: 'calc(var(--gn-font-size, 14px) * 1.14)', fontWeight: 700, color: overlayTheme.titleText }}>{activeSettingsCenterGroup.title}</div>
                             <div style={utilityMutedTextStyle}>{activeSettingsCenterGroup.description}</div>
                           </div>
-                          <div style={toolCenterScrollableListStyle}>
-                            {activeSettingsCenterGroup.items.map((item) => (
-                              <Button
-                                className="gonavi-settings-center-entry"
-                                key={item.key}
-                                data-settings-pane-key={item.key}
-                                type="text"
-                                style={toolCenterRowStyle}
-                                onClick={item.onClick}
-                              >
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                                  <span style={{ width: 24, height: 24, display: 'grid', placeItems: 'center', color: overlayTheme.iconColor, flexShrink: 0 }}>
-                                    {item.icon}
-                                  </span>
-                                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
-                                    <span>{item.title}</span>
-                                    <span style={toolCenterRowDescriptionStyle}>{item.description}</span>
-                                  </span>
-                                </span>
-                                <RightOutlined style={{ color: overlayTheme.mutedText, fontSize: 12, flexShrink: 0 }} />
-                              </Button>
-                            ))}
+                          <div style={{ flex: 1 }} />
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 10, marginTop: 10, flexShrink: 0 }}>
+                            <Button type="primary" onClick={handleCancelSettingsCenterPane}>
+                              {t('common.close')}
+                            </Button>
                           </div>
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>

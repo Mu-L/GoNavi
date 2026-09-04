@@ -5189,12 +5189,98 @@ body[data-theme='dark'] .gonavi-ai-mcp-client-option.is-active {
 
 body .gonavi-about-pane {
   --gn-about-update-control-width: 200px;
+  --gn-about-label-width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 2px 4px;
+}
+
+body .gonavi-about-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+body .gonavi-about-identity img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+body .gonavi-about-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+body .gonavi-about-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+body .gonavi-about-setting {
+  display: grid;
+  gap: 2px;
+}
+
+body .gonavi-about-field,
+body .gonavi-about-fact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+
+body .gonavi-about-field-label {
+  flex: 0 0 var(--gn-about-label-width);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+body .gonavi-about-field-hint {
+  margin: 0;
+  padding: 0 0 2px calc(var(--gn-about-label-width) + 12px);
+  line-height: 1.4;
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+body .gonavi-about-facts {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+body .gonavi-about-fact {
+  min-height: 24px;
+}
+
+body .gonavi-about-link-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 920px) {
+  body .gonavi-about-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body .gonavi-about-field-hint {
+    padding-left: 0;
+  }
 }
 
 body .gonavi-about-update-channel.ant-segmented.ant-segmented {
   width: var(--gn-about-update-control-width);
   max-width: 100%;
-  justify-self: end;
+  justify-self: start;
   height: var(--gn-control-height, 32px) !important;
   padding: 2px !important;
   border: 1px solid rgba(15, 23, 42, 0.10) !important;
@@ -5206,7 +5292,7 @@ body .gonavi-about-update-channel.ant-segmented.ant-segmented {
 body .gonavi-about-auto-check-interval.ant-select {
   width: var(--gn-about-update-control-width);
   max-width: 100%;
-  justify-self: end;
+  justify-self: start;
 }
 
 body .gonavi-about-update-channel .ant-segmented-group {

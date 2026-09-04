@@ -151,6 +151,8 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain('renderThemeSettingsContent({ hideSectionTabs: true })');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");
     expect(appSource).toMatch(/key: 'about' as const,[\s\S]*?items: \[\],/);
+    expect(appSource).toContain('className="gonavi-about-link-grid"');
+    expect(appSource).not.toContain("gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)'");
     expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
   });
 
