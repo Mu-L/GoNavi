@@ -3547,8 +3547,9 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
   }
 }
 
-/* The tab-hosted view is a compact driver workbench, not a stack of
-   standalone cards. Keep the full modal presentation above unchanged. */
+/* The tab-hosted view follows the full driver-manager workbench preview.
+   It shares the modal's controls, but retains the panel, statistic cards,
+   filters, and individual driver cards instead of flattening them. */
 .driver-manager-embedded-layout {
     display: flex;
     flex-direction: column;
@@ -3568,282 +3569,91 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 }
 
 .driver-manager-shell.is-embedded {
-    gap: 10px;
+    gap: 14px;
     min-width: 0;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-hero {
     align-items: center;
-    padding: 0 2px 10px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-heading {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    font-family: var(--gn-font-sans);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stats {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0;
-    min-width: 0;
+    padding: 16px 18px;
+    border-radius: 12px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-hero .driver-manager-stats {
-    justify-content: flex-start;
+    display: grid;
+    min-width: 0;
+    flex: 1 1 520px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-stat {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 5px;
-    min-height: 0;
-    padding: 2px 10px;
-    border-radius: 0;
-    background: transparent;
+    min-height: 78px;
+    padding: 12px 14px;
+    border-radius: 10px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-stat-icon {
-    display: none;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat + .driver-manager-stat {
-    border-left: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08)) !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat-value {
-    font-size: var(--gn-font-size, 14px);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat-label {
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel {
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .ant-alert {
-    border-inline: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel.ant-collapse {
-    border-inline: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-collapse-header {
-    min-height: 36px;
-    padding: 7px 2px !important;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-    font-weight: 600;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-collapse-content-box {
-    padding: 2px 2px 10px !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel code,
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-typography-copy {
-    font-family: var(--gn-font-mono);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-toolbar {
-    gap: 8px;
-    padding: 2px 2px 10px;
-    border-bottom: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-search {
-    min-width: 220px;
-    flex-basis: 280px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-toolbar-actions {
-    gap: 6px !important;
+    display: inline-flex;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-filterbar {
-    padding: 6px 2px 8px;
-    gap: 6px;
-    border-bottom: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
+    gap: 8px;
+    padding: 10px 12px;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-filter-chip {
-    padding: 2px 10px;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-    background: transparent;
-    border-color: var(--ant-color-border-secondary, rgba(5, 5, 5, 0.12));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-filter-chip.is-active {
-    background: var(--gn-accent-soft, rgba(22, 119, 255, 0.12));
-    border-color: var(--ant-color-primary, #1677ff);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-filter-chip-count {
-    min-width: 16px;
-    height: 16px;
-    font-size: 10px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-batch-progress-panel {
-    padding: 10px 2px;
-    border-radius: 0;
-    background: transparent;
+.driver-manager-shell.is-embedded .driver-manager-toolbar {
+    gap: 10px 14px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-batch-bar {
-    padding: 8px 2px;
-    border-radius: 0;
-    border-inline: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-batch-bar-icon {
-    width: 26px;
-    height: 26px;
-    font-size: 13px;
-    border-radius: 6px;
-}
-
-/* The embedded driver workbench keeps standard control metrics.
-   The settings-center modal compacts buttons (12px caption font, 600
-   weight) for its list-style panes; the approved driver-workbench
-   mockup uses default button metrics (body font, normal weight). */
-body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-embedded .ant-btn {
-    height: 32px !important;
-    min-height: 32px;
-    padding-inline: 15px !important;
-    border-radius: 6px !important;
-    font-size: var(--gn-font-size, 14px) !important;
-    font-weight: 400 !important;
-}
-
-body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-embedded .ant-btn-sm {
-    height: 24px !important;
-    min-height: 24px;
-    padding-inline: 7px !important;
-    font-size: var(--gn-font-size-sm, 12px) !important;
-}
-
-body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-embedded .ant-btn-icon-only {
-    width: 32px !important;
-    min-width: 32px;
-    padding-inline: 0 !important;
-}
-
-body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-embedded .ant-btn-sm.ant-btn-icon-only {
-    width: 24px !important;
-    min-width: 24px;
+    padding: 10px 14px;
+    border-radius: 10px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-list-head {
-    min-height: 20px;
-    padding-inline: 2px;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+    min-height: 24px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-list {
-    gap: 0;
-    border-top: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
+    gap: 10px;
+    border-top: 0;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-card,
-.driver-manager-shell.is-embedded .driver-manager-card-warning,
-.driver-manager-shell.is-embedded .driver-manager-card-ready,
-.driver-manager-shell.is-embedded .driver-manager-card-progress,
-.driver-manager-shell.is-embedded .driver-manager-card-done,
-.driver-manager-shell.is-embedded .driver-manager-card-error {
-    padding: 12px 2px;
-    border-radius: 0;
-    background: transparent !important;
-    overflow: visible;
-    box-shadow: none !important;
+.driver-manager-shell.is-embedded .driver-manager-card {
+    padding: 16px;
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-body {
-    gap: 12px 16px;
+    gap: 16px 20px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-info {
-    gap: 6px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-driver-name {
-    font-size: var(--gn-font-size, 14px);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-title-row {
-    gap: 6px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-title-row .ant-tag {
-    margin-inline-end: 0;
-    border-radius: 3px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-title-row code {
-    font-size: var(--gn-font-size-mono, var(--gn-font-size-xs, 11px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-meta-row {
-    gap: 4px 12px;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-    font-variant-numeric: tabular-nums;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-update-note {
-    gap: 2px;
-    padding: 4px 8px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-muted-message {
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-control-label,
-.driver-manager-shell.is-embedded .driver-manager-small-text {
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+    gap: 10px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: 8px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-control-block {
-    gap: 3px;
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-actions {
-    grid-column: 1;
-    justify-content: flex-start;
-    gap: 6px !important;
+    justify-content: flex-end;
+    gap: 8px !important;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-actions .ant-btn {
-    min-width: 0;
+    min-width: 88px;
 }
 
 .driver-manager-embedded-layout > .driver-manager-footer-actions {
     flex: 0 0 auto;
-    padding-top: 10px;
+    padding-top: 12px;
     border-top: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
 }
 
@@ -3858,7 +3668,8 @@ body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-emb
         width: min(100%, 520px);
     }
 
-    .driver-manager-card-actions {
+    .driver-manager-card-actions,
+    .driver-manager-shell.is-embedded .driver-manager-card-actions {
         justify-content: flex-start;
     }
 }
@@ -3888,43 +3699,37 @@ body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-emb
     }
 
     .driver-manager-shell.is-embedded .driver-manager-hero {
-        padding: 0 2px 10px;
+        padding: 14px;
     }
 
-    .driver-manager-shell.is-embedded .driver-manager-stats,
-    .driver-manager-shell.is-embedded .driver-manager-card-actions {
-        justify-content: flex-start;
+    .driver-manager-shell.is-embedded .driver-manager-hero .driver-manager-stats {
+        flex-basis: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .driver-manager-shell.is-embedded .driver-manager-hero-side {
+        width: 100%;
+        justify-content: flex-end;
+    }
 }
 
 @media (max-width: 1100px) {
     .driver-manager-shell.is-embedded .driver-manager-toolbar {
         align-items: stretch;
-        gap: 8px;
+        gap: 10px;
     }
 
     .driver-manager-shell.is-embedded .driver-manager-toolbar-search,
     .driver-manager-shell.is-embedded .driver-manager-toolbar-bulk,
     .driver-manager-shell.is-embedded .driver-manager-toolbar-dir,
     .driver-manager-shell.is-embedded .driver-manager-toolbar-network {
-        flex: 1 1 100%;
         min-width: 0;
+        flex: 1 1 100%;
     }
 
     .driver-manager-shell.is-embedded .driver-manager-toolbar-network {
         justify-content: flex-start;
         margin-left: 0;
-    }
-}
-
-@media (max-width: 680px) {
-    .driver-manager-shell.is-embedded .driver-manager-card-controls {
-        grid-template-columns: 1fr;
-    }
-
-    .driver-manager-shell.is-embedded .driver-manager-card-actions {
-        grid-column: 1;
     }
 }
 

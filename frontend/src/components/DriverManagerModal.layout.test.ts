@@ -75,14 +75,24 @@ const readCssRule = (selector: string): string => {
 };
 
 describe('DriverManagerModal embedded layout', () => {
-  it('keeps version, transient progress, and actions in one readable settings flow', () => {
-    const controlsRule = appCss.match(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card-controls\s*\{([^}]*)\}/s,
-    )?.[1] || '';
-    expect(controlsRule).toContain('grid-template-columns: minmax(0, 1fr);');
-    expect(controlsRule).not.toContain('minmax(96px, 0.7fr)');
+  it('keeps the reference workbench cards, stats, and desktop actions intact', () => {
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card-actions\s*\{[^}]*grid-column:\s*1[^}]*justify-content:\s*flex-start/s,
+      /\.driver-manager-shell\.is-embedded \.driver-manager-hero\s*\{[^}]*padding:\s*16px 18px[^}]*border-radius:\s*12px/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-shell\.is-embedded \.driver-manager-hero \.driver-manager-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-shell\.is-embedded \.driver-manager-list\s*\{[^}]*gap:\s*10px[^}]*border-top:\s*0/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-shell\.is-embedded \.driver-manager-card\s*\{[^}]*padding:\s*16px[^}]*border-radius:\s*12px/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-shell\.is-embedded \.driver-manager-card-actions\s*\{[^}]*justify-content:\s*flex-end/s,
+    );
+    expect(appCss).toMatch(
+      /@container driver-card \(max-width: 780px\)\s*\{[\s\S]*?\.driver-manager-shell\.is-embedded \.driver-manager-card-body\s*\{[^}]*flex-direction:\s*column/s,
     );
     expect(appCss).toMatch(
       /\.driver-manager-control-block\s*\{[^}]*min-width:\s*0/s,

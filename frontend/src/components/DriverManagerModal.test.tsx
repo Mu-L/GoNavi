@@ -275,7 +275,7 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.className).toBe('driver-manager-progress driver-manager-progress-lg');
   });
 
-  it('uses the compact flat driver list only inside the embedded settings view', async () => {
+  it('keeps complete driver workbench cards inside the embedded tab view', async () => {
     let embeddedRenderer: ReactTestRenderer;
     await act(async () => {
       embeddedRenderer = create(<DriverManagerModal open embedded onClose={vi.fn()} />);
@@ -287,10 +287,8 @@ describe('DriverManagerModal toolbar actions', () => {
     const embeddedCard = embeddedShell.findByProps({ className: 'driver-manager-card' });
     expect(embeddedLayout.children[0]).toBe(embeddedShell);
     expect(embeddedLayout.findByProps({ className: 'driver-manager-footer-actions' })).toBeTruthy();
-    expect(embeddedCard.props.style).toMatchObject({
-      border: 'none',
-      background: 'transparent',
-    });
+    expect(embeddedCard.props.style.border).not.toBe('none');
+    expect(embeddedCard.props.style.background).not.toBe('transparent');
     expect(findButton(embeddedRenderer!, t('driver.modal.card.action.install')).props.size).toBe('small');
     expect(embeddedRenderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
 

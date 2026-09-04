@@ -1,5 +1,4 @@
-import { SettingOutlined } from '@ant-design/icons';
-import { Button, Typography, theme } from 'antd';
+import { Button, theme } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '../i18n/provider';
 import { useStore } from '../store';
@@ -12,7 +11,6 @@ import {
 import DriverManagerModal from './DriverManagerModal';
 import './DriverManagerWorkbench.css';
 
-const { Text, Title } = Typography;
 type DownloadSourceId = 'cst' | 'bero' | 'github';
 
 const normalizeDownloadSource = (value: unknown): DownloadSourceId => (
@@ -63,7 +61,10 @@ export default function DriverManagerWorkbench({
   }, [loadDownloadSource]);
   const workbenchStyle = {
     '--driver-manager-workbench-bg': token.colorBgLayout,
+    '--driver-manager-workbench-surface': token.colorBgContainer,
+    '--driver-manager-workbench-border': token.colorBorderSecondary,
     '--driver-manager-workbench-text': token.colorText,
+    '--driver-manager-workbench-muted': token.colorTextSecondary,
     '--driver-manager-workbench-subtle': token.colorFillQuaternary,
     '--driver-manager-workbench-primary': token.colorPrimary,
   } as React.CSSProperties;
@@ -74,37 +75,39 @@ export default function DriverManagerWorkbench({
       style={workbenchStyle}
       aria-labelledby="driver-manager-workbench-title"
     >
-      <header className="gn-driver-manager-workbench-header">
-        <div className="gn-driver-manager-workbench-title-group">
-          <div className="gn-driver-manager-workbench-title-icon" aria-hidden="true">
-            <SettingOutlined />
-          </div>
-          <div className="gn-driver-manager-workbench-title-copy">
-            <Title level={4} id="driver-manager-workbench-title">
+      <section className="preview-settings">
+        <header className="preview-settings-pane-head">
+          <div className="preview-settings-pane-copy">
+            <div className="preview-settings-pane-title" id="driver-manager-workbench-title">
               {t('driver_manager.title')}
-            </Title>
-            <Text type="secondary">{t('app.tools.entry.drivers.description')}</Text>
+            </div>
+            <div className="preview-settings-pane-sub">
+              {t('app.tools.entry.drivers.description')}
+            </div>
           </div>
-        </div>
-        <div className="gn-driver-manager-workbench-source">
-          <span className="gn-driver-manager-workbench-source-dot" data-download-source={downloadSource} aria-hidden="true" />
-          <Text type="secondary">{t('driver_manager.mirror_source.label')}</Text>
-          <Text strong>{t(`app.download_source.option.${downloadSource}`)}</Text>
-          <Button size="small" onClick={requestDownloadSourceSettings}>
-            {t('driver_manager.mirror_source.switch')}
+          <Button
+            className="preview-settings-source"
+            type="text"
+            size="small"
+            onClick={requestDownloadSourceSettings}
+            aria-label={`${t('driver_manager.mirror_source.label')}: ${t(`app.download_source.option.${downloadSource}`)}. ${t('driver_manager.mirror_source.switch')}`}
+          >
+            <span className="preview-settings-source-dot" data-download-source={downloadSource} aria-hidden="true" />
+            <span>{t(`app.download_source.option.${downloadSource}`)}</span>
+            <span className="preview-settings-source-action">{t('driver_manager.mirror_source.switch')}</span>
           </Button>
-        </div>
-      </header>
+        </header>
 
-      <section className="gn-driver-manager-workbench-content">
-        <DriverManagerModal
-          embedded
-          open={isActive}
-          onClose={() => (onRequestClose ? onRequestClose() : closeTab(tab.id))}
-          onOpenGlobalProxySettings={requestGlobalProxySettings}
-          onOpenDownloadSourceSettings={requestDownloadSourceSettings}
-          downloadSource={downloadSource}
-        />
+        <div className="gn-driver-manager-workbench-content">
+          <DriverManagerModal
+            embedded
+            open={isActive}
+            onClose={() => (onRequestClose ? onRequestClose() : closeTab(tab.id))}
+            onOpenGlobalProxySettings={requestGlobalProxySettings}
+            onOpenDownloadSourceSettings={requestDownloadSourceSettings}
+            downloadSource={downloadSource}
+          />
+        </div>
       </section>
     </main>
   );

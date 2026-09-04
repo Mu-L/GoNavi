@@ -785,24 +785,22 @@ const DriverManagerModal: React.FC<{
   }), [driverManagerTheme]);
 
   const managerSectionStyle = useMemo<React.CSSProperties>(() => ({
-    border: embedded ? 'none' : driverManagerTheme.sectionBorder,
-    borderBottom: embedded ? driverManagerTheme.sectionBorder : undefined,
-    borderRadius: embedded ? 0 : 8,
-    background: embedded ? 'transparent' : driverManagerTheme.sectionBg,
-  }), [driverManagerTheme, embedded]);
+    border: driverManagerTheme.sectionBorder,
+    borderRadius: 12,
+    background: driverManagerTheme.sectionBg,
+  }), [driverManagerTheme]);
 
   const managerStatStyle = useMemo<React.CSSProperties>(() => ({
-    border: embedded ? 'none' : driverManagerTheme.statBorder,
-    borderRadius: embedded ? 0 : 8,
-    background: embedded ? 'transparent' : driverManagerTheme.statBg,
-  }), [driverManagerTheme, embedded]);
+    border: driverManagerTheme.statBorder,
+    borderRadius: 10,
+    background: driverManagerTheme.statBg,
+  }), [driverManagerTheme]);
 
   const managerUpdateNoteStyle = useMemo<React.CSSProperties>(() => ({
-    border: embedded ? 'none' : driverManagerTheme.updateNoteBorder,
-    borderLeft: embedded ? driverManagerTheme.updateNoteBorder : undefined,
-    borderRadius: embedded ? 0 : 8,
-    background: embedded ? 'transparent' : driverManagerTheme.updateNoteBg,
-  }), [driverManagerTheme, embedded]);
+    border: driverManagerTheme.updateNoteBorder,
+    borderRadius: 8,
+    background: driverManagerTheme.updateNoteBg,
+  }), [driverManagerTheme]);
 
   const appendOperationLog = useCallback((
     driverType: string,
@@ -2213,11 +2211,7 @@ const DriverManagerModal: React.FC<{
       <div
         key={row.type}
         className={['driver-manager-card', cardAccent].filter(Boolean).join(' ')}
-        style={embedded ? {
-          border: 'none',
-          borderBottom: driverManagerTheme.cardBorder,
-          background: 'transparent',
-        } : {
+        style={{
           border: row.needsUpdate
             ? driverManagerTheme.cardWarningBorder
             : (row.connectable ? driverManagerTheme.cardReadyBorder : driverManagerTheme.cardBorder),
