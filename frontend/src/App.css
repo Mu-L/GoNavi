@@ -2739,12 +2739,32 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-labe
 }
 
 @media (max-width: 920px) {
-    .gn-v2-titlebar-quick-primary {
+    .gn-v2-titlebar-quick-action > span:not(.anticon) {
         display: none;
+    }
+
+    .gn-v2-titlebar-quick-action {
+        width: 28px;
+        min-width: 28px;
+        padding-inline: 0;
+        gap: 0;
+        justify-content: center;
     }
 
     .gn-v2-titlebar-quick-more {
         padding-inline: 8px;
+    }
+
+    body[data-ui-version="v2"] .gonavi-titlebar-primary-actions {
+        margin-right: 6px;
+    }
+
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions,
+    .gn-v2-titlebar-quick-primary {
+        flex: 0 0 auto;
+        max-width: none;
+        overflow: visible;
     }
 }
 
@@ -2760,13 +2780,6 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-labe
     .gonavi-titlebar-primary-action {
         padding-inline: 6px;
     }
-}
-
-@media (max-width: 920px) {
-    body[data-ui-version="v2"] .gonavi-titlebar-primary-actions {
-        margin-right: 6px;
-    }
-
 }
 
 body[data-ui-version="v2"] .gn-v2-titlebar {
@@ -2826,15 +2839,10 @@ body[data-ui-version="v2"][data-platform='linux'] .gn-v2-titlebar > div:last-chi
     min-width: max(96px, calc(var(--gn-titlebar-action-height, 34px) * 3));
 }
 
-@media (max-width: 720px) {
-    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot {
-        max-width: 180px;
-    }
-}
-
 @media (max-width: 420px) {
     /* Leave room for native window controls while keeping every command reachable. */
     body[data-ui-version="v2"] .gonavi-titlebar-primary-action,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-action,
     body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
         width: 38px !important;
         min-width: 38px !important;
@@ -2844,6 +2852,7 @@ body[data-ui-version="v2"][data-platform='linux'] .gn-v2-titlebar > div:last-chi
     }
 
     body[data-ui-version="v2"] .gonavi-titlebar-primary-action .anticon,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-action .anticon,
     body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .anticon {
         margin: 0;
     }

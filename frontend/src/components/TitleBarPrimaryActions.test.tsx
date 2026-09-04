@@ -71,7 +71,7 @@ describe('TitleBarPrimaryActions', () => {
     const narrowEnd = appCss.indexOf("body[data-platform='windows']", narrowStart);
     const narrowCss = appCss.slice(narrowStart, narrowEnd);
     const narrowPrimaryRule = narrowCss.match(
-      /body\[data-ui-version="v2"\] \.gonavi-titlebar-primary-action,\s*body\[data-ui-version="v2"\] \.gn-v2-titlebar-quick-more\s*\{(?<body>[^}]*)\}/s,
+      /body\[data-ui-version="v2"\] \.gonavi-titlebar-primary-action,\s*body\[data-ui-version="v2"\] \.gn-v2-titlebar-quick-action,\s*body\[data-ui-version="v2"\] \.gn-v2-titlebar-quick-more\s*\{(?<body>[^}]*)\}/s,
     );
     expect(narrowStart).toBeGreaterThanOrEqual(0);
     expect(narrowEnd).toBeGreaterThan(narrowStart);

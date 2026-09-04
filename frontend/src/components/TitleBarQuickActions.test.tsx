@@ -37,6 +37,8 @@ describe('TitleBarQuickActions', () => {
     expect(appCss).toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-label');
     expect(appCss).toContain('display: inline;');
     expect(appCss).not.toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more span');
+    expect(appCss).not.toMatch(/@media \(max-width: 920px\) \{[^@]*\.gn-v2-titlebar-quick-primary \{[^}]*display:\s*none;/s);
+    expect(appCss).toMatch(/@media \(max-width: 920px\) \{[^@]*\.gn-v2-titlebar-quick-action > span:not\(\.anticon\) \{[^}]*display:\s*none;/s);
   });
 
   it('renders primary actions with visible labels and does not show a More overflow', () => {
