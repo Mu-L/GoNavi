@@ -1054,6 +1054,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   // editable/delete eligibility guard. Read-only result grids still support
   // selecting cells and should report that selection in the footer.
   const cellSelectionUserSourceDataRef = useRef<Item[] | null>(null);
+  const cellSelectionAnchorSourceRef = useRef<'user' | 'page-find' | null>(null);
   const [copiedCellPatch, setCopiedCellPatch] = useState<{ sourceRowKey: string; values: Record<string, any> } | null>(null);
   const [copiedRowsForPaste, setCopiedRowsForPaste] = useState<Array<Record<string, any>>>([]);
 
@@ -2049,6 +2050,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     markCellSelectionUserSelection(false);
     currentSelectionRef.current = new Set();
     selectionStartRef.current = null;
+    cellSelectionAnchorSourceRef.current = null;
     pendingCellSelectionStartRef.current = null;
     isDraggingRef.current = false;
     cellSelectionPointerRef.current = null;
@@ -2141,6 +2143,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     selectedCells,
     selectedRowKeysRef,
     selectionStartRef,
+    cellSelectionAnchorSourceRef,
     setAddedRows,
     setCellContextMenu,
     setCellEditMode,
@@ -2916,6 +2919,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       setSelectedCells(emptySelection);
       currentSelectionRef.current = emptySelection;
       selectionStartRef.current = null;
+      cellSelectionAnchorSourceRef.current = null;
       updateCellSelection(emptySelection);
   }, [markCellSelectionUserSelection, normalizedPageFindText, updateCellSelection]);
 
@@ -4703,6 +4707,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       const nextSelection = new Set([makeCellKey(match.rowKey, match.columnName)]);
       markCellSelectionUserSelection(false);
       markCellSelectionDeleteEligible(false);
+      cellSelectionAnchorSourceRef.current = 'page-find';
       setSelectedCells(nextSelection);
       currentSelectionRef.current = nextSelection;
       selectionStartRef.current = {

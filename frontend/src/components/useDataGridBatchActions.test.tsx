@@ -2,6 +2,7 @@ import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildDataGridCellSelectionRectangle } from './DataGridCore';
 import { useDataGridBatchActions } from './useDataGridBatchActions';
 
 const messageApi = vi.hoisted(() => ({
@@ -101,6 +102,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
     ];
     const currentSelectionRef = { current: selectedCells };
     const selectionStartRef = { current: null as null | { rowKey: string; colName: string; rowIndex: number; colIndex: number } };
+    const cellSelectionAnchorSourceRef = { current: null as 'user' | 'page-find' | null };
     const setAddedRows = vi.fn();
     const setModifiedRows = vi.fn();
     const setModifiedColumns = vi.fn();
@@ -148,6 +150,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
       selectedCells,
       selectedRowKeysRef: { current: selectedRowKeys },
       selectionStartRef,
+      cellSelectionAnchorSourceRef,
       setAddedRows,
       setCellContextMenu: vi.fn(),
       setCellEditMode: vi.fn(),
@@ -173,6 +176,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
       ctx,
       currentSelectionRef,
       selectionStartRef,
+      cellSelectionAnchorSourceRef,
       setAddedRows,
       setModifiedRows,
       setModifiedColumns,
@@ -192,6 +196,50 @@ describe('useDataGridBatchActions clipboard paste', () => {
     });
     return cell;
   };
+
+  const shiftSelectCell = (container: ReturnType<typeof renderHook>['container'], rowKey: string, colName: string) => {
+    const cell = new MockHTMLElement({ 'data-row-key': rowKey, 'data-col-name': colName });
+    const preventDefault = vi.fn();
+    const clickPreventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    act(() => {
+      (container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: cell,
+        clientX: 10,
+        clientY: 10,
+        shiftKey: true,
+        preventDefault,
+      });
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: cell, clientX: 10, clientY: 10 });
+      (container.listeners.get('click') as any)?.({ preventDefault: clickPreventDefault, stopPropagation });
+    });
+    return { cell, preventDefault, clickPreventDefault, stopPropagation };
+  };
+
+  it('builds a closed rectangle from the current rows and skips unavailable columns', () => {
+    expect(buildDataGridCellSelectionRectangle({
+      startRowIndex: 2,
+      startColIndex: 2,
+      endRowIndex: 0,
+      endColIndex: 0,
+      rows: [
+        { key: 'row-1' },
+        { key: 'row-2' },
+        { key: 'row-3' },
+      ],
+      columnNames: ['id', 'generated', 'name'],
+      rowKeyField: 'key',
+      canSelectColumn: (columnName) => columnName !== 'generated',
+    })).toEqual(new Set([
+      makeCellKey('row-1', 'id'),
+      makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'),
+      makeCellKey('row-2', 'name'),
+      makeCellKey('row-3', 'id'),
+      makeCellKey('row-3', 'name'),
+    ]));
+  });
 
   it('pastes a two-dimensional matrix from the selected anchor cell', () => {
     const hook = renderHook({ modifiedRows: { 'row-1': { name: 'draft' } } });
@@ -687,6 +735,107 @@ describe('useDataGridBatchActions clipboard paste', () => {
     expect(hook.ctx.markCellSelectionDeleteEligible).toHaveBeenCalledWith(false);
     expect(hook.ctx.markCellSelectionUserSelection).toHaveBeenCalledWith(false);
     expect(hook.updateCellSelection).toHaveBeenCalledWith(new Set([makeCellKey('row-1', 'id')]));
+  });
+
+  it('extends from the original anchor across a Shift-clicked rectangle', () => {
+    const hook = renderHook();
+    selectCell(hook.container, 'row-1', 'id');
+
+    const { preventDefault, clickPreventDefault, stopPropagation } = shiftSelectCell(hook.container, 'row-3', 'name');
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(clickPreventDefault).toHaveBeenCalledOnce();
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(hook.selectionStartRef.current).toEqual({ rowKey: 'row-1', colName: 'id', rowIndex: 0, colIndex: 0 });
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'), makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'), makeCellKey('row-2', 'name'),
+      makeCellKey('row-3', 'id'), makeCellKey('row-3', 'name'),
+    ]));
+  });
+
+  it('enters cell edit mode when an editable result uses Shift to extend a range', () => {
+    const hook = renderHook();
+    selectCell(hook.container, 'row-1', 'id');
+
+    shiftSelectCell(hook.container, 'row-2', 'name');
+
+    expect(hook.ctx.cellEditModeRef.current).toBe(true);
+    expect(hook.ctx.setCellEditMode).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps the original anchor for consecutive Shift-clicks', () => {
+    const hook = renderHook();
+    selectCell(hook.container, 'row-1', 'id');
+    shiftSelectCell(hook.container, 'row-3', 'name');
+    shiftSelectCell(hook.container, 'row-2', 'name');
+
+    expect(hook.selectionStartRef.current).toEqual({ rowKey: 'row-1', colName: 'id', rowIndex: 0, colIndex: 0 });
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'), makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'), makeCellKey('row-2', 'name'),
+    ]));
+  });
+
+  it('limits a Shift range to rows in the current filtered result', () => {
+    const hook = renderHook();
+    selectCell(hook.container, 'row-1', 'id');
+    hook.ctx.displayDataRef.current = [
+      { key: 'row-1', id: '1', generated: 'A', name: 'alpha' },
+      { key: 'row-3', id: '3', generated: 'C', name: 'gamma' },
+    ];
+
+    shiftSelectCell(hook.container, 'row-3', 'name');
+
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'), makeCellKey('row-1', 'name'),
+      makeCellKey('row-3', 'id'), makeCellKey('row-3', 'name'),
+    ]));
+  });
+
+  it('falls back to a normal single-cell selection when the anchor is no longer visible', () => {
+    const hook = renderHook();
+    selectCell(hook.container, 'row-1', 'id');
+    hook.ctx.displayDataRef.current = [
+      { key: 'row-4', id: '4', generated: 'D', name: 'delta' },
+    ];
+
+    shiftSelectCell(hook.container, 'row-4', 'name');
+
+    expect(hook.selectionStartRef.current).toEqual({
+      rowKey: 'row-4',
+      colName: 'name',
+      rowIndex: 0,
+      colIndex: 2,
+    });
+    expect(hook.currentSelectionRef.current).toEqual(new Set([makeCellKey('row-4', 'name')]));
+  });
+
+  it('does not use a page-find focus as a Shift-selection anchor', () => {
+    const hook = renderHook();
+    hook.selectionStartRef.current = { rowKey: 'row-1', colName: 'id', rowIndex: 0, colIndex: 0 };
+    hook.cellSelectionAnchorSourceRef.current = 'page-find';
+    hook.currentSelectionRef.current = new Set([makeCellKey('row-1', 'id')]);
+
+    shiftSelectCell(hook.container, 'row-3', 'name');
+
+    expect(hook.selectionStartRef.current).toEqual({ rowKey: 'row-3', colName: 'name', rowIndex: 2, colIndex: 2 });
+    expect(hook.cellSelectionAnchorSourceRef.current).toBe('user');
+    expect(hook.currentSelectionRef.current).toEqual(new Set([makeCellKey('row-3', 'name')]));
+  });
+
+  it('keeps all displayed columns selectable in read-only results', () => {
+    const hook = renderHook({ canModifyData: false });
+    selectCell(hook.container, 'row-1', 'id');
+
+    shiftSelectCell(hook.container, 'row-2', 'generated');
+
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'), makeCellKey('row-1', 'generated'),
+      makeCellKey('row-2', 'id'), makeCellKey('row-2', 'generated'),
+    ]));
+    expect(hook.ctx.markCellSelectionDeleteEligible).toHaveBeenCalledWith(false);
+    expect(hook.ctx.markCellSelectionUserSelection).toHaveBeenCalledWith(true);
   });
 
   it('moves a single active cell with arrow keys without changing row-selection semantics', () => {

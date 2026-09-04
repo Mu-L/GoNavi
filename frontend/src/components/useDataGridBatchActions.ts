@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type React from 'react';
 import { message } from 'antd';
 import {
+  buildDataGridCellSelectionRectangle,
   collectDataGridFillTemplateTargetRowKeys,
   filterDataGridCellSelectionToVisibleRows,
 } from './DataGridCore';
@@ -28,6 +29,7 @@ type DataGridBatchActionsContext = Record<string, any> & {
     rowIndex: number;
     colIndex: number;
   } | null>;
+  cellSelectionAnchorSourceRef: React.MutableRefObject<'user' | 'page-find' | null>;
   cellEditModeRef: React.MutableRefObject<boolean>;
   cellSelectionAutoScrollRafRef: React.MutableRefObject<number | null>;
   cellSelectionPointerRef: React.MutableRefObject<{ x: number; y: number } | null>;
@@ -103,6 +105,7 @@ export const useDataGridBatchActions = (ctx: DataGridBatchActionsContext) => {
     selectedCells,
     selectedRowKeysRef,
     selectionStartRef,
+    cellSelectionAnchorSourceRef,
     setAddedRows,
     setCellContextMenu,
     setCellEditMode,
@@ -213,6 +216,7 @@ const handleBatchFillCells = useCallback(() => {
     markCellSelectionUserSelection(false);
     currentSelectionRef.current = new Set();
     selectionStartRef.current = null;
+    cellSelectionAnchorSourceRef.current = null;
     isDraggingRef.current = false;
     cellSelectionPointerRef.current = null;
     if (cellSelectionAutoScrollRafRef.current !== null) {
@@ -416,42 +420,38 @@ const handleBatchFillCells = useCallback(() => {
       return getCellInfo(target);
     };
 
-    const applySelectionUpdate = (cellInfo: { rowKey: string; colName: string }) => {
+    const applySelectionUpdate = (cellInfo: { rowKey: string; colName: string }): boolean => {
       const start = selectionStartRef.current;
-      if (!start) return;
+      if (!start) return false;
 
       const currentData = displayDataRef.current;
-      const rowIndexMap = rowIndexMapRef.current;
-      const startRowIndex = start.rowIndex;
-      const endRowIndex = rowIndexMap.get(cellInfo.rowKey) ?? -1;
-      if (startRowIndex === -1 || endRowIndex === -1) return;
+      const startRowIndex = currentData.findIndex((row) => rowKeyStr(row?.[GONAVI_ROW_KEY]) === start.rowKey);
+      const endRowIndex = currentData.findIndex((row) => rowKeyStr(row?.[GONAVI_ROW_KEY]) === cellInfo.rowKey);
+      if (startRowIndex === -1 || endRowIndex === -1) return false;
 
-      const startColIndex = start.colIndex;
+      const startColIndex = columnIndexMap.get(start.colName) ?? -1;
       const endColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
-      if (startColIndex === -1 || endColIndex === -1) return;
+      if (startColIndex === -1 || endColIndex === -1) return false;
 
-      const minRowIndex = Math.min(startRowIndex, endRowIndex);
-      const maxRowIndex = Math.max(startRowIndex, endRowIndex);
-      const minColIndex = Math.min(startColIndex, endColIndex);
-      const maxColIndex = Math.max(startColIndex, endColIndex);
-
-      const newSelectedCells = new Set<string>();
-      for (let i = minRowIndex; i <= maxRowIndex; i++) {
-        const row = currentData[i];
-        const rKey = String(row?.[GONAVI_ROW_KEY]);
-        for (let j = minColIndex; j <= maxColIndex; j++) {
-          const colName = displayColumnNames[j];
-          if (!canSelectGridCellForClipboard({
-            canModifyData,
-            isDisplayedColumn: true,
-            isWritableColumn: isWritableResultColumn(colName, effectiveEditLocator),
-          })) continue;
-          newSelectedCells.add(makeCellKey(rKey, colName));
-        }
-      }
+      const newSelectedCells = buildDataGridCellSelectionRectangle({
+        startRowIndex,
+        startColIndex,
+        endRowIndex,
+        endColIndex,
+        rows: currentData,
+        columnNames: displayColumnNames,
+        rowKeyField: GONAVI_ROW_KEY,
+        canSelectColumn: (columnName) => canSelectGridCellForClipboard({
+          canModifyData,
+          isDisplayedColumn: true,
+          isWritableColumn: isWritableResultColumn(columnName, effectiveEditLocator),
+        }),
+      });
+      if (newSelectedCells.size === 0) return false;
 
       currentSelectionRef.current = newSelectedCells;
       updateCellSelection(newSelectedCells);
+      return true;
     };
 
     const scheduleSelectionUpdate = (cellInfo: { rowKey: string; colName: string }) => {
@@ -566,6 +566,7 @@ const handleBatchFillCells = useCallback(() => {
       const startRowIndex = nextRowIndexMap.get(cellInfo.rowKey) ?? -1;
       const startColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
       selectionStartRef.current = { rowKey: cellInfo.rowKey, colName: cellInfo.colName, rowIndex: startRowIndex, colIndex: startColIndex };
+      cellSelectionAnchorSourceRef.current = 'user';
       currentSelectionRef.current = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
       updateCellSelection(currentSelectionRef.current);
       ensureAutoScroll();
@@ -584,6 +585,7 @@ const handleBatchFillCells = useCallback(() => {
         rowIndex,
         colIndex,
       };
+      cellSelectionAnchorSourceRef.current = 'user';
       currentSelectionRef.current = nextSelection;
       setSelectedCells(nextSelection);
       markCellSelectionDeleteEligible(false);
@@ -666,6 +668,20 @@ const handleBatchFillCells = useCallback(() => {
       if (isInteractiveTarget(target)) return;
       const cellInfo = getCellInfo(target);
       if (!cellInfo) return;
+
+      if (e.shiftKey && cellSelectionAnchorSourceRef.current === 'user' && selectionStartRef.current && applySelectionUpdate(cellInfo)) {
+        e.preventDefault();
+        pendingCellSelectionStartRef.current = null;
+        suppressCellSelectionClickRef.current = true;
+        if (canModifyData && !cellEditModeRef.current) {
+          cellEditModeRef.current = true;
+          setCellEditMode(true);
+        }
+        setSelectedCells(new Set(currentSelectionRef.current));
+        markCellSelectionDeleteEligible(canModifyData);
+        markCellSelectionUserSelection(true);
+        return;
+      }
 
       if (cellEditModeRef.current) {
         e.preventDefault();
@@ -1071,6 +1087,7 @@ const handleBatchFillCells = useCallback(() => {
       rowIndex: anchorRowIndex,
       colIndex,
     };
+    cellSelectionAnchorSourceRef.current = 'user';
     currentSelectionRef.current = nextSelection;
     setSelectedCells(nextSelection);
     markCellSelectionDeleteEligible(true);
