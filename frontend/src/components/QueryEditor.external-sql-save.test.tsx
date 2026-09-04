@@ -134,6 +134,8 @@ const storeState = vi.hoisted(() => ({
     uiVersion: 'legacy' as 'legacy' | 'v2',
     newQuerySqlTemplate: null as string | null,
     autoAddTableAlias: true,
+    customTableAliasPrefixEnabled: false,
+    customTableAliasPrefix: '',
     queryTableCtrlClickAction: 'open-design' as 'open-design' | 'locate',
   },
   sqlFormatOptions: { keywordCase: 'upper' as const },
@@ -981,6 +983,8 @@ describe('QueryEditor external SQL save', () => {
     storeState.appearance.uiVersion = 'legacy';
     storeState.appearance.newQuerySqlTemplate = null;
     storeState.appearance.autoAddTableAlias = true;
+    storeState.appearance.customTableAliasPrefixEnabled = false;
+    storeState.appearance.customTableAliasPrefix = '';
     storeState.appearance.queryTableCtrlClickAction = 'open-design';
     storeState.queryOptions = {
       maxRows: 5000,
@@ -4263,6 +4267,8 @@ describe('QueryEditor external SQL save', () => {
     let renderer!: ReactTestRenderer;
     autoFetchState.visible = true;
     storeState.appearance.autoAddTableAlias = false;
+    storeState.appearance.customTableAliasPrefixEnabled = true;
+    storeState.appearance.customTableAliasPrefix = 't';
     storeState.connections[0].config.database = 'main';
     backendApp.DBGetDatabases.mockResolvedValueOnce({ success: true, data: [{ Database: 'main' }] });
     backendApp.DBGetTables.mockResolvedValueOnce({
@@ -4288,6 +4294,62 @@ describe('QueryEditor external SQL save', () => {
     );
     expect(result.suggestions.find((item: any) => item.label === 'system_user')?.insertText)
       .toBe('system_user');
+
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('uses a custom prefix for table source completions without changing dialect alias syntax', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = true;
+    storeState.appearance.customTableAliasPrefixEnabled = true;
+    storeState.appearance.customTableAliasPrefix = 't';
+    storeState.connections[0].config.database = 'main';
+    backendApp.DBGetDatabases.mockResolvedValueOnce({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValueOnce({
+      success: true,
+      data: [{ Tables_in_main: 'system_user' }, { Tables_in_main: 'service_user' }],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'main' })} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    editorState.value = 'SELECT * FROM system_user t0 JOIN service';
+    editorState.latestOnChange?.(editorState.value);
+    const mysqlResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    expect(mysqlResult.suggestions.find((item: any) => item.label === 'service_user')?.insertText)
+      .toBe('service_user AS t1');
+
+    storeState.connections[0].config.type = 'oracle';
+    editorState.value = 'SELECT * FROM system_user t0 JOIN service';
+    editorState.latestOnChange?.(editorState.value);
+    const oracleResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    expect(oracleResult.suggestions.find((item: any) => item.label === 'service_user')?.insertText)
+      .toBe('service_user t1');
+
+    storeState.connections[0].config.type = 'oceanbase';
+    (storeState.connections[0].config as Record<string, unknown>).oceanBaseProtocol = 'oracle';
+    const oceanBaseOracleResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    expect(oceanBaseOracleResult.suggestions.find((item: any) => item.label === 'service_user')?.insertText)
+      .toBe('service_user t1');
 
     await act(async () => {
       renderer.unmount();

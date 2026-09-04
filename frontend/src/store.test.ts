@@ -100,12 +100,55 @@ describe('store appearance persistence', () => {
     expect(appearance.customMonoFontFamily).toBeNull();
     expect(appearance.newQuerySqlTemplate).toBeNull();
     expect(appearance.autoAddTableAlias).toBe(true);
+    expect(appearance.customTableAliasPrefixEnabled).toBe(false);
+    expect(appearance.customTableAliasPrefix).toBe('');
     expect(appearance.tabDisplay).toEqual({
       layout: 'double',
       primaryElements: ['object'],
       secondaryElements: ['kind', 'connection', 'database'],
     });
   }, 30000);
+
+  it('persists a valid custom table alias prefix and discards invalid restored values', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setAppearance({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+    expect(useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: {
+        appearance: {
+          customTableAliasPrefixEnabled: true,
+          customTableAliasPrefix: '1invalid',
+        },
+      },
+      version: 21,
+    }));
+    vi.resetModules();
+    const invalid = await importStore();
+    expect(invalid.useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: '',
+    });
+
+    invalid.useStore.getState().setAppearance({
+      customTableAliasPrefix: 'a'.repeat(25),
+    });
+    expect(invalid.useStore.getState().appearance.customTableAliasPrefix).toBe('');
+  });
 
   it('migrates the previous tab display default without overwriting custom settings', async () => {
     storage.setItem('lite-db-storage', JSON.stringify({
