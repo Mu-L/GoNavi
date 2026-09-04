@@ -625,7 +625,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       {hideCatalog ? null : <aside id="gonavi-ai-provider-catalog" ref={layout.catalogRef}
         className={`gonavi-ai-provider-catalog${layout.hiddenPaneHeight != null ? ' is-hidden-pinned' : ''}`}
         style={layout.hiddenPaneHeight != null ? { ['--provider-hidden-pane' as string]: `${layout.hiddenPaneHeight}px` } : undefined}
-        hidden={treeHostedView === 'connected' || !layout.catalogVisible} aria-label={copy('ai_settings.provider.catalog')}>
+        hidden={!layout.catalogVisible} aria-label={copy('ai_settings.provider.catalog')}>
         <div className="gonavi-ai-provider-catalog-scroll"><div className="gonavi-ai-provider-catalog-grid">
           <AIProviderSortableGroup layout="grid" items={visiblePresets.map((preset) => preset.key)} disabled={catalogSearching} overlayStyle={rootStyle}
             onMove={movePreset(visiblePresets.map((preset) => preset.key))} renderOverlay={presetDragOverlay('card')}>
