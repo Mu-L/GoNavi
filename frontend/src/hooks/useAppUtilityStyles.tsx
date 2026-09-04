@@ -157,7 +157,7 @@ export const useAppUtilityStyles = ({
   }), []);
   const toolCenterModalSplitStyle = useMemo<React.CSSProperties>(() => ({
     display: 'grid',
-    gridTemplateColumns: '204px minmax(0, 1fr)',
+    gridTemplateColumns: '248px minmax(0, 1fr)',
     gap: 16,
     flex: 1,
     minHeight: 0,

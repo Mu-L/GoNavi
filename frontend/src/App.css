@@ -3895,6 +3895,27 @@ body[data-ui-version] .gonavi-settings-center-modal .driver-manager-shell.is-emb
     .driver-manager-shell.is-embedded .driver-manager-card-actions {
         justify-content: flex-start;
     }
+
+}
+
+@media (max-width: 1100px) {
+    .driver-manager-shell.is-embedded .driver-manager-toolbar {
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .driver-manager-shell.is-embedded .driver-manager-toolbar-search,
+    .driver-manager-shell.is-embedded .driver-manager-toolbar-bulk,
+    .driver-manager-shell.is-embedded .driver-manager-toolbar-dir,
+    .driver-manager-shell.is-embedded .driver-manager-toolbar-network {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .driver-manager-shell.is-embedded .driver-manager-toolbar-network {
+        justify-content: flex-start;
+        margin-left: 0;
+    }
 }
 
 @media (max-width: 680px) {
@@ -4638,7 +4659,7 @@ body[data-theme='dark'] .gonavi-settings-center-entry:hover {
 
 @media (max-width: 1120px) {
   .gonavi-settings-center-layout {
-    grid-template-columns: 176px minmax(0, 1fr) !important;
+    grid-template-columns: 220px minmax(0, 1fr) !important;
     gap: 12px !important;
   }
 

@@ -52,6 +52,9 @@ import {
 import { composeMacOSDockIconBase64, shouldSyncMacOSDockIcon } from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
+import SettingsCenterTreeNav, {
+  findSettingsCenterTreeItem,
+} from './components/settings/SettingsCenterTreeNav';
 import CustomThemeStyleHost, {
   type CustomThemeAntTokenSnapshot,
 } from './components/theme/CustomThemeStyleHost';
@@ -638,9 +641,22 @@ const isToolCenterGroupKey = (group: SettingsCenterGroupKey): group is ToolCente
   group === 'config' || group === 'workflow' || group === 'workspace'
 );
 
-const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): SettingsCenterPaneState | null => (
-  group === 'about' ? { key: 'about-go-navi', group: 'about' } : null
-);
+const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): SettingsCenterPaneState | null => {
+  switch (group) {
+    case 'preferences':
+      return { key: 'language', group };
+    case 'services':
+      return { key: 'proxy', group };
+    case 'config':
+      return { key: 'data-root', group };
+    case 'workspace':
+      return { key: 'snippet-settings', group };
+    case 'about':
+      return { key: 'about-go-navi', group };
+    default:
+      return null;
+  }
+};
 
 const DEFAULT_GLOBAL_PROXY_TEST_URL = 'https://api.github.com/';
 
@@ -1161,7 +1177,6 @@ function App() {
   const registerAISettingsLeaveGuard = useCallback((guard: AISettingsLeaveGuard | null) => {
       aiSettingsLeaveGuardRef.current = guard;
   }, []);
-  const settingsCenterReturnFocusKeyRef = useRef<SettingsCenterPaneKey | null>(null);
   activeSettingsCenterPaneRef.current = activeSettingsCenterPane;
   const [focusedTabDisplayElementKey, setFocusedTabDisplayElementKey] = useState<TabDisplayElementKey | null>(null);
   const [focusedAIProviderId, setFocusedAIProviderId] = useState<string | undefined>(undefined);
@@ -2580,8 +2595,7 @@ function App() {
       sidebarHorizontalPadding,
       toolCenterContentPanelStyle, toolCenterDetailBodyStyle, toolCenterDetailPanelStyle,
       toolCenterModalContentStyle, toolCenterModalSplitStyle, toolCenterModalWorkspaceStyle,
-      toolCenterNavPanelStyle, toolCenterNavScrollStyle, toolCenterRowDescriptionStyle, toolCenterRowStyle,
-      toolCenterScrollableListStyle, utilityButtonStyle,
+      toolCenterNavPanelStyle, utilityButtonStyle,
       utilityModalShellStyle, utilityMutedTextStyle, utilityPanelStyle,
   } = useAppUtilityStyles({
       blurFilter,
@@ -3446,7 +3460,9 @@ function App() {
       setConnectionPackageDialog(createClosedConnectionPackageDialogState());
       setPendingConnectionImportPayload(null);
       setToolCenterBackGroupKey(null);
-      setActiveSettingsCenterPane((current) => (current?.key === 'connection-package' ? null : current));
+      setActiveSettingsCenterPane((current) => (
+          current?.key === 'connection-package' ? resolveSettingsCenterGroupInitialPane('config') : current
+      ));
   }, []);
 
   const refreshConnectionsAfterImport = useCallback(async (importedViews: SavedConnection[]) => {
@@ -4120,7 +4136,7 @@ function App() {
       clearSettingsCenterTransientPaneState();
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterGroupKey(group);
-      setActiveSettingsCenterPane(null);
+      setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(group));
       setIsSettingsModalOpen(true);
   }), [clearSettingsCenterTransientPaneState]);
   const handleOpenSettingsModal = useCallback((group: SettingsCenterGroupKey = 'preferences') => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
@@ -4143,32 +4159,6 @@ function App() {
           openSecurityUpdateSettings();
       }
   }, [openSecurityUpdateSettings, securityUpdateRepairSource]);
-  const handleBackFromSettingsCenterPane = useCallback(() => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
-      const leavingAI = activeSettingsCenterPane?.key === 'ai';
-      const returnGroup = activeSettingsCenterPane?.group ?? activeSettingsCenterGroupKey;
-      settingsCenterReturnFocusKeyRef.current = activeSettingsCenterPane?.key ?? null;
-      setActiveSettingsCenterGroupKey(returnGroup);
-      setActiveSettingsCenterPane(null);
-      if (leavingAI) {
-          finalizeSecurityRepairReturnFromAISettings();
-      }
-  }), [
-      activeSettingsCenterGroupKey,
-      activeSettingsCenterPane?.group,
-      activeSettingsCenterPane?.key,
-      finalizeSecurityRepairReturnFromAISettings,
-  ]);
-  useEffect(() => {
-      const returnFocusKey = settingsCenterReturnFocusKeyRef.current;
-      if (!isSettingsModalOpen || activeSettingsCenterPane || !returnFocusKey) {
-          return undefined;
-      }
-      settingsCenterReturnFocusKeyRef.current = null;
-      const animationFrame = window.requestAnimationFrame(() => {
-          document.querySelector<HTMLElement>(`[data-settings-pane-key="${returnFocusKey}"]`)?.focus();
-      });
-      return () => window.cancelAnimationFrame(animationFrame);
-  }, [activeSettingsCenterPane, isSettingsModalOpen]);
   const handleCancelSettingsCenterPane = useCallback(() => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       const leavingAI = activeSettingsCenterPane?.key === 'ai';
       if (activeSettingsCenterPane?.key === 'connection-package') {
@@ -4226,7 +4216,7 @@ function App() {
       setActiveSettingsCenterPane({ key, group });
       setIsSettingsModalOpen(true);
   }), [clearSettingsCenterTransientPaneState]);
-  /** Title-bar「更多」→ settings/tool center navigation (mirrors 设置 left-nav groups). */
+  /** Title-bar / explorer settings entries → settings center navigation. */
   const handleTitleBarSettingsNavigation = useCallback((spec: {
     group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
     pane?: string;
@@ -4303,7 +4293,7 @@ function App() {
       closeChild?.();
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterGroupKey(returnGroup);
-      setActiveSettingsCenterPane(null);
+      setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(returnGroup));
       setIsSettingsModalOpen(true);
   }), [toolCenterBackGroupKey]);
   const sidebarUtilityItems = useMemo(() => {
@@ -6765,7 +6755,7 @@ function App() {
       { value: 'workspace' as const, label: t('app.theme.nav.workspace.title'), icon: <AppstoreOutlined /> },
   ];
 
-  const renderThemeSettingsContentV2 = () => (
+  const renderThemeSettingsContentV2 = (options?: { hideSectionTabs?: boolean }) => (
               <div className="gonavi-theme-settings" style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -6777,7 +6767,7 @@ function App() {
                   boxSizing: 'border-box',
               }}>
                   <div style={{ flexShrink: 0, display: 'grid', gap: 4 }}>
-                      {/* 自绘 Tab：避开 antd Segmented CSS-in-JS 压掉选中态 */}
+                      {options?.hideSectionTabs ? null : (
                       <div className="gonavi-settings-tabs" role="tablist" aria-label={t('app.settings.entry.theme.title')}>
                           {themeSettingsSections.map((item, itemIndex) => {
                               const active = themeModalSection === item.value;
@@ -6815,6 +6805,7 @@ function App() {
                               );
                           })}
                       </div>
+                      )}
                       <div className="gonavi-settings-inline-meta" style={{ marginTop: 2 }}>
                           {t('app.theme.instant_apply_hint')}
                       </div>
@@ -6822,8 +6813,8 @@ function App() {
                   <div
                     key={themeModalSection}
                     id={`gonavi-theme-settings-panel-${themeModalSection}`}
-                    role="tabpanel"
-                    aria-labelledby={`gonavi-theme-settings-tab-${themeModalSection}`}
+                    role={options?.hideSectionTabs ? undefined : 'tabpanel'}
+                    aria-labelledby={options?.hideSectionTabs ? undefined : `gonavi-theme-settings-tab-${themeModalSection}`}
                     style={{
                         minWidth: 0,
                         minHeight: 0,
@@ -7644,8 +7635,9 @@ function App() {
   );
 
 
-  const renderThemeSettingsContentLegacy = () => (
-              <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: 16, padding: '12px 0', height: '100%', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', boxSizing: 'border-box' }}>
+  const renderThemeSettingsContentLegacy = (options?: { hideSectionTabs?: boolean }) => (
+              <div style={{ display: 'grid', gridTemplateColumns: options?.hideSectionTabs ? 'minmax(0, 1fr)' : '180px minmax(0, 1fr)', gap: 16, padding: '12px 0', height: '100%', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', boxSizing: 'border-box' }}>
+                  {options?.hideSectionTabs ? null : (
                   <div style={{ ...utilityPanelStyle, padding: 12, height: 'fit-content' }}>
                       <div style={{ marginBottom: 12, fontWeight: 600 }}>{t('app.theme.navigation_title')}</div>
                       <div style={{ display: 'grid', gap: 10 }}>
@@ -7689,6 +7681,7 @@ function App() {
                           })}
                       </div>
                   </div>
+                  )}
                   <div style={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', paddingRight: 8, paddingBottom: 28 }}>
                       {themeModalSection === 'theme' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -8513,22 +8506,25 @@ function App() {
 
   
 
-  const renderThemeSettingsContent = () => (
-    isV2Ui ? renderThemeSettingsContentV2() : renderThemeSettingsContentLegacy()
+  const renderThemeSettingsContent = (options?: { hideSectionTabs?: boolean }) => (
+    isV2Ui ? renderThemeSettingsContentV2(options) : renderThemeSettingsContentLegacy(options)
   );
+
+  type SettingsCenterNavigationItem = {
+      key: string;
+      icon: React.ReactNode;
+      title: string;
+      description: string;
+      onClick: () => void;
+      children?: ReadonlyArray<SettingsCenterNavigationItem>;
+  };
 
   type SettingsCenterNavigationGroup = {
       key: SettingsCenterGroupKey;
       icon: React.ReactNode;
       title: string;
       description: string;
-      items: ReadonlyArray<{
-          key: string;
-          icon: React.ReactNode;
-          title: string;
-          description: string;
-          onClick: () => void;
-      }>;
+      items: ReadonlyArray<SettingsCenterNavigationItem>;
   };
 
   const settingsCenterGroups: SettingsCenterNavigationGroup[] = [
@@ -8554,6 +8550,20 @@ function App() {
                       setThemeModalSection('theme');
                       handleOpenSettingsCenterPane('preferences', 'theme');
                   },
+                  children: themeSettingsSections.map((section) => ({
+                      key: `theme-${section.value}`,
+                      icon: section.icon,
+                      title: section.label,
+                      description: section.value === 'appearance'
+                          ? t('app.theme.nav.appearance.description')
+                          : section.value === 'workspace'
+                              ? t('app.theme.nav.workspace.description')
+                              : t('app.theme.nav.theme.description'),
+                      onClick: () => {
+                          setThemeModalSection(section.value);
+                          handleOpenSettingsCenterPane('preferences', 'theme');
+                      },
+                  })),
               },
               {
                   key: 'brand-icon',
@@ -8628,17 +8638,9 @@ function App() {
       {
           key: 'about' as const,
           icon: <InfoCircleOutlined />,
-          title: t('app.settings.group.about.title'),
-          description: t('app.settings.group.about.description'),
-          items: [
-              {
-                  key: 'about-go-navi',
-                  icon: <InfoCircleOutlined />,
-                  title: t('app.settings.entry.about.title'),
-                  description: t('app.settings.entry.about.description'),
-                  onClick: () => handleOpenSettingsCenterPane('about', 'about-go-navi'),
-              },
-          ],
+          title: t('app.settings.entry.about.title'),
+          description: t('app.settings.entry.about.description'),
+          items: [],
       },
   ];
   const isSettingsCenterContainedScrollPane =
@@ -8678,7 +8680,7 @@ function App() {
       if (activeSettingsCenterPane.key === 'theme') {
           return (
               <div style={{ height: '100%', minHeight: 0 }}>
-                  {renderThemeSettingsContent()}
+                  {renderThemeSettingsContent({ hideSectionTabs: true })}
               </div>
           );
       }
@@ -9514,10 +9516,22 @@ function App() {
             const activeSettingsCenterGroup = combinedSettingsCenterGroups.find(
               (group) => group.key === activeSettingsCenterGroupKey,
             ) ?? combinedSettingsCenterGroups[0];
+            const activeSettingsCenterTreeItemKey = activeSettingsCenterPane?.key === 'theme'
+              ? `theme-${themeModalSection}`
+              : (activeSettingsCenterPane?.key ?? null);
             const activeSettingsCenterPaneItem = activeSettingsCenterPane
-              ? combinedSettingsCenterGroups
-                  .find((group) => group.key === activeSettingsCenterPane.group)
-                  ?.items.find((item) => item.key === activeSettingsCenterPane.key)
+              ? (
+                  findSettingsCenterTreeItem(
+                    combinedSettingsCenterGroups,
+                    activeSettingsCenterPane.group,
+                    activeSettingsCenterTreeItemKey,
+                  )
+                  ?? findSettingsCenterTreeItem(
+                    combinedSettingsCenterGroups,
+                    activeSettingsCenterPane.group,
+                    activeSettingsCenterPane.key,
+                  )
+                )
               : null;
             const isActiveToolCenterPane = activeSettingsCenterPane
               ? isToolCenterGroupKey(activeSettingsCenterPane.group)
@@ -9525,15 +9539,6 @@ function App() {
             if (!activeSettingsCenterGroup) {
               return null;
             }
-            const closeToolCenterPane = () => {
-              settingsCenterReturnFocusKeyRef.current = activeSettingsCenterPane?.key ?? null;
-              if (activeSettingsCenterPane?.key === 'connection-package') {
-                closeConnectionPackageDialog();
-                return;
-              }
-              setToolCenterBackGroupKey(null);
-              setActiveSettingsCenterPane(null);
-            };
             const activateSettingsCenterGroup = (group: typeof combinedSettingsCenterGroups[number]) => {
               if (isToolCenterGroupKey(group.key)) {
                 handleOpenToolsModal(group.key);
@@ -9572,7 +9577,6 @@ function App() {
                     confirmText={connectionPackageDialog.mode === 'export'
                         ? t('app.connection_package.action.start_export')
                         : t('app.connection_package.action.start_import')}
-                    cancelText={t('common.back_to_settings')}
                     onIncludeSecretsChange={(value) => {
                         setConnectionPackageDialog((current) => ({
                             ...current,
@@ -9600,7 +9604,7 @@ function App() {
                     onConfirm={() => {
                         void handleConfirmConnectionPackageDialog();
                     }}
-                    onCancel={closeToolCenterPane}
+                    onCancel={closeConnectionPackageDialog}
                   />
                 );
               }
@@ -9635,11 +9639,8 @@ function App() {
                     open
                     title={null}
                     closable={false}
-                    onCancel={closeToolCenterPane}
+                    onCancel={handleCancelSettingsCenterPane}
                     footer={[
-                      <Button key="back" onClick={closeToolCenterPane}>
-                        {t('common.back_to_settings')}
-                      </Button>,
                       <Button key="close" type="primary" onClick={handleCancelSettingsCenterPane}>
                         {t('common.close')}
                       </Button>,
@@ -9744,7 +9745,6 @@ function App() {
                     focusTarget={securityUpdateSettingsFocusTarget}
                     focusRequest={securityUpdateSettingsFocusRequest}
                     onClose={handleCancelSettingsCenterPane}
-                    onBack={closeToolCenterPane}
                     onStart={handleStartSecurityUpdate}
                     onRetry={handleRetrySecurityUpdate}
                     onRestart={handleRestartSecurityUpdate}
@@ -9759,7 +9759,6 @@ function App() {
                     embedded
                     open
                     onClose={handleCancelSettingsCenterPane}
-                    onBack={closeToolCenterPane}
                     darkMode={darkMode}
                     overlayTheme={overlayTheme}
                   />
@@ -9789,15 +9788,6 @@ function App() {
                         }}
                       >
                         {t('app.shortcuts.action.restore_defaults')}
-                      </Button>
-                      <Button
-                        key="back"
-                        onClick={() => {
-                          setCapturingShortcutAction(null);
-                          closeToolCenterPane();
-                        }}
-                      >
-                        {t('common.back_to_settings')}
                       </Button>
                       <Button
                         key="close"
@@ -10024,6 +10014,7 @@ function App() {
                               </div>
                             </div>
                           </div>
+                          )}
                           <div
                             key={activeSettingsCenterPane.key}
                             style={isActiveToolCenterPane ? toolCenterDetailBodyStyle : settingsCenterDetailBodyStyle}

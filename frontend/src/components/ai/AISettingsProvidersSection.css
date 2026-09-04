@@ -201,9 +201,8 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-provider-settings-host .gonavi-settings-center-pane-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 12px; }
 .gonavi-provider-settings-host .gonavi-settings-center-content { gap: 12px !important; }
 @media (max-width: 1100px) {
-  .gonavi-provider-settings-host .gonavi-settings-center-layout { grid-template-columns: 60px minmax(0, 1fr) !important; gap: 12px !important; }
+  .gonavi-provider-settings-host .gonavi-settings-center-layout { grid-template-columns: 220px minmax(0, 1fr) !important; gap: 12px !important; }
   .gonavi-provider-settings-host .gonavi-settings-center-groups { padding-right: 8px !important; }
-  .gonavi-provider-settings-host .gonavi-settings-center-group-label { display: none; }
 }
 @media (max-height: 800px) {
   .gonavi-provider-settings-host .gonavi-ai-provider-list { max-height: 112px; }

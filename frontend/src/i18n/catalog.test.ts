@@ -379,13 +379,13 @@ describe("i18n catalog", () => {
     const source = readAppSource();
     const v2Source = sliceBetween(
       source,
-      "const renderThemeSettingsContentV2 = () =>",
-      "const renderThemeSettingsContentLegacy = () =>",
+      "const renderThemeSettingsContentV2 =",
+      "const renderThemeSettingsContentLegacy =",
     );
     const legacySource = sliceBetween(
       source,
-      "const renderThemeSettingsContentLegacy = () =>",
-      "const renderThemeSettingsContent = () =>",
+      "const renderThemeSettingsContentLegacy =",
+      "const renderThemeSettingsContent =",
     );
 
     for (const settingsSource of [v2Source, legacySource]) {

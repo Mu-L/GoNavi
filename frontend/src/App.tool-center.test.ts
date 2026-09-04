@@ -59,9 +59,9 @@ describe('settings center tool entries', () => {
   it('exposes toolbar button overrides from both V2 and legacy theme settings', () => {
     expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(2);
 
-    const legacySettingsStart = appSource.indexOf('const renderThemeSettingsContentLegacy = () =>');
+    const legacySettingsStart = appSource.indexOf('const renderThemeSettingsContentLegacy =');
     const legacySettingsEnd = appSource.indexOf(
-      'const renderThemeSettingsContent = () =>',
+      'const renderThemeSettingsContent =',
       legacySettingsStart,
     );
     const legacySettingsSource = appSource.slice(legacySettingsStart, legacySettingsEnd);
@@ -137,6 +137,21 @@ describe('settings center tool entries', () => {
     const resizeHandlerSource = appSource.slice(resizeHandlerStart, startupFixStart);
     const minimiseProbeIndex = resizeHandlerSource.indexOf('rememberMinimisedStateSoon();');
     const dprCheckIndex = resizeHandlerSource.indexOf("scheduleDevicePixelRatioCheck('resize');");
+  });
+
+  it('uses a persistent settings tree instead of a back-to-list drill-in', () => {
+    expect(appSource).toContain('<SettingsCenterTreeNav');
+    expect(appSource).toContain("return { key: 'language', group }");
+    expect(appSource).toContain("return { key: 'proxy', group }");
+    expect(appSource).toContain("return { key: 'data-root', group }");
+    expect(appSource).not.toContain('handleBackFromSettingsCenterPane');
+    expect(appSource).not.toContain('gonavi-settings-center-group-tab');
+    expect(appSource).not.toContain("t('common.back_to_settings')");
+    expect(appSource).toContain("key: `theme-${section.value}`");
+    expect(appSource).toContain('renderThemeSettingsContent({ hideSectionTabs: true })');
+    expect(appSource).toContain("title: t('app.settings.entry.about.title')");
+    expect(appSource).toMatch(/key: 'about' as const,[\s\S]*?items: \[\],/);
+    expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
   });
 
   it('keeps button loading indicators animated when reduced motion is enabled', () => {
