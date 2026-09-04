@@ -203,7 +203,7 @@ describe('store appearance persistence', () => {
     expect(persisted.state.appearance.uiVersion).toBe('v2');
   });
 
-  it('keeps a legacy UI selection made after the V2 migration', async () => {
+  it('migrates a leftover legacy UI selection to V2', async () => {
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
         appearance: {
@@ -214,7 +214,7 @@ describe('store appearance persistence', () => {
     }));
 
     const { useStore } = await importStore();
-    expect(useStore.getState().appearance.uiVersion).toBe('legacy');
+    expect(useStore.getState().appearance.uiVersion).toBe('v2');
   });
 
   it('persists DataGrid appearance settings and restores them after reload', async () => {

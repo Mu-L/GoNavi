@@ -2,7 +2,7 @@ import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from './utils/aiSettingsLeaveGuard';
 import { Layout, Button, ConfigProvider, theme, message, notification, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, PoweroffOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -240,13 +240,6 @@ import {
 } from './utils/windowStateUi';
 import { resolveVisibleStartupWindowBounds } from './utils/windowRestoreBounds';
 import { resolveWailsWindowSetPosition, resolveWailsWindowVisibleViewport } from './utils/wailsWindowViewport';
-import {
-  SIDEBAR_UTILITY_ITEM_KEYS,
-  resolveAIEntryPlacement,
-  resolveLegacyAIEdgeHandleAttachment,
-  resolveLegacyAIEdgeHandleDockStyle,
-  resolveLegacyAIEdgeHandleStyle,
-} from './utils/aiEntryLayout';
 import {
   DEFAULT_AI_PANEL_WIDTH,
   resolveFullscreenAIPanelOverlayWidth,
@@ -889,7 +882,7 @@ function App() {
       && computedCustomThemeAntTokens.contextKey === customThemeStyleContextKey
       ? computedCustomThemeAntTokens.tokens
       : sourceCustomThemeAntTokens;
-  const isV2Ui = appearance.uiVersion === 'v2';
+  const isV2Ui = true;
   const effectiveUiScale = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, Number(uiScale) || DEFAULT_UI_SCALE));
   const effectiveFontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(Number(fontSize) || DEFAULT_FONT_SIZE)));
   const tokenFontSize = Math.round(effectiveFontSize * effectiveUiScale);
@@ -3885,8 +3878,6 @@ function App() {
   const [savedQueryDirectoryApplying, setSavedQueryDirectoryApplying] = useState(false);
   const directorySettingsApplying = dataRootApplying || logDirectoryApplying || savedQueryDirectoryApplying;
 
-  const aiEntryPlacement = resolveAIEntryPlacement();
-  const legacyAiEdgeHandleAttachment = resolveLegacyAIEdgeHandleAttachment(aiPanelVisible);
   const aiPanelOverlayActive = aiPanelVisible && shouldOverlayAIPanel({
       isV2Ui,
       viewportWidth,
@@ -4116,17 +4107,6 @@ function App() {
       replaceGlobalProxy,
       t,
   ]);
-  const legacyAiEdgeHandleDockStyle = useMemo(
-      () => resolveLegacyAIEdgeHandleDockStyle(legacyAiEdgeHandleAttachment),
-      [legacyAiEdgeHandleAttachment],
-  );
-  const legacyAiEdgeHandleStyle = useMemo(() => (
-      resolveLegacyAIEdgeHandleStyle({
-          darkMode,
-          aiPanelVisible,
-          effectiveUiScale,
-      })
-  ), [aiPanelVisible, darkMode, effectiveUiScale]);
   const clearSettingsCenterTransientPaneState = useCallback(() => {
       setCapturingShortcutAction(null);
       if (activeSettingsCenterPaneRef.current?.key === 'connection-package') {
@@ -4303,38 +4283,12 @@ function App() {
       setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(returnGroup));
       setIsSettingsModalOpen(true);
   }), [toolCenterBackGroupKey]);
-  const sidebarUtilityItems = useMemo(() => {
-      const itemMap = {
-          settings: {
-              key: 'settings',
-              title: t('app.sidebar.settings'),
-              icon: <SettingOutlined />,
-              onClick: () => handleOpenSettingsModal(),
-          },
-      } as const;
-
-      return SIDEBAR_UTILITY_ITEM_KEYS.map((key) => itemMap[key]);
-  }, [handleOpenSettingsModal, t]);
   const handleFocusSidebarSearch = useCallback(() => {
       setIsSidebarCollapsed(false);
       window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent('gonavi:focus-sidebar-search'));
       }, 0);
   }, []);
-  const renderLegacyAIEdgeHandle = () => (
-      <Tooltip title={t('app.sidebar.ai_assistant')}>
-          <Button
-              type="text"
-              icon={<RobotOutlined />}
-              onClick={handleToggleOrFocusAIPanel}
-              style={legacyAiEdgeHandleStyle}
-              data-gonavi-legacy-ai-edge-action="true"
-          >
-              AI
-          </Button>
-      </Tooltip>
-  );
-
   const loadDataRootInfo = useCallback(async () => {
       setDataRootLoading(true);
       try {
@@ -5077,7 +5031,7 @@ function App() {
     document.body.style.color = darkMode ? '#ffffff' : '#000000';
     document.documentElement.style.colorScheme = darkMode ? 'dark' : 'light';
     document.body.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-    document.body.setAttribute('data-ui-version', appearance.uiVersion);
+    document.body.setAttribute('data-ui-version', 'v2');
     document.body.setAttribute('data-platform', documentPlatform);
     document.body.style.fontSize = `${effectiveFontSize}px`;
     document.body.style.setProperty('--gn-font-sans', resolvedUiFontFamily);
@@ -5096,7 +5050,6 @@ function App() {
     document.documentElement.style.setProperty('--gn-control-height', `${tokenControlHeight}px`);
     document.documentElement.style.setProperty('--gn-control-height-sm', `${tokenControlHeightSM}px`);
   }, [
-    appearance.uiVersion,
     darkMode,
     effectiveDataTableFontSize,
     effectiveFontSize,
@@ -6716,24 +6669,6 @@ function App() {
       </div>
   );
 
-  const renderUiVersionPreview = (version: 'legacy' | 'v2') => (
-      <div aria-hidden className={`gonavi-settings-ui-version-preview is-${version}`}>
-          <div className="uv-side">
-              <span className="uv-dot" />
-              <span className="uv-dot" />
-              <span className="uv-dot" />
-              {version === 'legacy' ? <span className="uv-dot" /> : null}
-          </div>
-          <div className="uv-main">
-              <div className="uv-bar is-accent" />
-              <div className="uv-cards">
-                  <div className="uv-card" />
-                  <div className="uv-card" />
-              </div>
-          </div>
-      </div>
-  );
-
   const themeSettingsSections = [
       { value: 'theme' as const, label: t('app.theme.nav.theme.title'), icon: <SkinOutlined /> },
       { value: 'appearance' as const, label: t('app.theme.nav.appearance.title'), icon: <BgColorsOutlined /> },
@@ -6870,113 +6805,27 @@ function App() {
                                   t('app.theme.toolbar_buttons.description'),
                               )}
                               {renderThemeSettingsSection(
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                      <span>{t('app.theme.ui_version.title')}</span>
-                                      <span style={{
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          padding: '1px 6px',
-                                          background: darkMode ? 'rgba(56,189,248,0.18)' : 'rgba(2,132,199,0.10)',
-                                          color: darkMode ? '#7dd3fc' : '#0284c7',
-                                          borderRadius: 4,
-                                      }}>
-                                          {t('app.theme.ui_version.badge.new')}
-                                      </span>
-                                      {appearance.uiVersion === 'v2' ? (
-                                          <span className="gonavi-settings-beta-chip">{t('app.theme.ui_version.v2.badge')}</span>
-                                      ) : null}
-                                  </span>,
-                                  <>
-                                      <div
-                                        className="gonavi-settings-ui-version-grid"
-                                        role="radiogroup"
-                                        aria-label={t('app.theme.ui_version.title')}
-                                      >
-                                          {([
-                                              {
-                                                  key: 'legacy' as const,
-                                                  label: t('app.theme.ui_version.legacy.label'),
-                                                  badge: t('app.theme.ui_version.legacy.badge'),
-                                                  badgeClass: '',
-                                              },
-                                              {
-                                                  key: 'v2' as const,
-                                                  label: t('app.theme.ui_version.v2.label'),
-                                                  badge: t('app.theme.ui_version.v2.badge'),
-                                                  badgeClass: ' is-new',
-                                              },
-                                          ]).map((item, itemIndex, uiVersionItems) => {
-                                              const active = (appearance.uiVersion ?? 'legacy') === item.key;
-                                              return (
-                                                  <button
-                                                      key={item.key}
-                                                      type="button"
-                                                      role="radio"
-                                                      aria-checked={active}
-                                                      tabIndex={active ? 0 : -1}
-                                                      className={`gonavi-settings-ui-version-tile${active ? ' is-active' : ''}`}
-                                                      onClick={() => setAppearance({ uiVersion: item.key })}
-                                                      onKeyDown={(event) => {
-                                                          if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                                                              return;
-                                                          }
-                                                          event.preventDefault();
-                                                          const nextIndex = event.key === 'Home'
-                                                              ? 0
-                                                              : event.key === 'End'
-                                                                  ? uiVersionItems.length - 1
-                                                                  : event.key === 'ArrowRight' || event.key === 'ArrowDown'
-                                                                      ? (itemIndex + 1) % uiVersionItems.length
-                                                                      : (itemIndex - 1 + uiVersionItems.length) % uiVersionItems.length;
-                                                          setAppearance({ uiVersion: uiVersionItems[nextIndex].key });
-                                                          const radios = event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]');
-                                                          radios?.[nextIndex]?.focus();
-                                                      }}
-                                                  >
-                                                      {renderUiVersionPreview(item.key)}
-                                                      <div className="gonavi-settings-ui-version-meta">
-                                                          <span className="gonavi-settings-ui-version-title">
-                                                              <span>{item.label}</span>
-                                                              <span className={`gonavi-settings-ui-version-badge${item.badgeClass}`}>{item.badge}</span>
-                                                          </span>
-                                                          {active ? <CheckOutlined className="gonavi-settings-mode-check" /> : null}
-                                                      </div>
-                                                  </button>
-                                              );
-                                          })}
-                                      </div>
-                                      <div className="gonavi-settings-inline-meta" style={{ marginTop: 8 }}>
-                                          {t('app.theme.ui_version.platform_hint')}
-                                      </div>
-                                      {appearance.uiVersion === 'v2' ? (
-                                          <div className="gonavi-settings-inline-choice-row">
-                                              <Tooltip title={t('app.theme.ui_version.sidebar_search.hint')}>
-                                                  <span className="gonavi-settings-label" style={{ cursor: 'help' }}>
-                                                      {t('app.theme.ui_version.sidebar_search.title')}
-                                                  </span>
-                                              </Tooltip>
-                                              <div className="gonavi-settings-pills" role="group" aria-label={t('app.theme.ui_version.sidebar_search.title')}>
-                                                  {([
-                                                      { value: 'command' as const, label: t('app.theme.ui_version.sidebar_search.command') },
-                                                      { value: 'filter' as const, label: t('app.theme.ui_version.sidebar_search.filter') },
-                                                  ]).map((item) => {
-                                                      const active = (appearance.v2SidebarSearchMode ?? 'command') === item.value;
-                                                      return (
-                                                          <button
-                                                              key={item.value}
-                                                              type="button"
-                                                              className={`gonavi-settings-pill${active ? ' is-active' : ''}`}
-                                                              aria-pressed={active}
-                                                              onClick={() => setAppearance({ v2SidebarSearchMode: item.value })}
-                                                          >
-                                                              {item.label}
-                                                          </button>
-                                                      );
-                                                  })}
-                                              </div>
-                                          </div>
-                                      ) : null}
-                                  </>,
+                                  t('app.theme.ui_version.sidebar_search.title'),
+                                  <div className="gonavi-settings-pills" role="group" aria-label={t('app.theme.ui_version.sidebar_search.title')}>
+                                      {([
+                                          { value: 'command' as const, label: t('app.theme.ui_version.sidebar_search.command') },
+                                          { value: 'filter' as const, label: t('app.theme.ui_version.sidebar_search.filter') },
+                                      ]).map((item) => {
+                                          const active = (appearance.v2SidebarSearchMode ?? 'command') === item.value;
+                                          return (
+                                              <button
+                                                  key={item.value}
+                                                  type="button"
+                                                  className={`gonavi-settings-pill${active ? ' is-active' : ''}`}
+                                                  aria-pressed={active}
+                                                  onClick={() => setAppearance({ v2SidebarSearchMode: item.value })}
+                                              >
+                                                  {item.label}
+                                              </button>
+                                          );
+                                      })}
+                                  </div>,
+                                  t('app.theme.ui_version.sidebar_search.hint'),
                               )}
                           </div>
                       ) : themeModalSection === 'appearance' ? (
@@ -7015,7 +6864,7 @@ function App() {
                                               />
                                           ),
                                       })}
-                                      {appearance.uiVersion === 'v2' ? renderThemeSettingsRow({
+                                      {renderThemeSettingsRow({
                                           label: t('app.theme.appearance.sidebar_rail_scale_title'),
                                           hint: t('app.theme.appearance.sidebar_rail_scale_hint'),
                                           stacked: true,
@@ -7032,7 +6881,7 @@ function App() {
                                                   })}
                                               />
                                           ),
-                                      }) : null}
+                                      })}
                                       {renderThemeSettingsRow({
                                           label: t('app.theme.appearance.single_database_expansion_title'),
                                           hint: t('app.theme.appearance.single_database_expansion_hint'),
@@ -7620,879 +7469,8 @@ function App() {
   );
 
 
-  const renderThemeSettingsContentLegacy = (options?: { hideSectionTabs?: boolean }) => (
-              <div style={{ display: 'grid', gridTemplateColumns: options?.hideSectionTabs ? 'minmax(0, 1fr)' : '180px minmax(0, 1fr)', gap: 16, padding: '12px 0', height: '100%', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', boxSizing: 'border-box' }}>
-                  {options?.hideSectionTabs ? null : (
-                  <div style={{ ...utilityPanelStyle, padding: 12, height: 'fit-content' }}>
-                      <div style={{ marginBottom: 12, fontWeight: 600 }}>{t('app.theme.navigation_title')}</div>
-                      <div style={{ display: 'grid', gap: 10 }}>
-                          {[
-                              { key: 'theme', title: t('app.theme.nav.theme.title'), description: t('app.theme.nav.theme.description'), icon: <SkinOutlined /> },
-                              { key: 'appearance', title: t('app.theme.nav.appearance.title'), description: t('app.theme.nav.appearance.description'), icon: <BgColorsOutlined /> },
-                          ].map((item) => {
-                              const active = themeModalSection === item.key;
-                              return (
-                                  <button
-                                      key={item.key}
-                                      type="button"
-                                      onClick={() => setThemeModalSection(item.key as 'theme' | 'appearance')}
-                                      style={{
-                                          textAlign: 'left',
-                                          padding: '12px 12px',
-                                          borderRadius: 12,
-                                          border: `1px solid ${active
-                                              ? (isV2Ui
-                                                  ? v2AntPrimaryBorderColor
-                                                  : (darkMode ? 'rgba(255,214,102,0.3)' : 'rgba(24,144,255,0.24)'))
-                                              : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)')}`,
-                                          background: active
-                                              ? (isV2Ui
-                                                  ? `linear-gradient(180deg, ${v2AntPrimaryBgHoverColor} 0%, ${v2AntPrimaryBgColor} 100%)`
-                                                  : (darkMode ? 'linear-gradient(180deg, rgba(255,214,102,0.12) 0%, rgba(255,214,102,0.06) 100%)' : 'linear-gradient(180deg, rgba(24,144,255,0.10) 0%, rgba(24,144,255,0.05) 100%)'))
-                                              : (darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.72)'),
-                                          color: active ? (darkMode ? '#f5f7ff' : '#162033') : (darkMode ? 'rgba(255,255,255,0.82)' : '#3f4b5e'),
-                                          cursor: 'pointer',
-                                      }}
-                                  >
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                          <span>{item.icon}</span>
-                                          <span style={{ fontWeight: 700 }}>{item.title}</span>
-                                      </div>
-                                      <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.6, color: active ? (darkMode ? 'rgba(255,255,255,0.68)' : 'rgba(22,32,51,0.68)') : utilityMutedTextStyle.color }}>
-                                          {item.description}
-                                      </div>
-                                  </button>
-                              );
-                          })}
-                      </div>
-                  </div>
-                  )}
-                  <div style={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', paddingRight: 8, paddingBottom: 28 }}>
-                      {themeModalSection === 'theme' ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      <span>{t('app.theme.ui_version.title')}</span>
-                                      <span style={{
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          padding: '1px 6px',
-                                          background: darkMode ? 'rgba(56,189,248,0.18)' : 'rgba(2,132,199,0.10)',
-                                          color: darkMode ? '#7dd3fc' : '#0284c7',
-                                          borderRadius: 4,
-                                      }}>
-                                          {t('app.theme.ui_version.badge.new')}
-                                      </span>
-                                  </div>
-                                  <div style={{ ...utilityMutedTextStyle, marginBottom: 12 }}>
-                                      {t('app.theme.ui_version.description')}
-                                  </div>
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-                                      {[
-                                          { key: 'legacy', label: t('app.theme.ui_version.legacy.label'), description: t('app.theme.ui_version.legacy.description'), badge: t('app.theme.ui_version.legacy.badge') },
-                                          { key: 'v2', label: t('app.theme.ui_version.v2.label'), description: t('app.theme.ui_version.v2.description'), badge: t('app.theme.ui_version.v2.badge') },
-                                      ].map((item) => {
-                                          const active = (appearance.uiVersion ?? 'legacy') === item.key;
-                                          return (
-                                              <button
-                                                  key={item.key}
-                                                  type="button"
-                                                  onClick={() => setAppearance({ uiVersion: item.key as 'legacy' | 'v2' })}
-                                                  style={{
-                                                      textAlign: 'left',
-                                                      padding: '14px 14px',
-                                                      borderRadius: 14,
-                                                      border: `1px solid ${active
-                                                          ? (darkMode ? 'rgba(34,197,94,0.36)' : 'rgba(22,163,74,0.32)')
-                                                          : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)')}`,
-                                                      background: active
-                                                          ? (darkMode ? 'linear-gradient(180deg, rgba(34,197,94,0.14) 0%, rgba(34,197,94,0.06) 100%)' : 'linear-gradient(180deg, rgba(22,163,74,0.10) 0%, rgba(22,163,74,0.05) 100%)')
-                                                          : (darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.72)'),
-                                                      color: active ? (darkMode ? '#f5f7ff' : '#162033') : (darkMode ? 'rgba(255,255,255,0.82)' : '#3f4b5e'),
-                                                      cursor: 'pointer',
-                                                  }}
-                                              >
-                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                                          <span style={{ fontSize: 14, fontWeight: 700 }}>{item.label}</span>
-                                                          <span style={{
-                                                              fontSize: 10,
-                                                              fontWeight: 600,
-                                                              padding: '1px 6px',
-                                                              background: item.key === 'v2'
-                                                                  ? (darkMode ? 'rgba(56,189,248,0.18)' : 'rgba(2,132,199,0.10)')
-                                                                  : (darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.06)'),
-                                                              color: item.key === 'v2'
-                                                                  ? (darkMode ? '#7dd3fc' : '#0284c7')
-                                                                  : (darkMode ? 'rgba(255,255,255,0.7)' : 'rgba(16,24,40,0.6)'),
-                                                              borderRadius: 4,
-                                                          }}>
-                                                              {item.badge}
-                                                          </span>
-                                                      </span>
-                                                      {active ? <CheckOutlined style={{ color: darkMode ? '#4ade80' : '#16a34a' }} /> : null}
-                                                  </div>
-                                                  <div style={{
-                                                      marginTop: 6,
-                                                      fontSize: 12,
-                                                      lineHeight: 1.6,
-                                                      color: active ? (darkMode ? 'rgba(255,255,255,0.68)' : 'rgba(22,32,51,0.68)') : utilityMutedTextStyle.color,
-                                                  }}>
-                                                      {item.description}
-                                                  </div>
-                                              </button>
-                                          );
-                                      })}
-                                  </div>
-                                  <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                                      {t('app.theme.ui_version.platform_hint')}
-                                  </div>
-                                  {appearance.uiVersion === 'v2' && (
-                                      <div style={{
-                                          marginTop: 10,
-                                          padding: '8px 10px',
-                                          background: darkMode ? 'rgba(245,158,11,0.10)' : 'rgba(245,158,11,0.08)',
-                                          border: `1px solid ${darkMode ? 'rgba(245,158,11,0.24)' : 'rgba(245,158,11,0.22)'}`,
-                                          borderRadius: 8,
-                                          fontSize: 11.5,
-                                          color: darkMode ? 'rgba(252,211,77,0.92)' : 'rgba(120,53,15,0.85)',
-                                          lineHeight: 1.55,
-                                      }}>
-                                          {t('app.theme.ui_version.beta_warning')}
-                                      </div>
-                                  )}
-                                  {appearance.uiVersion === 'v2' && (
-                                      <div style={{ marginTop: 14 }}>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.ui_version.sidebar_search.title')}</div>
-                                          <Segmented
-                                              block
-                                              options={[
-                                                  { label: t('app.theme.ui_version.sidebar_search.command'), value: 'command' },
-                                                  { label: t('app.theme.ui_version.sidebar_search.filter'), value: 'filter' },
-                                              ]}
-                                              value={appearance.v2SidebarSearchMode ?? 'command'}
-                                              onChange={(value) => setAppearance({ v2SidebarSearchMode: value as 'command' | 'filter' })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 8 }}>
-                                              {t('app.theme.ui_version.sidebar_search.hint')}
-                                          </div>
-                                      </div>
-                                  )}
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.theme.mode_title')}</div>
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-                                      {[
-                                          { key: 'light', label: t('app.theme.mode.light.label'), description: t('app.theme.mode.light.description') },
-                                          { key: 'dark', label: t('app.theme.mode.dark.label'), description: t('app.theme.mode.dark.description') },
-                                          { key: 'system', label: t('app.theme.mode.system.label'), description: t('app.theme.mode.system.description') },
-                                      ].map((item) => {
-                                          const active = !activeCustomTheme && themePreference === item.key;
-                                          return (
-                                              <button
-                                                  key={item.key}
-                                                  type="button"
-                                                  onClick={() => selectPresetTheme(item.key as ThemePreference)}
-                                                  style={{
-                                                      textAlign: 'left',
-                                                      padding: '14px 14px',
-                                                      borderRadius: 14,
-                                                      border: `1px solid ${active
-                                                          ? (isV2Ui
-                                                              ? v2AntPrimaryBorderColor
-                                                              : (darkMode ? 'rgba(255,214,102,0.3)' : 'rgba(24,144,255,0.24)'))
-                                                          : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(16,24,40,0.08)')}`,
-                                                      background: active
-                                                          ? (isV2Ui
-                                                              ? `linear-gradient(180deg, ${v2AntPrimaryBgHoverColor} 0%, ${v2AntPrimaryBgColor} 100%)`
-                                                              : (darkMode ? 'linear-gradient(180deg, rgba(255,214,102,0.12) 0%, rgba(255,214,102,0.06) 100%)' : 'linear-gradient(180deg, rgba(24,144,255,0.10) 0%, rgba(24,144,255,0.05) 100%)'))
-                                                          : (darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.72)'),
-                                                      color: active ? (darkMode ? '#f5f7ff' : '#162033') : (darkMode ? 'rgba(255,255,255,0.82)' : '#3f4b5e'),
-                                                      cursor: 'pointer',
-                                                  }}
-                                              >
-                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                                      <span style={{ fontSize: 14, fontWeight: 700 }}>{item.label}</span>
-                                                      {active ? <CheckOutlined style={{ color: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff') }} /> : null}
-                                                  </div>
-                                                  <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.6, color: active ? (darkMode ? 'rgba(255,255,255,0.68)' : 'rgba(22,32,51,0.68)') : utilityMutedTextStyle.color }}>
-                                                      {item.description}
-                                                  </div>
-                                              </button>
-                                          );
-                                      })}
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 8, fontWeight: 600 }}>{t('app.theme.custom.title')}</div>
-                                  <CustomThemeManager legacyMode />
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 8, fontWeight: 600 }}>
-                                      {t('app.theme.toolbar_buttons.title')}
-                                  </div>
-                                  <div style={{ ...utilityMutedTextStyle, marginBottom: 10 }}>
-                                      {t('app.theme.toolbar_buttons.description')}
-                                  </div>
-                                  <div
-                                    role="note"
-                                    style={{
-                                        ...utilityMutedTextStyle,
-                                        marginBottom: 12,
-                                        padding: '8px 10px',
-                                        border: `1px solid ${darkMode ? 'rgba(56,189,248,0.24)' : 'rgba(2,132,199,0.18)'}`,
-                                        borderRadius: 8,
-                                        background: darkMode ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.06)',
-                                    }}
-                                  >
-                                      {t('app.theme.toolbar_buttons.legacy_hint')}
-                                  </div>
-                                  <ToolbarButtonAppearanceSettings />
-                              </div>
-                          </div>
-                      ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.appearance.ui_scale_title')}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                      <Slider
-                                        min={MIN_UI_SCALE}
-                                        max={MAX_UI_SCALE}
-                                        step={0.05}
-                                        value={effectiveUiScale}
-                                        onChange={(v) => setUiScale(Number(v))}
-                                        style={{ flex: 1 }}
-                                      />
-                                      <span style={{ width: 56 }}>{Math.round(effectiveUiScale * 100)}%</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 4 }}>
-                                      {t('app.theme.appearance.ui_scale_hint')}
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.appearance.font_size_title')}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                      <Slider
-                                        min={MIN_FONT_SIZE}
-                                        max={MAX_FONT_SIZE}
-                                        step={1}
-                                        value={effectiveFontSize}
-                                        onChange={(v) => setFontSize(Number(v))}
-                                        style={{ flex: 1 }}
-                                      />
-                                      <span style={{ width: 56 }}>{effectiveFontSize}px</span>
-                                  </div>
-                              </div>
-                              {appearance.uiVersion === 'v2' && (
-                                  <div style={utilityPanelStyle}>
-                                      <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.appearance.sidebar_rail_scale_title')}</div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                          <Slider
-                                            min={MIN_V2_SIDEBAR_RAIL_SCALE}
-                                            max={MAX_V2_SIDEBAR_RAIL_SCALE}
-                                            step={0.05}
-                                            value={effectiveSidebarRailScale}
-                                            onChange={(value) => setAppearance({
-                                                v2SidebarRailScale: sanitizeV2SidebarRailScale(value),
-                                            })}
-                                            style={{ flex: 1 }}
-                                          />
-                                          <span style={{ width: 56 }}>{Math.round(effectiveSidebarRailScale * 100)}%</span>
-                                      </div>
-                                      <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>
-                                          {t('app.theme.appearance.sidebar_rail_scale_hint')}
-                                      </div>
-                                  </div>
-                              )}
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                      <div>
-                                          <div style={{ fontWeight: 500 }}>{t('app.theme.appearance.single_database_expansion_title')}</div>
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>
-                                              {t('app.theme.appearance.single_database_expansion_hint')}
-                                          </div>
-                                      </div>
-                                      <Switch
-                                          checked={appearance.sidebarSingleDatabaseExpansion === true}
-                                          onChange={(checked) => setAppearance({ sidebarSingleDatabaseExpansion: checked })}
-                                      />
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 500 }}>{t('app.theme.font_family.title')}</div>
-                                  <div style={{ display: 'grid', gap: 14 }}>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.font_family.ui_title')}</div>
-                                          <Select
-                                              allowClear
-                                              showSearch
-                                              optionFilterProp="label"
-                                              loading={isFontFamiliesLoading}
-                                              placeholder={DEFAULT_UI_FONT_FAMILY}
-                                              value={appearance.customUIFontFamily ?? undefined}
-                                              onChange={(value) => setAppearance({
-                                                  customUIFontFamily: sanitizeFontFamilyInput(value),
-                                              })}
-                                              onClear={() => setAppearance({ customUIFontFamily: null })}
-                                              options={uiFontOptions.map((option) => ({
-                                                  value: option.value,
-                                                  label: option.label,
-                                              }))}
-                                              filterOption={filterFontOption}
-                                              popupMatchSelectWidth
-                                              style={{ width: '100%' }}
-                                              optionRender={(option) => renderFontOptionLabel({
-                                                  value: String(option.data.value),
-                                                  label: String(option.data.label),
-                                              })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 6 }}>
-                                              {fontFamiliesLoadError
-                                                  ? t('app.theme.font_family.load_failed_fallback', { error: fontFamiliesLoadError })
-                                                  : (installedFontFamilies.length > 0
-                                                      ? t('app.theme.font_family.loaded_ui_hint', { count: installedFontFamilies.length })
-                                                      : t('app.theme.font_family.loading_ui_hint'))}
-                                          </div>
-                                          {linuxCJKFontInstallHint && hasLoadedInstalledFontsRef.current && !isFontFamiliesLoading && !fontFamiliesLoadError && (
-                                              <div
-                                                  style={{
-                                                      marginTop: 8,
-                                                      padding: '9px 10px',
-                                                      borderRadius: 8,
-                                                      border: darkMode ? '1px solid rgba(250,204,21,0.28)' : '1px solid rgba(217,119,6,0.22)',
-                                                      background: darkMode ? 'rgba(250,204,21,0.08)' : 'rgba(251,191,36,0.12)',
-                                                      color: darkMode ? 'rgba(254,249,195,0.92)' : '#92400e',
-                                                      fontSize: 12,
-                                                      lineHeight: 1.7,
-                                                  }}
-                                              >
-                                                  {t('app.theme.font_family.linux_cjk_install_prefix')}
-                                                  <span style={{ fontFamily: 'var(--gn-font-mono)', marginLeft: 6 }}>{linuxCJKFontInstallHint}</span>
-                                                  {t('app.theme.font_family.linux_cjk_install_suffix')}
-                                              </div>
-                                          )}
-                                      </div>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.font_family.mono_title')}</div>
-                                          <Select
-                                              allowClear
-                                              showSearch
-                                              optionFilterProp="label"
-                                              loading={isFontFamiliesLoading}
-                                              placeholder={DEFAULT_MONO_FONT_FAMILY}
-                                              value={appearance.customMonoFontFamily ?? undefined}
-                                              onChange={(value) => setAppearance({
-                                                  customMonoFontFamily: sanitizeFontFamilyInput(value),
-                                              })}
-                                              onClear={() => setAppearance({ customMonoFontFamily: null })}
-                                              options={monoFontOptions.map((option) => ({
-                                                  value: option.value,
-                                                  label: option.label,
-                                              }))}
-                                              filterOption={filterFontOption}
-                                              popupMatchSelectWidth
-                                              style={{ width: '100%' }}
-                                              optionRender={(option) => renderFontOptionLabel({
-                                                  value: String(option.data.value),
-                                                  label: String(option.data.label),
-                                              })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 6 }}>
-                                              {fontFamiliesLoadError
-                                                  ? t('app.theme.font_family.mono_fallback_hint')
-                                                  : t('app.theme.font_family.mono_hint')}
-                                          </div>
-                                      </div>
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 500 }}>{t('app.theme.query_template.title')}</div>
-                                  <div style={{ display: 'grid', gap: 10 }}>
-                                      <div style={utilityMutedTextStyle}>
-                                          {t('app.theme.query_template.description')}
-                                      </div>
-                                      <Input.TextArea
-                                          value={newQuerySqlTemplate}
-                                          autoSize={{ minRows: 3, maxRows: 8 }}
-                                          spellCheck={false}
-                                          onChange={(event) => setAppearance({ newQuerySqlTemplate: event.target.value })}
-                                          style={{ fontFamily: 'var(--gn-font-mono)' }}
-                                      />
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                                          <div style={utilityMutedTextStyle}>
-                                              {t('app.theme.query_template.hint')}
-                                          </div>
-                                          <Button
-                                              size="small"
-                                              disabled={appearance.newQuerySqlTemplate === null}
-                                              onClick={() => setAppearance({ newQuerySqlTemplate: null })}
-                                          >
-                                              {t('app.theme.query_template.reset_default')}
-                                          </Button>
-                                      </div>
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                      <div>
-                                          <div style={{ fontWeight: 500 }}>{t('app.theme.table_alias.title')}</div>
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.theme.table_alias.description')}</div>
-                                      </div>
-                                      <Switch
-                                          checked={appearance.autoAddTableAlias !== false}
-                                          onChange={(checked) => setAppearance({ autoAddTableAlias: checked })}
-                                      />
-                                  </div>
-                              </div>
-                              <div ref={tabDisplaySettingsPanelRef} style={utilityPanelStyle}>
-                                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-                                      <div style={{ minWidth: 0 }}>
-                                          <div style={{ fontWeight: 500 }}>{t('app.theme.tab_display.title')}</div>
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>
-                                              {t('app.theme.tab_display.description')}
-                                          </div>
-                                      </div>
-                                      <Segmented
-                                          size="small"
-                                          options={[
-                                              { label: t('app.theme.tab_display.layout.single'), value: 'single' },
-                                              { label: t('app.theme.tab_display.layout.double'), value: 'double' },
-                                          ]}
-                                          value={tabDisplaySettings.layout}
-                                          onChange={(value) => setTabDisplayLayout(value as TabDisplayLayout)}
-                                      />
-                                  </div>
-                                  <div style={{ marginBottom: 12 }}>
-                                      <div style={{ marginBottom: 4, fontWeight: 500 }}>
-                                          {t('app.theme.tab_display.environment_accent_thickness')}
-                                      </div>
-                                      <div style={{ ...utilityMutedTextStyle, marginBottom: 8 }}>
-                                          {t('app.theme.tab_display.environment_accent_thickness_hint')}
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                          <Slider
-                                              min={MIN_TAB_ENVIRONMENT_ACCENT_THICKNESS}
-                                              max={MAX_TAB_ENVIRONMENT_ACCENT_THICKNESS}
-                                              step={1}
-                                              value={effectiveTabEnvironmentAccentThickness}
-                                              onChange={(value) => setAppearance({
-                                                  tabEnvironmentAccentThickness: sanitizeTabEnvironmentAccentThickness(value),
-                                              })}
-                                              style={{ flex: 1 }}
-                                          />
-                                          <span style={{ width: 56 }}>{effectiveTabEnvironmentAccentThickness}px</span>
-                                      </div>
-                                  </div>
-                                  <div style={{ display: 'grid', gap: 8 }}>
-                                      {tabDisplayElementOrder.map((key) => {
-                                          const checked = visibleTabDisplayElementKeys.has(key);
-                                          const row = tabDisplaySettings.secondaryElements.includes(key) ? 'secondary' : 'primary';
-                                          const currentRowElements = row === 'secondary'
-                                              ? tabDisplaySettings.secondaryElements
-                                              : tabDisplaySettings.primaryElements;
-                                          const indexInRow = currentRowElements.indexOf(key);
-                                          const canMoveUp = checked && indexInRow > 0;
-                                          const canMoveDown = checked && indexInRow >= 0 && indexInRow < currentRowElements.length - 1;
-                                          const isFocused = focusedTabDisplayElementKey === key;
-                                          return (
-                                              <div
-                                                  key={key}
-                                                  role="button"
-                                                  tabIndex={0}
-                                                  onClick={() => setFocusedTabDisplayElementKey(key)}
-                                                  onKeyDown={(event) => {
-                                                      if (event.key === 'Enter' || event.key === ' ') {
-                                                          event.preventDefault();
-                                                          setFocusedTabDisplayElementKey(key);
-                                                      }
-                                                  }}
-                                                  style={{
-                                                      display: 'grid',
-                                                      gridTemplateColumns: 'minmax(0, 1fr) auto',
-                                                      gap: 10,
-                                                      alignItems: 'center',
-                                                      padding: '8px 2px 8px 10px',
-                                                      borderRadius: 0,
-                                                      border: 'none',
-                                                      borderLeft: `3px solid ${isFocused
-                                                          ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
-                                                          : 'transparent'}`,
-                                                      borderBottom: `1px solid ${overlayTheme.divider}`,
-                                                      boxShadow: 'none',
-                                                      background: isFocused
-                                                          ? (isV2Ui
-                                                              ? v2AntPrimaryBgColor
-                                                              : (darkMode ? 'rgba(255,214,102,0.10)' : 'rgba(24,144,255,0.08)'))
-                                                          : 'transparent',
-                                                      cursor: 'pointer',
-                                                      transition: 'border-color 140ms ease, background-color 140ms ease',
-                                                  }}
-                                              >
-                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                                                      <span style={{
-                                                          width: 22,
-                                                          height: 22,
-                                                          borderRadius: 0,
-                                                          display: 'inline-flex',
-                                                          alignItems: 'center',
-                                                          justifyContent: 'center',
-                                                          flexShrink: 0,
-                                                          fontFamily: resolvedMonoFontFamily,
-                                                          fontSize: 'var(--gn-font-size-sm, 12px)',
-                                                          fontWeight: 600,
-                                                          background: 'transparent',
-                                                          color: isFocused
-                                                              ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
-                                                              : (darkMode ? 'rgba(255,255,255,0.56)' : 'rgba(16,24,40,0.5)'),
-                                                      }}>
-                                                          {checked && indexInRow >= 0 ? indexInRow + 1 : '-'}
-                                                      </span>
-                                                      <Switch
-                                                          size="small"
-                                                          checked={checked}
-                                                          onClick={(_, event) => event.stopPropagation()}
-                                                          onChange={(nextChecked) => updateTabDisplayElementVisibility(key, nextChecked)}
-                                                      />
-                                                      <div style={{ minWidth: 0 }}>
-                                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                                              <span style={{ fontWeight: 600 }}>{getTabDisplayElementLabel(key)}</span>
-                                                              {isFocused ? (
-                                                                  <span style={{
-                                                                      fontSize: 'var(--gn-font-size-sm, 12px)',
-                                                                      lineHeight: '16px',
-                                                                      padding: '0 6px',
-                                                                      borderRadius: 999,
-                                                                      background: isV2Ui ? v2AntPrimaryBgColor : (darkMode ? 'rgba(255,214,102,0.16)' : 'rgba(24,144,255,0.10)'),
-                                                                      color: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
-                                                                  }}>
-                                                                      {t('app.theme.tab_display.badge.current')}
-                                                                  </span>
-                                                              ) : null}
-                                                              {checked && tabDisplaySettings.layout === 'double' ? (
-                                                                  <span style={{
-                                                                      fontSize: 'var(--gn-font-size-sm, 12px)',
-                                                                      lineHeight: '16px',
-                                                                      padding: '0 6px',
-                                                                      borderRadius: 999,
-                                                                      background: row === 'secondary'
-                                                                          ? (darkMode ? 'rgba(56,189,248,0.14)' : 'rgba(2,132,199,0.08)')
-                                                                          : (darkMode ? 'rgba(34,197,94,0.14)' : 'rgba(22,163,74,0.08)'),
-                                                                      color: row === 'secondary'
-                                                                          ? (darkMode ? '#7dd3fc' : '#0369a1')
-                                                                          : (darkMode ? '#86efac' : '#15803d'),
-                                                                  }}>
-                                                                      {row === 'secondary'
-                                                                          ? t('app.theme.tab_display.row.secondary')
-                                                                          : t('app.theme.tab_display.row.primary')}
-                                                                  </span>
-                                                              ) : null}
-                                                          </div>
-                                                          <div style={{ ...utilityMutedTextStyle, marginTop: 2 }}>{getTabDisplayElementDescription(key)}</div>
-                                                      </div>
-                                                  </div>
-                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                      {tabDisplaySettings.layout === 'double' && checked ? (
-                                                          <Segmented
-                                                              size="small"
-                                                              options={[
-                                                                  { label: t('app.theme.tab_display.row.primary'), value: 'primary' },
-                                                                  { label: t('app.theme.tab_display.row.secondary'), value: 'secondary' },
-                                                              ]}
-                                                              value={row}
-                                                              onChange={(value) => setTabDisplayElementRow(key, value as 'primary' | 'secondary')}
-                                                              onClick={(event) => event.stopPropagation()}
-                                                          />
-                                                      ) : null}
-                                                      <Button
-                                                          size="small"
-                                                          disabled={!canMoveUp}
-                                                          onClick={(event) => {
-                                                              event.stopPropagation();
-                                                              moveTabDisplayElement(key, -1);
-                                                          }}
-                                                      >
-                                                          {t('app.theme.tab_display.action.move_up')}
-                                                      </Button>
-                                                      <Button
-                                                          size="small"
-                                                          disabled={!canMoveDown}
-                                                          onClick={(event) => {
-                                                              event.stopPropagation();
-                                                              moveTabDisplayElement(key, 1);
-                                                          }}
-                                                      >
-                                                          {t('app.theme.tab_display.action.move_down')}
-                                                      </Button>
-                                                  </div>
-                                              </div>
-                                          );
-                                      })}
-                                  </div>
-                                  <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                                      {t('app.theme.tab_display.preview.prefix')}
-                                      {tabDisplaySettings.layout === 'double' ? `${t('app.theme.tab_display.row.primary')} ` : ''}
-                                      {tabDisplaySettings.primaryElements.map(getTabDisplayElementLabel).join(' / ') || t('app.theme.tab_display.preview.default_label')}
-                                      {tabDisplaySettings.layout === 'double' && tabDisplaySettings.secondaryElements.length > 0
-                                          ? t('app.theme.tab_display.preview.secondary', {
-                                              labels: tabDisplaySettings.secondaryElements.map(getTabDisplayElementLabel).join(' / '),
-                                          })
-                                          : ''}
-                                      {focusedTabDisplayElementKey
-                                          ? t('app.theme.tab_display.preview.focused', {
-                                              label: getTabDisplayElementLabel(focusedTabDisplayElementKey),
-                                          })
-                                          : ''}
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 500 }}>{t('app.theme.appearance.transparency_blur_title')}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-                                      <div>
-                                          <div style={{ fontWeight: 500 }}>{t('app.theme.appearance.enable_transparency_blur')}</div>
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.theme.appearance.enable_transparency_blur_hint')}</div>
-                                      </div>
-                                      <Switch checked={appearance.enabled !== false} onChange={(checked) => setAppearance({ enabled: checked })} />
-                                  </div>
-                                  <div style={{ display: 'grid', gap: 14, opacity: appearance.enabled !== false ? 1 : 0.6 }}>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.appearance.opacity_title')}</div>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                              <Slider
-                                                min={0.1}
-                                                max={1.0}
-                                                step={0.05}
-                                                disabled={appearance.enabled === false}
-                                                value={appearance.opacity ?? 1.0}
-                                                onChange={(v) => setAppearance({ opacity: v })}
-                                                style={{ flex: 1 }}
-                                              />
-                                              <span style={{ width: 40 }}>{Math.round((appearance.opacity ?? 1.0) * 100)}%</span>
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.appearance.blur_title')}</div>
-                                          {isWindowsPlatform() ? (
-                                              <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)' }}>
-                                                  {t('app.theme.appearance.windows_acrylic_hint')}
-                                              </div>
-                                          ) : (
-                                              <>
-                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                                      <Slider
-                                                        min={0}
-                                                        max={20}
-                                                        disabled={appearance.enabled === false}
-                                                        value={appearance.blur ?? 0}
-                                                        onChange={(v) => setAppearance({ blur: v })}
-                                                        style={{ flex: 1 }}
-                                                      />
-                                                      <span style={{ width: 40 }}>{appearance.blur}px</span>
-                                                  </div>
-                                                  <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 4 }}>
-                                                      {t('app.theme.appearance.blur_hint')}
-                                                  </div>
-                                              </>
-                                          )}
-                                      </div>
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 10, fontWeight: 500 }}>{t('app.theme.data_table.title')}</div>
-                                  <div style={{ display: 'grid', gap: 14 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                          <div>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.data_table.vertical_borders')}</div>
-                                              <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.theme.data_table.vertical_borders_hint')}</div>
-                                          </div>
-                                          <Switch
-                                              checked={appearance.showDataTableVerticalBorders === true}
-                                              onChange={(checked) => setAppearance({ showDataTableVerticalBorders: checked })}
-                                          />
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                          <div>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.data_table.row_number')}</div>
-                                              <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.theme.data_table.row_number_hint')}</div>
-                                          </div>
-                                          <Switch
-                                              checked={appearance.showDataTableRowNumber !== false}
-                                              onChange={(checked) => setAppearance({ showDataTableRowNumber: checked })}
-                                          />
-                                      </div>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.data_table.table_double_click_action')}</div>
-                                          <Segmented
-                                              block
-                                              options={[
-                                                  { label: t('app.theme.data_table.table_double_click_action.open_data'), value: 'open-data' },
-                                                  { label: t('app.theme.data_table.table_double_click_action.open_design'), value: 'open-design' },
-                                              ]}
-                                              value={tableDoubleClickAction}
-                                              onChange={(value) => setAppearance({ tableDoubleClickAction: value as 'open-data' | 'open-design' })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 8 }}>
-                                              {t('app.theme.data_table.table_double_click_action_hint')}
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.data_table.query_ctrl_click_action')}</div>
-                                          <Segmented
-                                              block
-                                              options={[
-                                                  { label: t('app.theme.data_table.query_ctrl_click_action.open_design'), value: 'open-design' },
-                                                  { label: t('app.theme.data_table.query_ctrl_click_action.locate'), value: 'locate' },
-                                              ]}
-                                              value={queryTableCtrlClickAction}
-                                              onChange={(value) => setAppearance({ queryTableCtrlClickAction: value as QueryTableCtrlClickAction })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 8 }}>
-                                              {t('app.theme.data_table.query_ctrl_click_action_hint')}
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.data_table.density')}</div>
-                                          <Segmented
-                                              block
-                                              options={DENSITY_OPTIONS.map((option) => ({
-                                                  ...option,
-                                                  label: t(`app.theme.data_table.density.${option.value}`),
-                                              }))}
-                                              value={appearance.dataTableDensity}
-                                              onChange={(value) => setAppearance({ dataTableDensity: sanitizeDataTableDensity(value) })}
-                                          />
-                                          <div style={{ ...utilityMutedTextStyle, marginTop: 8 }}>
-                                              {t('app.theme.data_table.density_hint')}
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.data_table.sql_editor_font_size')}</div>
-                                              <Button
-                                                  size="small"
-                                                  type={sqlEditorFontSizeFollowsGlobal ? 'primary' : 'default'}
-                                                  onClick={() => setAppearance({
-                                                      sqlEditorFontSizeFollowGlobal: !sqlEditorFontSizeFollowsGlobal,
-                                                      sqlEditorFontSize: sqlEditorFontSizeFollowsGlobal
-                                                          ? sanitizeSqlEditorFontSize(appearance.sqlEditorFontSize)
-                                                          : null,
-                                                  })}
-                                              >
-                                                  {t('app.theme.data_table.follow_global')}
-                                              </Button>
-                                          </div>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                              <Slider
-                                                  min={MIN_SQL_EDITOR_FONT_SIZE}
-                                                  max={MAX_SQL_EDITOR_FONT_SIZE}
-                                                  step={1}
-                                                  disabled={sqlEditorFontSizeFollowsGlobal}
-                                                  value={effectiveSqlEditorFontSize}
-                                                  onChange={(value) => setAppearance({
-                                                      sqlEditorFontSize: sanitizeSqlEditorFontSize(value),
-                                                      sqlEditorFontSizeFollowGlobal: false,
-                                                  })}
-                                                  style={{ flex: 1 }}
-                                              />
-                                              <span style={{ width: 56 }}>{effectiveSqlEditorFontSize}px</span>
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.data_table.font_size')}</div>
-                                              <Button
-                                                  size="small"
-                                                  type={dataTableFontSizeFollowsGlobal ? 'primary' : 'default'}
-                                                  onClick={() => setAppearance({
-                                                      dataTableFontSizeFollowGlobal: !dataTableFontSizeFollowsGlobal,
-                                                      dataTableFontSize: dataTableFontSizeFollowsGlobal
-                                                          ? sanitizeDataTableFontSize(appearance.dataTableFontSize)
-                                                          : null,
-                                                  })}
-                                              >
-                                                  {t('app.theme.data_table.follow_global')}
-                                              </Button>
-                                          </div>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                              <Slider
-                                                  min={10}
-                                                  max={18}
-                                                  step={1}
-                                                  disabled={dataTableFontSizeFollowsGlobal}
-                                                  value={effectiveDataTableFontSize}
-                                                  onChange={(value) => setAppearance({
-                                                      dataTableFontSize: sanitizeDataTableFontSize(value),
-                                                      dataTableFontSizeFollowGlobal: false,
-                                                  })}
-                                                  style={{ flex: 1 }}
-                                              />
-                                              <span style={{ width: 56 }}>{effectiveDataTableFontSize}px</span>
-                                          </div>
-                                      </div>
-                                      <div>
-                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.data_table.sidebar_tree_font_size')}</div>
-                                              <Button
-                                                  size="small"
-                                                  type={sidebarTreeFontSizeFollowsGlobal ? 'primary' : 'default'}
-                                                  onClick={() => setAppearance({
-                                                      sidebarTreeFontSizeFollowGlobal: !sidebarTreeFontSizeFollowsGlobal,
-                                                      sidebarTreeFontSize: sidebarTreeFontSizeFollowsGlobal
-                                                          ? sanitizeSidebarTreeFontSize(appearance.sidebarTreeFontSize)
-                                                          : null,
-                                                  })}
-                                              >
-                                                  {t('app.theme.data_table.follow_global')}
-                                              </Button>
-                                          </div>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                                              <Slider
-                                                  min={10}
-                                                  max={18}
-                                                  step={1}
-                                                  disabled={sidebarTreeFontSizeFollowsGlobal}
-                                                  value={effectiveSidebarTreeFontSize}
-                                                  onChange={(value) => setAppearance({
-                                                      sidebarTreeFontSize: sanitizeSidebarTreeFontSize(value),
-                                                      sidebarTreeFontSizeFollowGlobal: false,
-                                                  })}
-                                                  style={{ flex: 1 }}
-                                              />
-                                              <span style={{ width: 56 }}>{effectiveSidebarTreeFontSize}px</span>
-                                          </div>
-                                      </div>
-                                  </div>
-                              </div>
-                              <div style={utilityPanelStyle}>
-                                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.startup_window.title')}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                      <span>{t('app.theme.startup_window.maximised')}</span>
-                                      <Switch checked={startupMaximised} onChange={(checked) => setStartupMaximised(checked)} />
-                                  </div>
-                                  <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 4 }}>
-                                      {t('app.theme.startup_window.hint')}
-                                  </div>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, paddingTop: 8, paddingBottom: 12 }}>
-                                  <Button
-                                       onClick={() => {
-                                           setUiScale(DEFAULT_UI_SCALE);
-                                           setFontSize(DEFAULT_FONT_SIZE);
-                                           setAppearance({ ...DEFAULT_APPEARANCE });
-                                       }}
-                                   >
-                                       {t('app.theme.action.restore_defaults')}
-                                  </Button>
-                              </div>
-                          </div>
-                      )}
-                  </div>
-              </div>
-  );
-
-  
-
   const renderThemeSettingsContent = (options?: { hideSectionTabs?: boolean }) => (
-    isV2Ui ? renderThemeSettingsContentV2(options) : renderThemeSettingsContentLegacy(options)
+    renderThemeSettingsContentV2(options)
   );
 
   type SettingsCenterNavigationItem = {
@@ -8874,25 +7852,6 @@ function App() {
                     style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 700, minWidth: 0, letterSpacing: '-0.01em' }}
                   >
                       <span>GoNavi</span>
-                      {!isV2Ui && (
-                          <Tooltip title={sidebarPanelToggleLabel} placement="bottom" mouseEnterDelay={0.35}>
-                              <Button
-                                ref={sidebarCollapsedToggleRef}
-                                type="text"
-                                size="small"
-                                className="gonavi-sidebar-collapse-trigger"
-                                data-sidebar-collapse-trigger="true"
-                                data-sidebar-toggle-placement="titlebar"
-                                data-no-titlebar-toggle="true"
-                                aria-label={sidebarPanelToggleLabel}
-                                aria-controls="gonavi-sidebar-tree-panel"
-                                aria-expanded={!isSidebarCollapsed}
-                                icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                                onClick={handleTitlebarSidebarToggle}
-                                style={{ WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
-                              />
-                          </Tooltip>
-                      )}
                   </div>
                   <TitleBarPrimaryActions
                     newQueryLabel={t(primaryActionIsMessageQueue
@@ -9012,20 +7971,6 @@ function App() {
                     overflow: 'hidden',
                 }}
             >
-                {!isV2Ui && (
-                <>
-                <div style={{ padding: `12px ${sidebarHorizontalPadding}px 8px`, borderBottom: 'none', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${sidebarUtilityItems.length}, minmax(0, 1fr))`, gap: 8, width: '100%' }}>
-                        {sidebarUtilityItems.map((item) => (
-                            <Tooltip key={item.key} title={item.title}>
-                                <Button type="text" icon={item.icon} style={utilityButtonStyle} onClick={item.onClick} />
-                            </Tooltip>
-                        ))}
-                    </div>
-                </div>
-                </>
-                )}
-
                 <div style={{ flex: 1, overflow: 'hidden', paddingBottom: isV2Ui ? 0 : 58, paddingRight: isV2Ui || isSidebarCollapsed ? 0 : sidebarResizeHandleWidth, position: 'relative' }}>
                     <div style={{ height: '100%', opacity: connectionWorkbenchState.ready ? 1 : 0.72, pointerEvents: connectionWorkbenchState.ready ? 'auto' : 'none' }}>
                         <Sidebar
@@ -9111,44 +8056,7 @@ function App() {
                     />}
                 </div>
 
-                {/* Floating SQL Log Toggle */}
-                {!isV2Ui && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: 10,
-                        right: 14,
-                        bottom: 10,
-                        zIndex: 20,
-                        pointerEvents: 'none'
-                    }}
-                >
-                    <Button
-                        type={isLogPanelOpen ? "primary" : "text"}
-                        icon={<BugOutlined />}
-                        onClick={handleToggleLogPanel}
-                        style={isLogPanelOpen ? {
-                            width: '100%',
-                            height: floatingLogButtonHeight,
-                            borderRadius: 999,
-                            boxShadow: floatingLogButtonShadow,
-                            pointerEvents: 'auto'
-                        } : {
-                            width: '100%',
-                            height: floatingLogButtonHeight,
-                            borderRadius: 999,
-                            border: `1px solid ${floatingLogButtonBorderColor}`,
-                            color: floatingLogButtonTextColor,
-                            background: floatingLogButtonBgColor,
-                            boxShadow: floatingLogButtonShadow,
-                            backdropFilter: blurFilter,
-                            pointerEvents: 'auto'
-                        }}
-                    >
-                        {t('app.sidebar.sql_execution_log')}
-                    </Button>
-                </div>
-                )}
+
             </div>
           </Sider>
            <Content
@@ -9179,15 +8087,7 @@ function App() {
                     onToggleAI={handleToggleOrFocusAIPanel}
                   />
                </div>
-               {!isV2Ui && !aiPanelVisible && (
-               <>
-               {aiEntryPlacement === 'content-edge' && legacyAiEdgeHandleAttachment === 'content-shell' && (
-                  <div style={legacyAiEdgeHandleDockStyle}>
-                      {renderLegacyAIEdgeHandle()}
-                  </div>
-               )}
-               </>
-               )}
+
                {aiPanelVisible && !aiChatDetached && (
                   <div
                     className={aiPanelOverlayActive ? 'gn-v2-ai-panel-overlay' : undefined}
@@ -9237,15 +8137,7 @@ function App() {
                             }
                           : undefined}
                       >
-                      {!isV2Ui && (
-                      <>
-                      {aiEntryPlacement === 'content-edge' && legacyAiEdgeHandleAttachment === 'panel-shell' && (
-                          <div style={legacyAiEdgeHandleDockStyle}>
-                              {renderLegacyAIEdgeHandle()}
-                          </div>
-                      )}
-                      </>
-                      )}
+
                       <AIPanelErrorBoundary
                         key={aiPanelRenderNonce}
                         onError={handleAIPanelRenderError}
@@ -9350,13 +8242,7 @@ function App() {
                   />
                )}
              </div>
-             {!isV2Ui && isLogPanelOpen && (
-                  <LogPanel
-                     height={logPanelHeight}
-                     onClose={handleCloseLogPanel}
-                    onResizeStart={handleLogResizeStart}
-                />
-            )}
+
           </Content>
           </Layout>
           {isConnectionModalMounted && (

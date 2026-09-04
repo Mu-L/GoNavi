@@ -101,7 +101,7 @@ export const applyNativeDetachedDocumentAppearance = (
   );
   const rootStyle = documentRef.documentElement?.style;
   documentRef.body.setAttribute('data-theme', resolvedTheme);
-  documentRef.body.setAttribute('data-ui-version', uiVersion);
+  documentRef.body.setAttribute('data-ui-version', 'v2');
   documentRef.body.setAttribute('data-gonavi-detached', 'true');
   documentRef.body.style.backgroundColor = 'transparent';
   documentRef.body.style.color = resolvedTheme === 'dark' ? '#ffffff' : '#000000';
@@ -735,7 +735,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.body.setAttribute('data-theme', effectiveThemeMode === 'dark' ? 'dark' : 'light');
-    document.body.setAttribute('data-ui-version', uiVersion);
+    document.body.setAttribute('data-ui-version', 'v2');
     document.body.style.color = effectiveThemeMode === 'dark' ? '#ffffff' : '#111827';
     document.body.style.fontSize = `${Math.max(10, Number(fontSize) || 14)}px`;
     document.documentElement.style.colorScheme = effectiveThemeMode === 'dark' ? 'dark' : 'light';

@@ -183,7 +183,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const sqlLogs = useStore(state => state.sqlLogs);
     const setAIActiveSessionId = useStore(state => state.setAIActiveSessionId);
     const aiPanelVisible = useStore(state => state.aiPanelVisible);
-    const isV2Ui = appearance.uiVersion === 'v2';
+    const isV2Ui = true;
     const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
     const {
         ghostRef,

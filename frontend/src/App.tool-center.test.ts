@@ -53,23 +53,22 @@ describe('settings center tool entries', () => {
 
     const appearanceEffectSource = appSource.slice(appearanceEffectStart, appearanceEffectEnd);
     expect(appearanceEffectSource).toContain('useLayoutEffect(() => {');
-    expect(appearanceEffectSource).toContain("document.body.setAttribute('data-ui-version', appearance.uiVersion);");
+    expect(appearanceEffectSource).toContain("document.body.setAttribute('data-ui-version', 'v2');");
   });
 
-  it('exposes toolbar button overrides from both V2 and legacy theme settings', () => {
-    expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(2);
+  it('exposes toolbar button overrides from the theme settings pane', () => {
+    expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(1);
 
-    const legacySettingsStart = appSource.indexOf('const renderThemeSettingsContentLegacy =');
-    const legacySettingsEnd = appSource.indexOf(
+    const settingsStart = appSource.indexOf('const renderThemeSettingsContentV2 =');
+    const settingsEnd = appSource.indexOf(
       'const renderThemeSettingsContent =',
-      legacySettingsStart,
+      settingsStart,
     );
-    const legacySettingsSource = appSource.slice(legacySettingsStart, legacySettingsEnd);
+    const settingsSource = appSource.slice(settingsStart, settingsEnd);
 
-    expect(legacySettingsStart).toBeGreaterThanOrEqual(0);
-    expect(legacySettingsEnd).toBeGreaterThan(legacySettingsStart);
-    expect(legacySettingsSource).toContain("t('app.theme.toolbar_buttons.legacy_hint')");
-    expect(legacySettingsSource).toContain('<ToolbarButtonAppearanceSettings />');
+    expect(settingsStart).toBeGreaterThanOrEqual(0);
+    expect(settingsEnd).toBeGreaterThan(settingsStart);
+    expect(settingsSource).toContain('<ToolbarButtonAppearanceSettings />');
   });
 
   it('captures native window bounds before maximising and before the final quit flush', () => {

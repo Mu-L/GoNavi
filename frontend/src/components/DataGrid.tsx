@@ -407,7 +407,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }), [translateDataGrid]);
   
   const isMacLike = useMemo(() => isMacLikePlatform(), []);
-  const isV2Ui = appearance?.uiVersion === 'v2';
+  const isV2Ui = true;
   const effectiveUiScale = Math.min(1.25, Math.max(0.8, Number(uiScale) || 1));
   const activeShortcutPlatform = useMemo(() => getShortcutPlatform(isMacLike), [isMacLike]);
   const darkMode = theme === 'dark';

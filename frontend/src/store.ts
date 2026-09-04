@@ -327,7 +327,6 @@ const MAX_DIAGNOSTIC_TIMEOUT_SECONDS = 300;
 const PERSIST_VERSION = 21;
 const SQL_EDITOR_FONT_SIZE_SPLIT_VERSION = 19;
 const TAB_DISPLAY_DEFAULT_MIGRATION_VERSION = 20;
-const UI_VERSION_V2_MIGRATION_VERSION = 14;
 const SIDEBAR_SEARCH_SHORTCUT_MIGRATION_VERSION = 18;
 const PERSIST_STORAGE_KEY = "lite-db-storage";
 const PERSIST_WRITE_DEBOUNCE_MS = 160;
@@ -3198,10 +3197,7 @@ const sanitizeAppearance = (
     ? migrateLegacySqlEditorTypographySettings(dataGridDisplaySettings)
     : sanitizeSqlEditorTypographySettings(appearance);
   const nextAppearance = {
-    uiVersion:
-      appearance.uiVersion === "v2" || appearance.uiVersion === "legacy"
-        ? appearance.uiVersion
-        : DEFAULT_APPEARANCE.uiVersion,
+    uiVersion: DEFAULT_APPEARANCE.uiVersion,
     enabled:
       typeof appearance.enabled === "boolean"
         ? appearance.enabled
@@ -6182,13 +6178,7 @@ export const useStore = create<AppState>()(
         nextState.languagePreference = sanitizeLanguagePreference(
           state.languagePreference,
         );
-        const appearance = sanitizeAppearance(state.appearance, version);
-        // 旧版界面在窄布局下可能遮挡 SQL 编辑器。仅在本次版本升级时
-        // 将已保存的选择迁移至 V2，之后用户仍可自行切换并保留偏好。
-        nextState.appearance =
-          version < UI_VERSION_V2_MIGRATION_VERSION
-            ? { ...appearance, uiVersion: "v2" }
-            : appearance;
+        nextState.appearance = sanitizeAppearance(state.appearance, version);
         nextState.uiScale = sanitizeUiScale(state.uiScale);
         nextState.fontSize = sanitizeFontSize(state.fontSize);
         nextState.startupFullscreen = sanitizeStartupFullscreen(
