@@ -1135,7 +1135,7 @@ describe('Sidebar locate toolbar', () => {
     expect(css).not.toContain('.gn-v2-active-connection-header');
   });
 
-  it('places driver management in the titlebar and editor tools inside More', () => {
+  it('places driver management in the titlebar and does not render a More overflow', () => {
     const source = readSourceFile('./Sidebar.tsx');
     const actionsStart = source.indexOf('const v2TitlebarQuickActions: TitleBarQuickAction[] = [');
     const actionsEnd = source.indexOf('\n  ];', actionsStart);
@@ -1144,27 +1144,18 @@ describe('Sidebar locate toolbar', () => {
     expect(actionsEnd).toBeGreaterThan(actionsStart);
 
     const actionsSource = source.slice(actionsStart, actionsEnd);
-    const connectionPackageIndex = actionsSource.indexOf("key: 'connection-package'");
     const driverIndex = actionsSource.indexOf("key: 'drivers'");
-    const workspaceIndex = actionsSource.indexOf("key: 'settings-workspace'");
 
-    expect(connectionPackageIndex).toBeGreaterThanOrEqual(0);
-    expect(driverIndex).toBeGreaterThan(connectionPackageIndex);
-    expect(workspaceIndex).toBeGreaterThan(connectionPackageIndex);
-    // 关于 GoNavi 已拎出「更多」菜单，作为标题栏独立按钮
+    expect(actionsSource).toContain("key: 'batch-actions'");
+    expect(actionsSource).toContain("key: 'sql-tools'");
+    expect(driverIndex).toBeGreaterThan(actionsSource.indexOf("key: 'sql-tools'"));
     expect(actionsSource).not.toContain("key: 'settings-about'");
-
-    const driverSource = actionsSource.slice(driverIndex, actionsSource.indexOf("key: 'open-external-sql-file'", driverIndex));
-    expect(driverSource).not.toContain("priority: 'secondary'");
-    expect(driverSource).toContain("label: t('app.tools.entry.drivers.title')");
-    expect(driverSource).toContain("action: 'drivers'");
-
-    const workspaceSource = actionsSource.slice(workspaceIndex);
-    expect(workspaceSource).toContain("priority: 'secondary'");
-    expect(workspaceSource).not.toContain("key: 'drivers'");
-    expect(workspaceSource).toContain("key: 'snippet-settings'");
-    expect(workspaceSource).toContain("key: 'shortcut-settings'");
-    expect(workspaceSource).toContain("key: 'sql-audit'");
+    expect(actionsSource).not.toContain("key: 'settings-workspace'");
+    expect(actionsSource).not.toContain("key: 'settings-preferences'");
+    expect(actionsSource).not.toContain("key: 'open-external-sql-file'");
+    expect(actionsSource).not.toContain("priority: 'secondary'");
+    expect(actionsSource).toContain("label: t('app.tools.entry.drivers.title')");
+    expect(actionsSource).toContain("action: 'drivers'");
 
     const aboutActionsStart = source.indexOf('const v2TitlebarAboutActions: TitleBarQuickAction[] = [');
     const aboutActionsEnd = source.indexOf('\n  ];', aboutActionsStart);
@@ -1178,6 +1169,10 @@ describe('Sidebar locate toolbar', () => {
 
     const renderSource = source.slice(aboutActionsEnd);
     expect(renderSource).toContain('trailingActions={v2TitlebarAboutActions}');
+    expect(renderSource).not.toContain('moreLabel=');
+
+    const titlebarQuickActionsSource = readSourceFile('./TitleBarQuickActions.tsx');
+    expect(titlebarQuickActionsSource).not.toContain('data-titlebar-quick-more');
   });
 
   it('renders the fixed v2 rail, titlebar quick actions, explorer filters and workbench actions', () => {
@@ -1238,11 +1233,8 @@ describe('Sidebar locate toolbar', () => {
     expect(source).toContain("sidebar.action.batch_operations");
     expect(source).toContain("key: 'sql-tools'");
     expect(source).toContain("sidebar.action.sql_tools");
-    expect(source).toContain("key: 'data-workflow'");
-    expect(source).toContain("app.tools.group.workflow.title");
-    expect(source).toContain("onOpenDataSyncWorkbench?.('schemaCompare')");
-    expect(source).toContain("onOpenDataSyncWorkbench?.('dataCompare')");
-    expect(source).toContain("onOpenDataSyncWorkbench?.('sync')");
+    expect(source).not.toContain("key: 'data-workflow'");
+    expect(source).not.toContain("onOpenDataSyncWorkbench?.('schemaCompare')");
     expect(source).toContain('showObjectActions: false');
     expect(source).not.toContain("key: 'locate-current-table'");
     expect(markup).not.toContain('data-gonavi-new-query-action="true"');

@@ -911,7 +911,6 @@ const Sidebar: React.FC<{
   onOpenSettings,
   onOpenSettingsNavigation,
   isWebRuntime = false,
-  onOpenDataSyncWorkbench,
   onToggleAI,
   onToggleLogPanel,
   uiVersion,
@@ -4386,10 +4385,6 @@ const Sidebar: React.FC<{
   const v2BatchTablesLabel = t('sidebar.action.batch_tables');
   const v2BatchDatabasesLabel = t('sidebar.action.batch_databases');
   const v2DataImportLabel = t('sidebar.action.data_import');
-  const v2DataWorkflowLabel = t('app.tools.group.workflow.title');
-  const v2SchemaCompareLabel = t('app.tools.entry.schema_compare.title');
-  const v2DataCompareLabel = t('app.tools.entry.data_compare.title');
-  const v2DataSyncLabel = t('app.tools.entry.sync.title');
   const v2SqlToolsLabel = t('sidebar.action.sql_tools');
   const v2SlowQueryLabel = t('sql_analysis.slow_query.rail.aria_label');
   const v2SqlAuditLabel = t('sql_audit.rail.aria_label');
@@ -4471,13 +4466,6 @@ const Sidebar: React.FC<{
 
   const v2TitlebarQuickActions: TitleBarQuickAction[] = [
     {
-      key: 'new-group',
-      label: v2NewGroupLabel,
-      icon: <FolderOpenOutlined aria-hidden="true" />,
-      onClick: () => { setRenameViewTarget(null); createTagForm.resetFields(); setIsCreateTagModalOpen(true); },
-      priority: 'secondary',
-    },
-    {
       key: 'batch-actions',
       label: v2BatchActionsLabel,
       icon: <AppstoreOutlined aria-hidden="true" />,
@@ -4523,215 +4511,13 @@ const Sidebar: React.FC<{
       ],
     },
     {
-      key: 'data-workflow',
-      label: v2DataWorkflowLabel,
-      icon: <SwitcherOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'schema-compare',
-          label: v2SchemaCompareLabel,
-          icon: <AppstoreOutlined aria-hidden="true" />,
-          onClick: () => onOpenDataSyncWorkbench?.('schemaCompare'),
-        },
-        {
-          key: 'data-compare',
-          label: v2DataCompareLabel,
-          icon: <SwitcherOutlined aria-hidden="true" />,
-          onClick: () => onOpenDataSyncWorkbench?.('dataCompare'),
-        },
-        {
-          key: 'data-sync',
-          label: v2DataSyncLabel,
-          icon: <UploadOutlined rotate={90} aria-hidden="true" />,
-          onClick: () => onOpenDataSyncWorkbench?.('sync'),
-        },
-      ],
-    },
-    {
-      key: 'connection-package',
-      label: t('app.tools.group.config.title'),
-      icon: <HddOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'import-connections',
-          label: t('app.tools.entry.import.title'),
-          icon: <UploadOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'config', action: 'import-connections' }),
-        },
-        {
-          key: 'export-connections',
-          label: t('app.tools.entry.export.title'),
-          icon: <DownloadOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'config', action: 'export-connections' }),
-        },
-      ],
-    },
-    {
       key: 'drivers',
       label: t('app.tools.entry.drivers.title'),
       icon: <SettingOutlined aria-hidden="true" />,
       onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', action: 'drivers' }),
     },
-    {
-      key: 'open-external-sql-file',
-      label: v2OpenExternalSqlFileLabel,
-      icon: <FileAddOutlined aria-hidden="true" />,
-      onClick: () => { void handleOpenSQLFileFromToolbar(); },
-      priority: 'secondary',
-    },
-    // Settings center groups (same order as 设置 left nav)
-    {
-      key: 'settings-preferences',
-      label: t('app.settings.group.preferences.title'),
-      icon: <SettingOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'language',
-          label: t('settings.language.title'),
-          icon: <GlobalOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'language' }),
-        },
-        {
-          key: 'theme',
-          label: t('app.settings.entry.theme.title'),
-          icon: <SkinOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'theme' }),
-        },
-        {
-          key: 'brand-icon',
-          label: t('app.settings.entry.brand_icon.title'),
-          icon: <AppstoreOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'brand-icon' }),
-        },
-        {
-          key: 'sidebar-metadata',
-          label: t('app.settings.sidebar_metadata.title'),
-          icon: <TableOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'sidebar-metadata' }),
-        },
-        {
-          key: 'sidebar-objects',
-          label: t('app.settings.sidebar_objects.title'),
-          icon: <FolderOpenOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'sidebar-objects' }),
-        },
-      ],
-    },
-    {
-      key: 'settings-services',
-      label: t('app.settings.group.services.title'),
-      icon: <GlobalOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'proxy',
-          label: t('app.settings.entry.proxy.title'),
-          icon: <GlobalOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'proxy' }),
-        },
-        {
-          key: 'download-source',
-          label: t('app.settings.entry.download_source.title'),
-          icon: <CloudDownloadOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'download-source' }),
-        },
-        ...(isWebRuntime ? [{
-          key: 'web-auth',
-          label: t('app.settings.entry.web_auth.title'),
-          icon: <SafetyCertificateOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'web-auth' }),
-        }] : []),
-        {
-          key: 'cloud-backup',
-          label: t('app.settings.entry.cloud_backup.title'),
-          icon: <CloudDownloadOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'cloud-backup' }),
-        },
-        {
-          key: 'ai',
-          label: t('app.settings.entry.ai.title'),
-          icon: <RobotOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'ai' }),
-        },
-      ],
-    },
-    {
-      key: 'settings-config',
-      label: t('app.tools.group.config.title'),
-      icon: <SettingOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'data-root',
-          label: t('app.tools.entry.data_root.title'),
-          icon: <HddOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'config', pane: 'data-root' }),
-        },
-        {
-          key: 'security-update',
-          label: t('app.tools.entry.security_update.title'),
-          icon: <SafetyCertificateOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'config', pane: 'security-update' }),
-        },
-      ],
-    },
-    {
-      key: 'settings-workflow',
-      label: t('app.tools.group.workflow.title'),
-      icon: <SwitcherOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'schema-compare',
-          label: t('app.tools.entry.schema_compare.title'),
-          icon: <AppstoreOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' }),
-        },
-        {
-          key: 'data-compare',
-          label: t('app.tools.entry.data_compare.title'),
-          icon: <SwitcherOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' }),
-        },
-        {
-          key: 'sync',
-          label: t('app.tools.entry.sync.title'),
-          icon: <UploadOutlined rotate={90} aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' }),
-        },
-      ],
-    },
-    {
-      key: 'settings-workspace',
-      label: t('app.tools.group.workspace.title'),
-      icon: <CodeOutlined aria-hidden="true" />,
-      priority: 'secondary',
-      menu: [
-        {
-          key: 'snippet-settings',
-          label: t('app.tools.entry.snippets.title'),
-          icon: <CodeOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', pane: 'snippet-settings' }),
-        },
-        {
-          key: 'shortcut-settings',
-          label: t('app.tools.entry.shortcuts.title'),
-          icon: <LinkOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', pane: 'shortcut-settings' }),
-        },
-        {
-          key: 'sql-audit',
-          label: t('app.tools.entry.sql_audit.title'),
-          icon: <AuditOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', action: 'sql-audit' }),
-        },
-      ],
-    },
   ];
-  // 关于 GoNavi（在线更新入口）单独放在「更多」按钮右侧，减少操作层级
+  // 关于 GoNavi 作为标题栏独立按钮，和批量处理 / SQL 工具并列。
   const v2TitlebarAboutActions: TitleBarQuickAction[] = [
     {
       key: 'about-go-navi',
@@ -5160,7 +4946,6 @@ const Sidebar: React.FC<{
         {v2TitlebarQuickActionsTarget && createPortal(
           <TitleBarQuickActions
             label={v2RailObjectActionsLabel}
-            moreLabel={t('query_editor.action.more')}
             actions={v2TitlebarQuickActions}
             trailingActions={v2TitlebarAboutActions}
           />,
