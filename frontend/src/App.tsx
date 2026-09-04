@@ -2,7 +2,7 @@ import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from './utils/aiSettingsLeaveGuard';
 import { Layout, Button, ConfigProvider, theme, message, notification, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -6336,19 +6336,21 @@ function App() {
 
   const renderSettingsCenterAboutProjectEntry = ({
       icon,
+      logoSrc,
       title,
       description,
       url,
       copyText,
   }: {
-      icon: React.ReactNode;
+      icon?: React.ReactNode;
+      logoSrc?: string;
       title: string;
       description: string;
       url?: string;
       copyText?: string;
   }) => (
       <button
-        className="gonavi-about-project-entry"
+        className={`gonavi-about-project-entry${logoSrc ? ' is-sponsor' : ''}`}
         type="button"
         onClick={() => {
             if (copyText) {
@@ -6365,7 +6367,7 @@ function App() {
         style={{
             width: '100%',
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: logoSrc ? 'center' : 'flex-start',
             gap: 10,
             padding: '10px 12px',
             border: `1px solid ${darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)'}`,
@@ -6377,9 +6379,13 @@ function App() {
             textAlign: 'left',
         }}
       >
-          <span style={{ fontSize: 18, display: 'grid', placeItems: 'center', marginTop: 1, color: overlayTheme.iconColor }}>
-              {icon}
-          </span>
+          {logoSrc ? (
+              <img className="gonavi-about-project-entry-logo" src={logoSrc} alt="" />
+          ) : (
+              <span style={{ fontSize: 18, display: 'grid', placeItems: 'center', marginTop: 1, color: overlayTheme.iconColor }}>
+                  {icon}
+              </span>
+          )}
           <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35 }}>{title}</span>
@@ -6471,10 +6477,6 @@ function App() {
                           ) : null}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap', color: mutedText, fontWeight: 600, fontSize: 12 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                              <TagOutlined />
-                              {aboutDisplayVersion}
-                          </span>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               <UserOutlined />
                               {aboutInfo?.author || t('common.unknown')}
@@ -6623,6 +6625,20 @@ function App() {
                           title: t('app.about.project.wechat.title'),
                           description: t('app.about.project.wechat.description'),
                           copyText: t('app.about.project.wechat.id'),
+                      })}
+                  </div>
+              </section>
+
+              <section className="gonavi-about-section" aria-labelledby="gonavi-about-sponsors-heading">
+                  <div id="gonavi-about-sponsors-heading" className="gonavi-about-section-title" style={{ color: overlayTheme.titleText }}>
+                      {t('app.about.sponsors')}
+                  </div>
+                  <div className="gonavi-about-link-grid">
+                      {renderSettingsCenterAboutProjectEntry({
+                          logoSrc: '/sponsors/hualong-mark.png',
+                          title: t('app.about.project.hualong.title'),
+                          description: t('app.about.project.hualong.description'),
+                          url: 'https://api.hualong.online/',
                       })}
                   </div>
               </section>

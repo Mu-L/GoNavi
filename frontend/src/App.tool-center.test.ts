@@ -152,6 +152,17 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");
     expect(appSource).toMatch(/key: 'about' as const,[\s\S]*?items: \[\],/);
     expect(appSource).toContain('className="gonavi-about-link-grid"');
+    expect(appSource).toContain("className=\"gonavi-about-identity\"");
+    expect(appSource).not.toMatch(/className="gonavi-about-identity"[\s\S]*?<TagOutlined \/>[\s\S]*?aboutDisplayVersion/);
+    expect(appSource).toContain("t('app.about.version.current')");
+    expect(appSource).toContain("t('app.about.project.hualong.title')");
+    expect(appSource).toContain('https://api.hualong.online/');
+    expect(appSource).toContain('/sponsors/hualong-mark.png');
+    expect(appSource).toContain('gonavi-about-project-entry-logo');
+    expect(appSource).toContain("t('app.about.sponsors')");
+    expect(appCss).toContain('.gonavi-about-project-entry-logo');
+    expect(appCss).toMatch(/\.gonavi-about-link-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(appSource).not.toContain('apismart');
     expect(appSource).not.toContain("gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)'");
     expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
   });
