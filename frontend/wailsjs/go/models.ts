@@ -3301,8 +3301,7 @@ export namespace runharness {
 	    toolCallId?: string;
 	    toolCalls?: number[];
 	    metadata?: number[];
-	    // Go type: time
-	    createdAt: any;
+	    createdAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -3322,7 +3321,7 @@ export namespace runharness {
 	        this.toolCallId = source["toolCallId"];
 	        this.toolCalls = source["toolCalls"];
 	        this.metadata = source["metadata"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.createdAt = source["createdAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3379,8 +3378,7 @@ export namespace runharness {
 	    sequence: number;
 	    runRevision: number;
 	    attempt: number;
-	    // Go type: time
-	    timestamp: any;
+	    timestamp: string;
 	    kind: string;
 	    resultingState: string;
 	    payload?: number[];
@@ -3398,29 +3396,11 @@ export namespace runharness {
 	        this.sequence = source["sequence"];
 	        this.runRevision = source["runRevision"];
 	        this.attempt = source["attempt"];
-	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.timestamp = source["timestamp"];
 	        this.kind = source["kind"];
 	        this.resultingState = source["resultingState"];
 	        this.payload = source["payload"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class RunPolicy {
 	    defaultDispatchMode: string;
@@ -3569,14 +3549,11 @@ export namespace runharness {
 	    revision: number;
 	    attempt: number;
 	    nextSequence: number;
-	    // Go type: time
-	    ownerExpiresAt?: any;
+	    ownerExpiresAt?: string;
 	    checkpointId?: string;
 	    terminalReason?: string;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
+	    createdAt: string;
+	    updatedAt: string;
 	    activeDurationMs: number;
 	    policy: RunPolicy;
 	    provider?: string;
@@ -3609,11 +3586,11 @@ export namespace runharness {
 	        this.revision = source["revision"];
 	        this.attempt = source["attempt"];
 	        this.nextSequence = source["nextSequence"];
-	        this.ownerExpiresAt = this.convertValues(source["ownerExpiresAt"], null);
+	        this.ownerExpiresAt = source["ownerExpiresAt"];
 	        this.checkpointId = source["checkpointId"];
 	        this.terminalReason = source["terminalReason"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	        this.activeDurationMs = source["activeDurationMs"];
 	        this.policy = this.convertValues(source["policy"], RunPolicy);
 	        this.provider = source["provider"];
@@ -3714,10 +3691,8 @@ export namespace runharness {
 	    branchFromMessageId?: string;
 	    branchFromSequence?: number;
 	    archived: boolean;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
+	    createdAt: string;
+	    updatedAt: string;
 	    runs?: RunSnapshot[];
 	    messages?: Message[];
 	
@@ -3735,8 +3710,8 @@ export namespace runharness {
 	        this.branchFromMessageId = source["branchFromMessageId"];
 	        this.branchFromSequence = source["branchFromSequence"];
 	        this.archived = source["archived"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	        this.runs = this.convertValues(source["runs"], RunSnapshot);
 	        this.messages = this.convertValues(source["messages"], Message);
 	    }
@@ -3866,8 +3841,7 @@ export namespace runharness {
 	    id?: string;
 	    statement?: string;
 	    status?: string;
-	    // Go type: time
-	    createdAt?: any;
+	    createdAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceSQLActivity(source);
@@ -3878,26 +3852,8 @@ export namespace runharness {
 	        this.id = source["id"];
 	        this.statement = source["statement"];
 	        this.status = source["status"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.createdAt = source["createdAt"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class WorkspaceTab {
 	    id: string;
@@ -3929,8 +3885,7 @@ export namespace runharness {
 	    sourceId: string;
 	    sourceInstanceId: string;
 	    revision: number;
-	    // Go type: time
-	    capturedAt: any;
+	    capturedAt: string;
 	    contentHash: string;
 	    activeContext?: Record<string, any>;
 	    tabs?: WorkspaceTab[];
@@ -3957,7 +3912,7 @@ export namespace runharness {
 	        this.sourceId = source["sourceId"];
 	        this.sourceInstanceId = source["sourceInstanceId"];
 	        this.revision = source["revision"];
-	        this.capturedAt = this.convertValues(source["capturedAt"], null);
+	        this.capturedAt = source["capturedAt"];
 	        this.contentHash = source["contentHash"];
 	        this.activeContext = source["activeContext"];
 	        this.tabs = this.convertValues(source["tabs"], WorkspaceTab);
