@@ -139,6 +139,9 @@ interface AISettingsProvidersSectionProps {
   onSaveProviderAsCopy?: () => void;
   saveMode?: 'save' | 'copy';
   dirty?: boolean;
+  treeHostedView?: 'workspace' | 'connected';
+  onOpenWorkspaceView?: () => void;
+  onCloseHost?: () => void;
 }
 
 const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
@@ -178,6 +181,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   onTestProvider,
   onSaveProvider,
   onSaveProviderAsCopy,
+  treeHostedView,
+  onOpenWorkspaceView,
+  onCloseHost,
   saveMode = 'save',
   dirty = false,
 }) => {
@@ -506,8 +512,16 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     </AIProviderSortableItem>;
   };
 
-  return <div className="gonavi-ai-provider-management" style={rootStyle}>
-    <div className="gonavi-ai-provider-heading">
+  const openProviderInWorkspace = (provider: AIProviderConfig) => {
+    if (treeHostedView === 'connected') {
+      onOpenWorkspaceView?.();
+    }
+    onEditProvider(provider);
+  };
+  const hideCatalog = Boolean(treeHostedView);
+
+  return <div className={`gonavi-ai-provider-management${treeHostedView === 'connected' ? ' is-connected-only' : ''}`} style={rootStyle}>
+    {treeHostedView === 'connected' ? null : <div className="gonavi-ai-provider-heading">
       <span className="gonavi-ai-provider-heading-copy">{copy('ai_settings.nav.providers.description')}</span>
       <Select className="gonavi-ai-provider-add gonavi-ai-provider-add-preset-select" showSearch
         aria-label={copy('ai_settings.provider.action.add')} value={undefined}
@@ -517,15 +531,15 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
         notFoundContent={hiddenPresets.length ? copy('ai_settings.provider.hidden_add_hint') : undefined}
         onChange={(key) => { if (addablePresets.some((preset) => preset.key === key)) { onAddProvider(key); layout.closeDrawer(); } }}
         disabled={providersLoading || Boolean(loadError) || loading} />
-    </div>
-    <div className="gonavi-ai-provider-list" data-density={layout.preferences.density}>
+    </div>}
+    {treeHostedView !== 'workspace' ? <div className="gonavi-ai-provider-list" data-density={layout.preferences.density}>
       <div className="gonavi-ai-provider-toolbar">
-        <button type="button" className="gonavi-ai-provider-collapse" aria-expanded={!layout.preferences.savedCollapsed}
+        {treeHostedView === 'connected' ? null : <button type="button" className="gonavi-ai-provider-collapse" aria-expanded={!layout.preferences.savedCollapsed}
           aria-controls="gonavi-ai-provider-chips" onClick={() => layout.setPreference('savedCollapsed', !layout.preferences.savedCollapsed)}>
           <span className="gonavi-ai-provider-caret" aria-hidden="true">{layout.preferences.savedCollapsed ? <RightOutlined /> : <DownOutlined />}</span>
           {copy('ai_settings.provider.configured')} <small>{providers.length}</small>
-        </button>
-        {layout.preferences.savedCollapsed ? <span className="gonavi-ai-provider-collapsed-default">{currentName && `${copy('ai_settings.provider.default')}: ${currentName}`}</span> : <div className="gonavi-ai-provider-toolbar-end">
+        </button>}
+        {treeHostedView !== 'connected' && layout.preferences.savedCollapsed ? <span className="gonavi-ai-provider-collapsed-default">{currentName && `${copy('ai_settings.provider.default')}: ${currentName}`}</span> : <div className="gonavi-ai-provider-toolbar-end">
           <div className="gonavi-ai-provider-density" role="group" aria-label={copy('ai_settings.provider.density')}>
             {(['compact', 'normal'] as const).map((density) => <button key={density} type="button"
               aria-pressed={layout.preferences.density === density} onClick={() => layout.setPreference('density', density)}>{copy(`ai_settings.provider.${density}`)}</button>)}
@@ -538,7 +552,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       {loadError && <div role="alert">{loadError} <Button type="link" onClick={onReloadProviders}>{copy('ai_settings.provider.retry')}</Button></div>}
       {providersLoading && <div role="status"><LoadingOutlined /> {copy('ai_settings.provider.loading')}</div>}
       <div id="gonavi-ai-provider-chips" className="gonavi-ai-provider-chips" role="radiogroup"
-        aria-label={copy('ai_settings.provider.default_label')} hidden={layout.preferences.savedCollapsed}>
+        aria-label={copy('ai_settings.provider.default_label')} hidden={treeHostedView !== 'connected' && layout.preferences.savedCollapsed}>
         {!providersLoading && !loadError && providers.length === 0 && <span className="gonavi-ai-provider-empty">{copy('ai_settings.provider.empty.title')}</span>}
         {providers.length > 0 && visibleProviders.length === 0 && <span role="status">{copy('ai_settings.provider.no_matches')}</span>}
         {visibleProviders.map((provider, index) => {
@@ -580,7 +594,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
               </button>
             </Tooltip>}
             <Tooltip {...passThroughHintTooltip} title={copy('ai_settings.provider.action.edit')}><Button type="text" size="small" icon={<EditOutlined />}
-              aria-label={`${copy('ai_settings.provider.action.edit')}: ${name}`} onClick={() => onEditProvider(provider)} /></Tooltip>
+              aria-label={`${copy('ai_settings.provider.action.edit')}: ${name}`} onClick={() => openProviderInWorkspace(provider)} /></Tooltip>
             {/* Removing a configuration is destructive, so the corner control still
                 confirms before it deletes; it only appears on hover or focus. */}
             <Popconfirm title={copy('ai_settings.provider.confirm_delete')} onConfirm={() => onDeleteProvider(provider.id)}
@@ -592,8 +606,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
           </div>;
         })}
       </div>
-    </div>
-    <div className="gonavi-ai-provider-workspace-toolbar">
+    </div> : null}
+    {treeHostedView === 'connected' ? null : <>
+    {hideCatalog ? null : <div className="gonavi-ai-provider-workspace-toolbar">
       <button type="button" ref={catalogToggleRef} className="gonavi-ai-provider-catalog-toggle" aria-expanded={layout.catalogVisible}
         aria-controls="gonavi-ai-provider-catalog" onClick={layout.toggleCatalog}>
         <span className="gonavi-ai-provider-caret" aria-hidden="true">{layout.catalogVisible ? <LeftOutlined /> : <RightOutlined />}</span>{copy('ai_settings.provider.catalog')} <small>{displayedPresets.length}</small>
@@ -602,15 +617,15 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
         onChange={(event) => setCatalogSearch(event.target.value)}
         placeholder={copy('ai_settings.provider.catalog_search')} aria-label={copy('ai_settings.provider.catalog_search')} />}
       {usesLocalCLI && currentConfigSaved && <span className="gonavi-ai-provider-catalog-hint">{copy('ai_settings.provider.catalog_hint')}</span>}
-    </div>
-    <div ref={layout.workspaceRef} className={workspaceClassName(layout.narrow, layout.catalogVisible, layout.dragging)}
-      onKeyDown={(event) => { if (event.key === 'Escape' && layout.narrow && layout.catalogVisible) { event.stopPropagation(); layout.closeDrawer(); catalogToggleRef.current?.focus(); } }}>
-      {layout.narrow && layout.catalogVisible && <button className="gonavi-ai-provider-scrim" type="button" aria-label={copy('ai_settings.provider.close_catalog')}
+    </div>}
+    <div ref={layout.workspaceRef} className={`${workspaceClassName(layout.narrow, hideCatalog ? false : layout.catalogVisible, layout.dragging)}${hideCatalog ? ' is-editor-only' : ''}`}
+      onKeyDown={(event) => { if (event.key === 'Escape' && !hideCatalog && layout.narrow && layout.catalogVisible) { event.stopPropagation(); layout.closeDrawer(); catalogToggleRef.current?.focus(); } }}>
+      {!hideCatalog && layout.narrow && layout.catalogVisible && <button className="gonavi-ai-provider-scrim" type="button" aria-label={copy('ai_settings.provider.close_catalog')}
         onClick={() => { layout.closeDrawer(); catalogToggleRef.current?.focus(); }} />}
-      <aside id="gonavi-ai-provider-catalog" ref={layout.catalogRef}
+      {hideCatalog ? null : <aside id="gonavi-ai-provider-catalog" ref={layout.catalogRef}
         className={`gonavi-ai-provider-catalog${layout.hiddenPaneHeight != null ? ' is-hidden-pinned' : ''}`}
         style={layout.hiddenPaneHeight != null ? { ['--provider-hidden-pane' as string]: `${layout.hiddenPaneHeight}px` } : undefined}
-        hidden={!layout.catalogVisible} aria-label={copy('ai_settings.provider.catalog')}>
+        hidden={treeHostedView === 'connected' || !layout.catalogVisible} aria-label={copy('ai_settings.provider.catalog')}>
         <div className="gonavi-ai-provider-catalog-scroll"><div className="gonavi-ai-provider-catalog-grid">
           <AIProviderSortableGroup layout="grid" items={visiblePresets.map((preset) => preset.key)} disabled={catalogSearching} overlayStyle={rootStyle}
             onMove={movePreset(visiblePresets.map((preset) => preset.key))} renderOverlay={presetDragOverlay('card')}>
@@ -654,11 +669,20 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
             </div>}
           </section>}
         </div>
-      </aside>
-      {layout.catalogVisible && !layout.narrow && <div {...layout.resizerProps} className="gonavi-ai-provider-resizer"
+      </aside>}
+      {!hideCatalog && layout.catalogVisible && !layout.narrow && <div {...layout.resizerProps} className="gonavi-ai-provider-resizer"
         aria-label={copy('ai_settings.provider.resize')} aria-controls="gonavi-ai-provider-catalog"><span aria-hidden="true">⋮</span></div>}
       <div className="gonavi-ai-provider-editor">
-        {!editorReady ? <div className="gonavi-ai-provider-editor-empty">{copy('ai_settings.provider.choose_configuration')}</div> : <Form form={form}
+        {!editorReady ? <>
+          <div className="gonavi-ai-provider-editor-empty">{copy('ai_settings.provider.choose_configuration')}</div>
+          {treeHostedView === 'workspace' && onCloseHost ? (
+            <div className="gonavi-ai-provider-actions">
+              <div className="gonavi-ai-provider-save-actions">
+                <Button size="middle" onClick={onCloseHost}>{copy('common.close')}</Button>
+              </div>
+            </div>
+          ) : null}
+        </> : <Form form={form}
           layout="vertical" size="small" onValuesChange={onValuesChange} className="gonavi-ai-provider-form">
           <div ref={editorScrollRef} className="gonavi-ai-provider-editor-scroll">
             <div className="gonavi-ai-provider-editor-heading"><span className="gonavi-ai-provider-icon" aria-hidden="true">{presetFromForm?.icon}</span>
@@ -792,11 +816,15 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 {saveActionLabel}</Dropdown.Button>
               : <Button size="middle" type="primary" onClick={handleSaveProvider}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}>{saveActionLabel}</Button>}
+              {treeHostedView === 'workspace' && onCloseHost ? (
+                <Button size="middle" onClick={onCloseHost}>{copy('common.close')}</Button>
+              ) : null}
             </div>
           </div>
         </Form>}
       </div>
     </div>
+    </>}
   </div>;
 };
 

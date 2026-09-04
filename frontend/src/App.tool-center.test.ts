@@ -152,6 +152,8 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain('AI_SETTINGS_NAV_ITEMS.map');
     expect(appSource).toContain("key: `ai-${item.key}`");
     expect(appSource).toContain("key: 'ai-providers-connected'");
+    expect(appSource).toContain('onProvidersViewChange={setAiSettingsProviderView}');
+    expect(appSource).toContain('onCloseHost={handleCancelSettingsCenterPane}');
     expect(appSource).toContain('hideSidebar');
     expect(appSource).toContain('section={aiSettingsSection}');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");

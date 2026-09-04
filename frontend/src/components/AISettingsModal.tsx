@@ -74,6 +74,9 @@ export interface AISettingsContentProps {
     hideSidebar?: boolean;
     section?: AISettingsSectionKey;
     onSectionChange?: (section: AISettingsSectionKey) => void;
+    providersView?: 'workspace' | 'connected';
+    onProvidersViewChange?: (view: 'workspace' | 'connected') => void;
+    onCloseHost?: () => void;
     onBeforeExternalMCPUse?: () => Promise<void>;
     onLeaveGuardChange?: (guard: AISettingsLeaveGuard | null) => void;
     confirmationZIndex?: number;
@@ -122,7 +125,7 @@ const normalizeMCPHTTPAuthorizationToken = (value: string): string => {
     return withoutHeaderName.replace(/^Bearer\s+/i, '').trim();
 };
 
-export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, hideSidebar = false, section, onSectionChange, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
+export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, hideSidebar = false, section, onSectionChange, providersView = 'workspace', onProvidersViewChange, onCloseHost, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
     const { t } = useI18n();
     const defaultMCPHTTPServerStatus = useMemo<AIMCPHTTPServerStatus>(() => ({
         ...DEFAULT_MCP_HTTP_SERVER_STATUS,
@@ -1195,6 +1198,9 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             >
                 {renderSectionPanel('providers', (
                     <AISettingsProvidersSection
+                        treeHostedView={hideSidebar ? providersView : undefined}
+                        onOpenWorkspaceView={hideSidebar ? () => onProvidersViewChange?.('workspace') : undefined}
+                        onCloseHost={hideSidebar ? onCloseHost : undefined}
                         providers={providers}
                         activeProviderId={activeProviderId}
                         pendingProviderId={pendingProviderId}

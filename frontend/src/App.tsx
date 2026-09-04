@@ -8777,6 +8777,9 @@ function App() {
                             setAiSettingsSection(section);
                             setAiSettingsProviderView('workspace');
                         }}
+                        providersView={aiSettingsSection === 'providers' ? aiSettingsProviderView : 'workspace'}
+                        onProvidersViewChange={setAiSettingsProviderView}
+                        onCloseHost={handleCancelSettingsCenterPane}
                         onBeforeExternalMCPUse={handlePrepareExternalMCPUse}
                         onLeaveGuardChange={registerAISettingsLeaveGuard}
                         confirmationZIndex={applicationQuitModalZIndex + 100}
@@ -9957,7 +9960,11 @@ function App() {
                           >
                             {isActiveToolCenterPane ? renderToolCenterPane() : renderSettingsCenterPane()}
                           </div>
-                          {!isActiveToolCenterPane && (
+                          {!isActiveToolCenterPane && !(
+                            activeSettingsCenterPane.key === 'ai'
+                            && aiSettingsSection === 'providers'
+                            && aiSettingsProviderView === 'workspace'
+                          ) && (
                             <div
                               style={{
                                 display: 'flex',

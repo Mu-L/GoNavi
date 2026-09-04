@@ -7,6 +7,7 @@
 .gonavi-ai-provider-hint-overlay-interactive .ant-tooltip-inner,
 .gonavi-ai-provider-hint-overlay-interactive .ant-tooltip-arrow { pointer-events: auto; }
 .gonavi-ai-provider-management { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; color: var(--provider-text); --provider-lead-col: 120px; --provider-action-col: 14.5em; }
+.gonavi-ai-provider-management.is-connected-only { flex: 0 0 auto; height: auto; }
 .gonavi-ai-provider-management button { font: inherit; }
 .gonavi-ai-provider-heading, .gonavi-ai-provider-workspace-toolbar { display: grid; grid-template-columns: var(--provider-lead-col) var(--provider-action-col) minmax(0, 1fr); column-gap: 8px; align-items: center; flex-shrink: 0; }
 .gonavi-ai-provider-heading { margin-bottom: 10px; min-height: 36px; }
@@ -62,6 +63,7 @@
 .gonavi-ai-provider-catalog-hint { grid-column: 3; justify-self: end; font-size: 11px; color: var(--provider-muted); white-space: nowrap; }
 .gonavi-ai-provider-catalog-search { width: 100%; min-width: 0; font-size: 12px; }
 .gonavi-ai-provider-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; position: relative; isolation: isolate; gap: 0; }
+.gonavi-ai-provider-workspace.is-editor-only { min-height: 0; }
 .gonavi-ai-provider-catalog { flex: 0 0 var(--provider-catalog-width, 336px); width: var(--provider-catalog-width, 336px); align-self: stretch; height: 100%; max-height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .gonavi-ai-provider-catalog-scroll { overflow-y: auto; overflow-x: hidden; flex: 1 1 0; min-height: 0; padding: 1px 5px 1px 1px; scrollbar-width: thin; }
 .gonavi-ai-provider-catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 112px), 1fr)); gap: 4px; align-content: start; }
@@ -166,12 +168,12 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-editor summary:hover .gonavi-ai-provider-caret { opacity: 1; }
 /* Test, its result and save stay on one line; the result truncates instead of
    wrapping, so the row never steals a second line from the form above it. */
-.gonavi-ai-provider-actions { flex-shrink: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; border-top: 1px solid var(--provider-line); padding: 8px 0 0; margin-top: 0; min-height: 40px; box-sizing: border-box; }
+.gonavi-ai-provider-actions { flex-shrink: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 0 0; margin-top: 0; min-height: 40px; box-sizing: border-box; }
 .gonavi-ai-provider-check-action { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .gonavi-ai-provider-check-action small { font-size: 10px; color: var(--provider-muted); }
 /* Save is the primary action; save-as lives in its dropdown and is absent for
    singleton CLI presets, so the row keeps one button width either way. */
-.gonavi-ai-provider-save-actions { margin-left: auto; display: flex; align-items: center; }
+.gonavi-ai-provider-save-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .gonavi-ai-provider-save-actions > .ant-btn, .gonavi-ai-provider-save-actions .ant-dropdown-button > .ant-btn:first-child { min-width: 88px; }
 /* Space.Compact leaves both halves fully rounded, which pinches the middle into an
    hourglass. Square the facing corners and separate them with a hairline instead. */
