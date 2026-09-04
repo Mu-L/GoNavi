@@ -96,6 +96,7 @@ describe('AISettingsContent provider async behavior', () => {
     mocks.values = {};
     mocks.listeners.clear();
     mocks.runPolicyProps = {};
+    mocks.sidebarProps = undefined;
     const publish = () => mocks.listeners.forEach((listener) => listener());
     mocks.form.resetFields.mockImplementation(() => { mocks.values = {}; publish(); });
     mocks.form.setFieldsValue.mockImplementation((patch) => { mocks.values = { ...mocks.values, ...patch }; publish(); });
@@ -681,6 +682,26 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.providerProps.testStatus).toBe('idle');
     expect(mocks.providerProps.testResult).toBeNull();
     expect(mocks.service.AISaveProvider).not.toHaveBeenCalled();
+  });
+
+  it('hides the internal settings nav when hosted in the settings tree', async () => {
+    await act(async () => {
+      renderer = create(
+        <AISettingsContent
+          active
+          darkMode={false}
+          overlayTheme={theme}
+          hideSidebar
+          section="safety"
+          confirmationZIndex={25200}
+        />,
+      );
+    });
+    await flush();
+    expect(mocks.sidebarProps).toBeUndefined();
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-safety' }).props.hidden).toBe(false);
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-providers' }).props.hidden).toBe(true);
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-safety' }).props.role).toBeUndefined();
   });
 
   it('hides the provider panel instead of stacking it above other settings sections', async () => {

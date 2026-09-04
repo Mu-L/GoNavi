@@ -55,6 +55,7 @@ import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButton
 import SettingsCenterTreeNav, {
   findSettingsCenterTreeItem,
 } from './components/settings/SettingsCenterTreeNav';
+import { AI_SETTINGS_NAV_ITEMS, type AISettingsSectionKey } from './components/ai/AISettingsSidebar';
 import CustomThemeStyleHost, {
   type CustomThemeAntTokenSnapshot,
 } from './components/theme/CustomThemeStyleHost';
@@ -1180,6 +1181,7 @@ function App() {
   activeSettingsCenterPaneRef.current = activeSettingsCenterPane;
   const [focusedTabDisplayElementKey, setFocusedTabDisplayElementKey] = useState<TabDisplayElementKey | null>(null);
   const [focusedAIProviderId, setFocusedAIProviderId] = useState<string | undefined>(undefined);
+  const [aiSettingsSection, setAiSettingsSection] = useState<AISettingsSectionKey>('providers');
   const [connectionPackageDialog, setConnectionPackageDialog] = useState<ConnectionPackageDialogState>(() => createClosedConnectionPackageDialogState());
   const [pendingConnectionImportPayload, setPendingConnectionImportPayload] = useState<string | null>(null);
   const browserConnectionImportInputRef = useRef<HTMLInputElement>(null);
@@ -2900,6 +2902,7 @@ function App() {
       if (repairEntry.type === 'ai') {
           setSecurityUpdateRepairSource(repairEntry.repairSource);
           setFocusedAIProviderId(repairEntry.providerId);
+          setAiSettingsSection('providers');
           setActiveSettingsCenterGroupKey('services');
           setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
           setIsSettingsModalOpen(true);
@@ -4272,6 +4275,7 @@ function App() {
       if (spec.group === 'services' && spec.pane === 'ai') {
           setSecurityUpdateRepairSource(null);
           setFocusedAIProviderId(undefined);
+          setAiSettingsSection('providers');
           handleOpenSettingsCenterPane('services', 'ai');
           return;
       }
@@ -4901,6 +4905,7 @@ function App() {
   const handleOpenAISettings = useCallback((providerId?: string) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       setSecurityUpdateRepairSource(null);
       setFocusedAIProviderId(providerId);
+      setAiSettingsSection('providers');
       setActiveSettingsCenterGroupKey('services');
       setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
       setIsSettingsModalOpen(true);
@@ -8606,8 +8611,21 @@ function App() {
                   onClick: () => {
                       setSecurityUpdateRepairSource(null);
                       setFocusedAIProviderId(undefined);
+                      setAiSettingsSection('providers');
                       handleOpenSettingsCenterPane('services', 'ai');
                   },
+                  children: AI_SETTINGS_NAV_ITEMS.map((item) => ({
+                      key: `ai-${item.key}`,
+                      icon: item.icon,
+                      title: t(item.titleKey),
+                      description: t(item.descriptionKey),
+                      onClick: () => {
+                          setSecurityUpdateRepairSource(null);
+                          setFocusedAIProviderId(item.key === 'providers' ? focusedAIProviderId : undefined);
+                          setAiSettingsSection(item.key);
+                          handleOpenSettingsCenterPane('services', 'ai');
+                      },
+                  })),
               },
           ],
       },
@@ -8735,6 +8753,9 @@ function App() {
                         darkMode={darkMode}
                         overlayTheme={overlayTheme}
                         focusProviderId={focusedAIProviderId}
+                        hideSidebar
+                        section={aiSettingsSection}
+                        onSectionChange={setAiSettingsSection}
                         onBeforeExternalMCPUse={handlePrepareExternalMCPUse}
                         onLeaveGuardChange={registerAISettingsLeaveGuard}
                         confirmationZIndex={applicationQuitModalZIndex + 100}
@@ -9494,7 +9515,9 @@ function App() {
             ) ?? combinedSettingsCenterGroups[0];
             const activeSettingsCenterTreeItemKey = activeSettingsCenterPane?.key === 'theme'
               ? `theme-${themeModalSection}`
-              : (activeSettingsCenterPane?.key ?? null);
+              : activeSettingsCenterPane?.key === 'ai'
+                ? `ai-${aiSettingsSection}`
+                : (activeSettingsCenterPane?.key ?? null);
             const activeSettingsCenterPaneItem = activeSettingsCenterPane
               ? (
                   findSettingsCenterTreeItem(

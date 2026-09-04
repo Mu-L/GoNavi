@@ -71,6 +71,9 @@ export interface AISettingsContentProps {
     darkMode: boolean;
     overlayTheme: OverlayWorkbenchTheme;
     focusProviderId?: string;
+    hideSidebar?: boolean;
+    section?: AISettingsSectionKey;
+    onSectionChange?: (section: AISettingsSectionKey) => void;
     onBeforeExternalMCPUse?: () => Promise<void>;
     onLeaveGuardChange?: (guard: AISettingsLeaveGuard | null) => void;
     confirmationZIndex?: number;
@@ -119,7 +122,7 @@ const normalizeMCPHTTPAuthorizationToken = (value: string): string => {
     return withoutHeaderName.replace(/^Bearer\s+/i, '').trim();
 };
 
-export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
+export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, hideSidebar = false, section, onSectionChange, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
     const { t } = useI18n();
     const defaultMCPHTTPServerStatus = useMemo<AIMCPHTTPServerStatus>(() => ({
         ...DEFAULT_MCP_HTTP_SERVER_STATUS,
@@ -156,7 +159,15 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const [providerDirty, setProviderDirty] = useState(false);
     const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string>>({});
     const [userPromptSettings, setUserPromptSettings] = useState<AIUserPromptSettings>(EMPTY_AI_USER_PROMPT_SETTINGS);
-    const [activeSection, setActiveSection] = useState<AISettingsSectionKey>('providers');
+    const isSectionControlled = section !== undefined;
+    const [internalSection, setInternalSection] = useState<AISettingsSectionKey>('providers');
+    const activeSection = isSectionControlled ? section : internalSection;
+    const applySection = useCallback((next: AISettingsSectionKey) => {
+        onSectionChange?.(next);
+        if (!isSectionControlled) {
+            setInternalSection(next);
+        }
+    }, [isSectionControlled, onSectionChange]);
     const [primaryPasswordVisible, setPrimaryPasswordVisible] = useState(false);
     const [form] = Form.useForm();
     const modalBodyRef = useRef<HTMLDivElement>(null);
@@ -467,8 +478,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         if (!providers.some((provider) => provider.id === focusProviderId)) {
             return;
         }
-        setActiveSection('providers');
-    }, [active, focusProviderId, providers]);
+        applySection('providers');
+    }, [active, applySection, focusProviderId, providers]);
 
     const applyProviderEditorSession = useCallback((session: ProviderEditorSession) => {
         editorSessionRef.current++;
@@ -1148,8 +1159,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             <section
                 key={sectionKey}
                 id={`gonavi-ai-settings-panel-${sectionKey}`}
-                role="tabpanel"
-                aria-labelledby={`gonavi-ai-settings-tab-${sectionKey}`}
+                role={hideSidebar ? undefined : 'tabpanel'}
+                aria-labelledby={hideSidebar ? undefined : `gonavi-ai-settings-tab-${sectionKey}`}
                 hidden={activeSection !== sectionKey}
                 className={sectionKey === 'providers' ? 'gonavi-ai-settings-panel-providers' : undefined}
             >
@@ -1167,14 +1178,16 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         <div ref={modalBodyRef} className="ai-settings-body gonavi-ai-settings-flat" style={{ display: 'flex', gap: 16, padding: '0', height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
             {messageContextHolder}
             {modalContextHolder}
+            {hideSidebar ? null : (
             <AISettingsSidebar
                 activeSection={activeSection}
                 darkMode={darkMode}
                 overlayTheme={overlayTheme}
-                onSelectSection={(section) => {
-                    if (section !== activeSection) withAISettingsLeaveGuard(confirmProviderLeave, () => setActiveSection(section));
+                onSelectSection={(nextSection) => {
+                    if (nextSection !== activeSection) withAISettingsLeaveGuard(confirmProviderLeave, () => applySection(nextSection));
                 }}
             />
+            )}
             <div
                 ref={settingsContentScrollRef}
                 className="gonavi-ai-settings-content"

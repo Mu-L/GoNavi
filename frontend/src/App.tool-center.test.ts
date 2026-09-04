@@ -149,6 +149,10 @@ describe('settings center tool entries', () => {
     expect(appSource).not.toContain("t('common.back_to_settings')");
     expect(appSource).toContain("key: `theme-${section.value}`");
     expect(appSource).toContain('renderThemeSettingsContent({ hideSectionTabs: true })');
+    expect(appSource).toContain('AI_SETTINGS_NAV_ITEMS.map');
+    expect(appSource).toContain("key: `ai-${item.key}`");
+    expect(appSource).toContain('hideSidebar');
+    expect(appSource).toContain('section={aiSettingsSection}');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");
     expect(appSource).toMatch(/key: 'about' as const,[\s\S]*?items: \[\],/);
     expect(appSource).toContain('className="gonavi-about-link-grid"');
