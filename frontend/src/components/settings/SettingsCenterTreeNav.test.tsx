@@ -240,6 +240,60 @@ describe('SettingsCenterTreeNav', () => {
     expect(onThemeClick).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes a fourth-level leaf under a nested settings node', () => {
+    const onConnectedClick = vi.fn();
+    const groups = [{
+      key: 'services',
+      title: '服务配置',
+      description: '服务',
+      items: [{
+        key: 'ai',
+        title: 'AI 设置',
+        description: 'AI',
+        onClick: vi.fn(),
+        children: [{
+          key: 'ai-providers',
+          title: '模型供应商',
+          description: '供应商',
+          onClick: vi.fn(),
+          children: [{
+            key: 'ai-providers-connected',
+            title: '已接入',
+            description: '已保存配置',
+            onClick: onConnectedClick,
+          }],
+        }],
+      }],
+    }];
+
+    expect(flattenVisibleSettingsCenterTree(groups, new Set()).map((node) => node.id)).toEqual([
+      'group:services',
+      'item:services:ai',
+      'item:services:ai-providers',
+      'item:services:ai-providers-connected',
+    ]);
+
+    const renderer = create(
+      <SettingsCenterTreeNav
+        groups={groups}
+        activeGroupKey="services"
+        activeItemKey="ai-providers-connected"
+        darkMode={false}
+        overlayTheme={overlayTheme}
+        ariaLabel="设置中心"
+        onSelectGroup={() => undefined}
+      />,
+    );
+
+    const connectedNode = renderer.root.findByProps({ 'data-settings-pane-key': 'ai-providers-connected' });
+    expect(connectedNode.props.className).toContain('is-great-grandchild');
+    expect(connectedNode.props['aria-selected']).toBe(true);
+    act(() => {
+      connectedNode.props.onClick();
+    });
+    expect(onConnectedClick).toHaveBeenCalledTimes(1);
+  });
+
   it('renders a leaf group as a first-level node without a nested child', () => {
     const onSelectGroup = vi.fn();
     const groups = [{

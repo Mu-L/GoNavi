@@ -80,6 +80,24 @@
   font-size: var(--gn-font-size-sm, 13px);
 }
 
+.gonavi-settings-center-tree-node.is-grandchild.has-children .gonavi-settings-center-tree-label {
+  font-weight: 500;
+}
+
+.gonavi-settings-center-tree-branch.is-nested {
+  margin-left: 10px;
+}
+
+.gonavi-settings-center-tree-node.is-great-grandchild {
+  min-height: 24px;
+  padding-left: 8px;
+}
+
+.gonavi-settings-center-tree-node.is-great-grandchild .gonavi-settings-center-tree-label {
+  font-weight: 400;
+  font-size: var(--gn-font-size-sm, 13px);
+}
+
 .gonavi-settings-center-tree-node:hover:not(.is-active) {
   background: rgba(15, 23, 42, 0.035) !important;
 }

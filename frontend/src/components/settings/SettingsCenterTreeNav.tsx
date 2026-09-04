@@ -35,6 +35,25 @@ export const settingsCenterTreeNodeId = (node: SettingsCenterTreeNodeId): string
   node.type === 'group' ? `group:${node.groupKey}` : `item:${node.groupKey}:${node.itemKey}`
 );
 
+const walkSettingsCenterTreeItems = (
+  items: ReadonlyArray<SettingsCenterTreeItem>,
+  itemKey: string,
+  ancestors: string[] = [],
+): { item: SettingsCenterTreeItem; ancestors: string[] } | null => {
+  for (const item of items) {
+    if (item.key === itemKey) {
+      return { item, ancestors };
+    }
+    if (item.children?.length) {
+      const nested = walkSettingsCenterTreeItems(item.children, itemKey, [...ancestors, item.key]);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return null;
+};
+
 export const findSettingsCenterTreeItem = (
   groups: ReadonlyArray<SettingsCenterTreeGroup>,
   groupKey: string,
@@ -47,16 +66,22 @@ export const findSettingsCenterTreeItem = (
   if (!group) {
     return null;
   }
-  for (const item of group.items) {
-    if (item.key === itemKey) {
-      return item;
-    }
-    const child = item.children?.find((entry) => entry.key === itemKey);
-    if (child) {
-      return child;
-    }
+  return walkSettingsCenterTreeItems(group.items, itemKey)?.item ?? null;
+};
+
+export const findSettingsCenterTreeAncestors = (
+  groups: ReadonlyArray<SettingsCenterTreeGroup>,
+  groupKey: string,
+  itemKey: string | null,
+): string[] => {
+  if (!itemKey) {
+    return [];
   }
-  return null;
+  const group = groups.find((entry) => entry.key === groupKey);
+  if (!group) {
+    return [];
+  }
+  return walkSettingsCenterTreeItems(group.items, itemKey)?.ancestors ?? [];
 };
 
 export const flattenVisibleSettingsCenterTree = (
@@ -77,32 +102,30 @@ export const flattenVisibleSettingsCenterTree = (
     if (!expandable || collapsedKeys.has(groupId) || collapsedKeys.has(group.key)) {
       return;
     }
-    group.items.forEach((item) => {
-      const itemId = settingsCenterTreeNodeId({ type: 'item', groupKey: group.key, itemKey: item.key });
-      const hasChildren = Boolean(item.children && item.children.length > 0);
-      nodes.push({
-        type: 'item',
-        groupKey: group.key,
-        itemKey: item.key,
-        id: itemId,
-        expandable: hasChildren,
-        depth: 1,
-      });
-      if (!hasChildren || collapsedKeys.has(itemId)) {
-        return;
-      }
-      item.children?.forEach((child) => {
+    const pushItems = (
+      items: ReadonlyArray<SettingsCenterTreeItem>,
+      depth: number,
+      parentItemKey?: string,
+    ) => {
+      items.forEach((item) => {
+        const itemId = settingsCenterTreeNodeId({ type: 'item', groupKey: group.key, itemKey: item.key });
+        const hasChildren = Boolean(item.children && item.children.length > 0);
         nodes.push({
           type: 'item',
           groupKey: group.key,
-          itemKey: child.key,
-          parentItemKey: item.key,
-          id: settingsCenterTreeNodeId({ type: 'item', groupKey: group.key, itemKey: child.key }),
-          expandable: false,
-          depth: 2,
+          itemKey: item.key,
+          parentItemKey,
+          id: itemId,
+          expandable: hasChildren,
+          depth,
         });
+        if (!hasChildren || collapsedKeys.has(itemId)) {
+          return;
+        }
+        pushItems(item.children ?? [], depth + 1, item.key);
       });
-    });
+    };
+    pushItems(group.items, 1);
   });
   return nodes;
 };
@@ -133,14 +156,10 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     : settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey });
   const [focusedNodeId, setFocusedNodeId] = useState(selectedNodeId);
 
-  const parentItemKey = useMemo(() => {
-    const group = groups.find((entry) => entry.key === activeGroupKey);
-    if (!group || !activeItemKey) {
-      return null;
-    }
-    const parent = group.items.find((item) => item.children?.some((child) => child.key === activeItemKey));
-    return parent?.key ?? null;
-  }, [activeGroupKey, activeItemKey, groups]);
+  const ancestorItemKeys = useMemo(
+    () => findSettingsCenterTreeAncestors(groups, activeGroupKey, activeItemKey),
+    [activeGroupKey, activeItemKey, groups],
+  );
 
   useEffect(() => {
     if (suppressAutoExpandRef.current) {
@@ -148,14 +167,14 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       return;
     }
     setCollapsedKeys((current) => {
-      const required = [settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey })];
-      if (parentItemKey) {
-        required.push(settingsCenterTreeNodeId({
+      const required = [
+        settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey }),
+        ...ancestorItemKeys.map((itemKey) => settingsCenterTreeNodeId({
           type: 'item',
           groupKey: activeGroupKey,
-          itemKey: parentItemKey,
-        }));
-      }
+          itemKey,
+        })),
+      ];
       if (required.every((id) => !current.has(id))) {
         return current;
       }
@@ -163,7 +182,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       required.forEach((id) => next.delete(id));
       return next;
     });
-  }, [activeGroupKey, parentItemKey]);
+  }, [activeGroupKey, ancestorItemKeys]);
 
   useEffect(() => {
     setFocusedNodeId(selectedNodeId);
@@ -305,6 +324,68 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       : (darkMode ? 'rgba(255,255,255,0.82)' : '#3f4b5e')
   );
 
+  const renderTreeItem = (
+    groupKey: string,
+    item: SettingsCenterTreeItem,
+    depth: number,
+    parentItemKey?: string,
+  ) => {
+    const itemId = settingsCenterTreeNodeId({ type: 'item', groupKey, itemKey: item.key });
+    const hasChildren = Boolean(item.children && item.children.length > 0);
+    const itemExpanded = hasChildren && !collapsedKeys.has(itemId);
+    const itemActive = groupKey === activeGroupKey && item.key === activeItemKey;
+    const itemFocused = focusedNodeId === itemId;
+    const depthClass = depth >= 3
+      ? ' is-great-grandchild'
+      : depth === 2
+        ? ' is-grandchild'
+        : ' is-child';
+    const visibleNode = {
+      type: 'item' as const,
+      groupKey,
+      itemKey: item.key,
+      parentItemKey,
+      id: itemId,
+      expandable: hasChildren,
+      depth,
+    };
+    return (
+      <div key={item.key} role="none">
+        <div
+          className={`gonavi-settings-center-tree-node${depthClass}${hasChildren ? ' has-children' : ''}${itemActive ? ' is-active' : ''}`}
+          role="treeitem"
+          aria-expanded={hasChildren ? itemExpanded : undefined}
+          aria-selected={itemActive}
+          aria-label={item.title}
+          title={`${item.title} - ${item.description}`}
+          tabIndex={itemFocused ? 0 : -1}
+          data-settings-pane-key={item.key}
+          data-settings-tree-node={itemId}
+          onClick={() => activateNode(visibleNode)}
+          onKeyDown={(event) => handleTreeKeyDown(event, visibleNode)}
+          style={{
+            background: itemActive ? overlayTheme.selectedBg : 'transparent',
+            color: depth >= 2 && !itemActive ? overlayTheme.mutedText : nodeColor(itemActive),
+          }}
+        >
+          {hasChildren ? renderCaret(itemExpanded, itemActive, itemId) : depth === 1 ? (
+            <span className="gonavi-settings-center-tree-caret is-placeholder" aria-hidden="true" />
+          ) : null}
+          <span className="gonavi-settings-center-tree-label">{item.title}</span>
+        </div>
+        {itemExpanded ? (
+          <div
+            className={`gonavi-settings-center-tree-branch${depth >= 2 ? ' is-nested' : ''}`}
+            role="group"
+            aria-label={item.title}
+          >
+            {item.children?.map((child) => renderTreeItem(groupKey, child, depth + 1, item.key))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderCaret = (expanded: boolean, active: boolean, nodeId: string) => (
     <button
       className="gonavi-settings-center-tree-caret"
@@ -377,103 +458,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
             </div>
             {groupExpanded ? (
               <div role="group" aria-label={group.title}>
-                {group.items.map((item) => {
-                  const itemId = settingsCenterTreeNodeId({ type: 'item', groupKey: group.key, itemKey: item.key });
-                  const hasChildren = Boolean(item.children && item.children.length > 0);
-                  const itemExpanded = hasChildren && !collapsedKeys.has(itemId);
-                  const itemActive = group.key === activeGroupKey && item.key === activeItemKey;
-                  const itemFocused = focusedNodeId === itemId;
-                  return (
-                    <div key={item.key} role="none">
-                      <div
-                        className={`gonavi-settings-center-tree-node is-child${hasChildren ? ' has-children' : ''}${itemActive ? ' is-active' : ''}`}
-                        role="treeitem"
-                        aria-expanded={hasChildren ? itemExpanded : undefined}
-                        aria-selected={itemActive}
-                        aria-label={item.title}
-                        title={`${item.title} - ${item.description}`}
-                        tabIndex={itemFocused ? 0 : -1}
-                        data-settings-pane-key={item.key}
-                        data-settings-tree-node={itemId}
-                        onClick={() => activateNode({
-                          type: 'item',
-                          groupKey: group.key,
-                          itemKey: item.key,
-                          id: itemId,
-                          expandable: hasChildren,
-                          depth: 1,
-                        })}
-                        onKeyDown={(event) => handleTreeKeyDown(event, {
-                          type: 'item',
-                          groupKey: group.key,
-                          itemKey: item.key,
-                          id: itemId,
-                          expandable: hasChildren,
-                          depth: 1,
-                        })}
-                        style={{
-                          background: itemActive ? overlayTheme.selectedBg : 'transparent',
-                          color: nodeColor(itemActive),
-                        }}
-                      >
-                        {hasChildren ? renderCaret(itemExpanded, itemActive, itemId) : (
-                          <span className="gonavi-settings-center-tree-caret is-placeholder" aria-hidden="true" />
-                        )}
-                        <span className="gonavi-settings-center-tree-label">{item.title}</span>
-                      </div>
-                      {itemExpanded ? (
-                        <div className="gonavi-settings-center-tree-branch" role="group" aria-label={item.title}>
-                          {item.children?.map((child) => {
-                            const childId = settingsCenterTreeNodeId({
-                              type: 'item',
-                              groupKey: group.key,
-                              itemKey: child.key,
-                            });
-                            const childActive = group.key === activeGroupKey && child.key === activeItemKey;
-                            const childFocused = focusedNodeId === childId;
-                            return (
-                              <div
-                                key={child.key}
-                                className={`gonavi-settings-center-tree-node is-grandchild${childActive ? ' is-active' : ''}`}
-                                role="treeitem"
-                                aria-selected={childActive}
-                                aria-label={child.title}
-                                title={`${child.title} - ${child.description}`}
-                                tabIndex={childFocused ? 0 : -1}
-                                data-settings-pane-key={child.key}
-                                data-settings-tree-node={childId}
-                                onClick={() => activateNode({
-                                  type: 'item',
-                                  groupKey: group.key,
-                                  itemKey: child.key,
-                                  parentItemKey: item.key,
-                                  id: childId,
-                                  expandable: false,
-                                  depth: 2,
-                                })}
-                                onKeyDown={(event) => handleTreeKeyDown(event, {
-                                  type: 'item',
-                                  groupKey: group.key,
-                                  itemKey: child.key,
-                                  parentItemKey: item.key,
-                                  id: childId,
-                                  expandable: false,
-                                  depth: 2,
-                                })}
-                                style={{
-                                  background: childActive ? overlayTheme.selectedBg : 'transparent',
-                                  color: childActive ? nodeColor(true) : overlayTheme.mutedText,
-                                }}
-                              >
-                                <span className="gonavi-settings-center-tree-label">{child.title}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {group.items.map((item) => renderTreeItem(group.key, item, 1))}
               </div>
             ) : null}
           </div>

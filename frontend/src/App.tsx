@@ -1182,6 +1182,7 @@ function App() {
   const [focusedTabDisplayElementKey, setFocusedTabDisplayElementKey] = useState<TabDisplayElementKey | null>(null);
   const [focusedAIProviderId, setFocusedAIProviderId] = useState<string | undefined>(undefined);
   const [aiSettingsSection, setAiSettingsSection] = useState<AISettingsSectionKey>('providers');
+  const [aiSettingsProviderView, setAiSettingsProviderView] = useState<'workspace' | 'connected'>('workspace');
   const [connectionPackageDialog, setConnectionPackageDialog] = useState<ConnectionPackageDialogState>(() => createClosedConnectionPackageDialogState());
   const [pendingConnectionImportPayload, setPendingConnectionImportPayload] = useState<string | null>(null);
   const browserConnectionImportInputRef = useRef<HTMLInputElement>(null);
@@ -2903,6 +2904,7 @@ function App() {
           setSecurityUpdateRepairSource(repairEntry.repairSource);
           setFocusedAIProviderId(repairEntry.providerId);
           setAiSettingsSection('providers');
+          setAiSettingsProviderView('workspace');
           setActiveSettingsCenterGroupKey('services');
           setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
           setIsSettingsModalOpen(true);
@@ -4276,6 +4278,7 @@ function App() {
           setSecurityUpdateRepairSource(null);
           setFocusedAIProviderId(undefined);
           setAiSettingsSection('providers');
+          setAiSettingsProviderView('workspace');
           handleOpenSettingsCenterPane('services', 'ai');
           return;
       }
@@ -4906,6 +4909,7 @@ function App() {
       setSecurityUpdateRepairSource(null);
       setFocusedAIProviderId(providerId);
       setAiSettingsSection('providers');
+      setAiSettingsProviderView('workspace');
       setActiveSettingsCenterGroupKey('services');
       setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
       setIsSettingsModalOpen(true);
@@ -8612,6 +8616,7 @@ function App() {
                       setSecurityUpdateRepairSource(null);
                       setFocusedAIProviderId(undefined);
                       setAiSettingsSection('providers');
+                      setAiSettingsProviderView('workspace');
                       handleOpenSettingsCenterPane('services', 'ai');
                   },
                   children: AI_SETTINGS_NAV_ITEMS.map((item) => ({
@@ -8623,8 +8628,21 @@ function App() {
                           setSecurityUpdateRepairSource(null);
                           setFocusedAIProviderId(item.key === 'providers' ? focusedAIProviderId : undefined);
                           setAiSettingsSection(item.key);
+                          setAiSettingsProviderView('workspace');
                           handleOpenSettingsCenterPane('services', 'ai');
                       },
+                      children: item.key === 'providers' ? [{
+                          key: 'ai-providers-connected',
+                          icon: item.icon,
+                          title: t('ai_settings.provider.configured'),
+                          description: t('ai_settings.provider.configured_hint'),
+                          onClick: () => {
+                              setSecurityUpdateRepairSource(null);
+                              setAiSettingsSection('providers');
+                              setAiSettingsProviderView('connected');
+                              handleOpenSettingsCenterPane('services', 'ai');
+                          },
+                      }] : undefined,
                   })),
               },
           ],
@@ -8755,7 +8773,10 @@ function App() {
                         focusProviderId={focusedAIProviderId}
                         hideSidebar
                         section={aiSettingsSection}
-                        onSectionChange={setAiSettingsSection}
+                        onSectionChange={(section) => {
+                            setAiSettingsSection(section);
+                            setAiSettingsProviderView('workspace');
+                        }}
                         onBeforeExternalMCPUse={handlePrepareExternalMCPUse}
                         onLeaveGuardChange={registerAISettingsLeaveGuard}
                         confirmationZIndex={applicationQuitModalZIndex + 100}
@@ -9516,7 +9537,9 @@ function App() {
             const activeSettingsCenterTreeItemKey = activeSettingsCenterPane?.key === 'theme'
               ? `theme-${themeModalSection}`
               : activeSettingsCenterPane?.key === 'ai'
-                ? `ai-${aiSettingsSection}`
+                ? (aiSettingsSection === 'providers' && aiSettingsProviderView === 'connected'
+                    ? 'ai-providers-connected'
+                    : `ai-${aiSettingsSection}`)
                 : (activeSettingsCenterPane?.key ?? null);
             const activeSettingsCenterPaneItem = activeSettingsCenterPane
               ? (
