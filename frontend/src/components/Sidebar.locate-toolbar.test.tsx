@@ -132,7 +132,7 @@ const mocks = vi.hoisted(() => ({
       enabled: true,
       opacity: 1,
       blur: 0,
-      uiVersion: 'legacy',
+      uiVersion: 'v2',
       sidebarHiddenObjectGroups: [],
     } as any,
     shortcutOptions: null as any,
@@ -348,7 +348,7 @@ describe('Sidebar locate toolbar', () => {
       enabled: true,
       opacity: 1,
       blur: 0,
-      uiVersion: 'legacy',
+      uiVersion: 'v2',
       sidebarHiddenObjectGroups: [],
     };
     mocks.state.shortcutOptions = cloneShortcutOptions(DEFAULT_SHORTCUT_OPTIONS);
@@ -872,14 +872,12 @@ describe('Sidebar locate toolbar', () => {
     expect(JSON.stringify(ungrouped)).not.toContain('all-saved-query-query-child');
   });
 
-  it('renders the current table locate action in the sidebar toolbar', () => {
-    const markup = renderSidebarMarkup();
-    const externalSqlActionIndex = markup.indexOf('data-sidebar-open-external-sql-file-action="true"');
+  it('renders the current table locate action in the explorer toolbar', () => {
+    const markup = renderSidebarMarkup({ uiVersion: 'v2' });
     const locateActionIndex = markup.indexOf('data-sidebar-locate-current-tab-action="true"');
 
+    expect(locateActionIndex).toBeGreaterThanOrEqual(0);
     expect(markup).toContain('data-sidebar-locate-current-tab-action="true"');
-    expect(markup).toContain('aria-label="定位当前标签页"');
-    expect(locateActionIndex).toBeGreaterThan(externalSqlActionIndex);
   });
 
   it('expands a collapsed sidebar before resolving a locate request', () => {
@@ -902,12 +900,10 @@ describe('Sidebar locate toolbar', () => {
     expect(connectionLocateSource).not.toContain('onExpandSidebar?.();');
   });
 
-  it('keeps the legacy sidebar toolbar on a stable six-column grid layout', () => {
-    const source = readSidebarSource();
+  it('does not render the retired legacy sidebar toolbar', () => {
     const markup = renderSidebarMarkup();
-
-    expect(markup).toContain('data-sidebar-legacy-toolbar="true"');
-    expect(markup).toContain('data-sidebar-legacy-toolbar-item="true"');
+    expect(markup).not.toContain('data-sidebar-legacy-toolbar="true"');
+    expect(markup).not.toContain('data-sidebar-legacy-toolbar-item="true"');
   });
 
   it('renders exactly seven expanded v2 explorer actions in task order', () => {
@@ -930,15 +926,17 @@ describe('Sidebar locate toolbar', () => {
     const commandSearchActionIndex = markup.indexOf('data-sidebar-command-search-action="true"', actionsStart);
     const locateActionIndex = markup.indexOf('data-sidebar-locate-current-tab-action="true"', actionsStart);
     const filtersStart = markup.indexOf('<div class="gn-v2-explorer-filter-tabs"', locateActionIndex);
+    const treeShellIndex = markup.indexOf('gn-v2-explorer-tree-shell', actionsStart);
+    const actionsEnd = filtersStart > locateActionIndex ? filtersStart : treeShellIndex;
 
     expect(actionsStart).toBeGreaterThanOrEqual(0);
     expect(summaryIndex).toBeGreaterThan(actionsStart);
     expect(commandSearchActionIndex).toBeGreaterThan(summaryIndex);
     expect(locateActionIndex).toBeGreaterThan(commandSearchActionIndex);
-    expect(filtersStart).toBeGreaterThan(locateActionIndex);
+    expect(actionsEnd).toBeGreaterThan(locateActionIndex);
     expect(markup).not.toContain('<div class="gn-v2-explorer-search"');
 
-    const actionMarkup = markup.slice(actionsStart, filtersStart);
+    const actionMarkup = markup.slice(actionsStart, actionsEnd);
     const actionLabels = Array.from(
       actionMarkup.matchAll(/<button\b[^>]*\baria-label="([^"]+)"/g),
       (match) => match[1],
@@ -985,7 +983,9 @@ describe('Sidebar locate toolbar', () => {
       onOpenSettings: mocks.noop,
     });
     const actionsStart = markup.indexOf('<div class="gn-v2-explorer-actions"');
-    const actionsEnd = markup.indexOf('<div class="gn-v2-explorer-filter-tabs"', actionsStart);
+    const filtersStart = markup.indexOf('<div class="gn-v2-explorer-filter-tabs"', actionsStart);
+    const treeShellIndex = markup.indexOf('gn-v2-explorer-tree-shell', actionsStart);
+    const actionsEnd = filtersStart > actionsStart ? filtersStart : treeShellIndex;
     const summaryIndex = markup.indexOf('data-sidebar-active-context-summary="true"', actionsStart);
     const locateActionIndex = markup.indexOf('data-sidebar-locate-current-tab-action="true"', actionsStart);
     const summaryTagStart = markup.lastIndexOf('<div', summaryIndex);
@@ -1200,19 +1200,13 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).not.toContain('gn-v2-search-shortcut');
     expect(markup).not.toContain('<kbd>⌘</kbd>');
     expect(markup).not.toContain('<kbd>K</kbd>');
-    expect(markup).toContain('gn-v2-explorer-filter-tabs');
+    expect(markup).not.toContain('gn-v2-explorer-filter-tabs');
     const explorerActionsIndex = markup.indexOf('data-sidebar-explorer-actions="true"');
     const commandSearchActionIndex = markup.indexOf('data-sidebar-command-search-action="true"');
     const locateActionIndex = markup.indexOf('data-sidebar-locate-current-tab-action="true"');
-    const explorerFilterTabsIndex = markup.indexOf('class="gn-v2-explorer-filter-tabs"');
     expect(explorerActionsIndex).toBeGreaterThanOrEqual(0);
     expect(commandSearchActionIndex).toBeGreaterThan(explorerActionsIndex);
     expect(locateActionIndex).toBeGreaterThan(commandSearchActionIndex);
-    expect(explorerFilterTabsIndex).toBeGreaterThan(locateActionIndex);
-    expect(markup).toContain('全部');
-    expect(markup).toContain('视图');
-    expect(markup).toContain('函数');
-    expect(markup).toContain('aria-pressed="true"');
     expect(markup).not.toContain('gn-v2-rail-workbench-actions');
     expect(markup).not.toContain('data-sidebar-sql-analysis-action="true"');
     expect(markup).not.toContain('data-sidebar-sql-audit-action="true"');
@@ -1248,6 +1242,41 @@ describe('Sidebar locate toolbar', () => {
       source.indexOf('const openV2ConnectionContextMenu = ('),
       source.indexOf('const getV2TreeMetaText = (node: any): string => {'),
     );
+  });
+
+  it('shows relational object-kind filters only for schema-capable SQL connections', () => {
+    mocks.state.connections = [{
+      id: 'pg-1',
+      name: 'PostGreSQL',
+      config: { type: 'postgres', host: 'localhost', port: 5432 },
+    }];
+    mocks.state.activeContext = { connectionId: 'pg-1', dbName: 'app' };
+
+    const markup = renderSidebarMarkup({ uiVersion: 'v2' });
+    const locateActionIndex = markup.indexOf('data-sidebar-locate-current-tab-action="true"');
+    const explorerFilterTabsIndex = markup.indexOf('class="gn-v2-explorer-filter-tabs"');
+
+    expect(explorerFilterTabsIndex).toBeGreaterThan(locateActionIndex);
+    expect(markup).toContain('全部');
+    expect(markup).toContain('视图');
+    expect(markup).toContain('函数');
+    expect(markup).toContain('aria-pressed="true"');
+  });
+
+  it('hides relational object-kind filters for Nacos and other dedicated workbenches', () => {
+    mocks.state.connections = [{
+      id: 'nacos-1',
+      name: 'Nacos',
+      config: { type: 'nacos', host: 'localhost', port: 8848 },
+    }];
+    mocks.state.activeContext = { connectionId: 'nacos-1', dbName: 'public' };
+
+    const markup = renderSidebarMarkup({ uiVersion: 'v2' });
+
+    expect(markup).not.toContain('gn-v2-explorer-filter-tabs');
+    expect(markup).not.toContain(`>${t('sidebar.command_search.object_kind.tables')}<`);
+    expect(markup).not.toContain(`>${t('sidebar.command_search.object_kind.views')}<`);
+    expect(markup).not.toContain(`>${t('sidebar.command_search.object_kind.routines')}<`);
   });
 
   it('replaces relational explorer controls in an active message queue context', () => {
@@ -1469,8 +1498,8 @@ describe('Sidebar locate toolbar', () => {
   it('keeps v2 explorer filter tabs on a single line when Oracle object filters are present', () => {
     const css = readV2ThemeCss();
 
-    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;[^}]*cursor: pointer;/s);
   });
 
   it('shows a pending state while a database node is loading', () => {
@@ -1487,7 +1516,7 @@ describe('Sidebar locate toolbar', () => {
     const css = readV2ThemeCss();
     const source = readSidebarSource();
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \{[^}]*--gn-v2-tree-horizontal-scroll-reserve: 32px;[^}]*overflow: hidden !important;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 4px 0 0;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 6px 4px 8px;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree \{[^}]*flex: 1 1 auto;[^}]*width: 100%;[^}]*min-width: 0;[^}]*height: 100%;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list \{[^}]*position: relative;[^}]*height: 100%;[^}]*min-height: 0;[^}]*box-sizing: border-box;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list-holder-inner \{[^}]*width: 100%;[^}]*min-width: 100%;/s);
@@ -1508,6 +1537,7 @@ describe('Sidebar locate toolbar', () => {
     expect(treeContentWrapperCss).toContain('min-width: 100%;');
     expect(treeContentWrapperCss).toContain('width: max-content !important;');
     expect(treeContentWrapperCss).toContain('display: flex !important;');
+    expect(treeContentWrapperCss).toContain('padding: 0 6px 0 6px !important;');
     expect(css).toMatch(/\.gn-v2-tree-title\.is-connection \{[^}]*align-items:\s*center;/s);
     const antTreeTitleCss = readCssRuleBlock(css, 'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title');
     expect(antTreeTitleCss).toContain('min-width: max-content;');
@@ -1522,15 +1552,31 @@ describe('Sidebar locate toolbar', () => {
     expect(v2TreeTitleCss).toContain('min-width: 100%;');
     expect(v2TreeTitleCss).toContain('overflow: visible;');
     expect(css).toMatch(/\.gn-v2-tree-status \{[^}]*width: 14px;[^}]*height: 14px;[^}]*flex: 0 0 14px;[^}]*overflow: visible;/s);
-    expect(css).toMatch(/\.gn-v2-tree-status::before \{[^}]*width: 9px;[^}]*height: 9px;[^}]*border: 1\.5px solid var\(--gn-fg-4\);[^}]*border-radius: 50%;/s);
-    expect(css).toMatch(/\.gn-v2-tree-status\.is-success::before \{[^}]*border: 0;[^}]*background: var\(--gn-status-connected\);[^}]*box-shadow: 0 0 0 3px color-mix\(in srgb, var\(--gn-status-connected\) 22%, transparent\);/s);
+    expect(css).toMatch(/\.gn-v2-tree-status::before \{[^}]*width: 6px;[^}]*height: 6px;[^}]*border: 0;[^}]*border-radius: 50%;/s);
+    expect(css).toMatch(/\.gn-v2-tree-status\.is-success::before \{[^}]*border: 0;[^}]*background: var\(--gn-status-connected\);[^}]*box-shadow: 0 0 0 2px color-mix\(in srgb, var\(--gn-status-connected\) 22%, transparent\);/s);
     const treeLabelCss = readCssRuleBlock(css, 'body[data-ui-version="v2"] .gn-v2-tree-label');
     expect(treeLabelCss).toContain('flex: 0 0 auto;');
     expect(treeLabelCss).toContain('overflow: visible;');
     expect(treeLabelCss).toContain('text-overflow: clip;');
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \{[^}]*width: max-content;[^}]*min-width: 100%;[^}]*flex: 0 0 auto;/s);
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \.gn-v2-tree-label \{[^}]*flex: 0 0 auto;[^}]*overflow: visible;[^}]*text-overflow: clip;/s);
-    expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 22px;[^}]*height: 22px;[^}]*flex: 0 0 22px;/s);
+    expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 16px;[^}]*height: 16px;[^}]*flex: 0 0 16px;/s);
+    expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title:not\(\.is-mono\)\) \{[^}]*width: 100%;/s);
+    expect(css).toMatch(/\.gn-v2-tree-title\.is-connection \.gn-v2-tree-label,[^}]*text-overflow: ellipsis;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.gn-v2-tree-status \{[^}]*position: absolute;[^}]*right: 6px;[^}]*transform: translateY\(-50%\);/s);
+    expect(css).toMatch(/\.ant-tree-switcher \{[^}]*flex: 0 0 16px !important;[^}]*width: 16px !important;[^}]*justify-content: center;/s);
+    expect(css).toMatch(/\.ant-tree-switcher-noop \.ant-tree-switcher-icon \{[^}]*visibility: hidden;/s);
+    expect(css).toMatch(/\.ant-tree-indent-unit \{[^}]*width: 16px !important;/s);
+    expect(css).not.toMatch(/\.ant-tree-indent-unit::before/);
+    expect(css).not.toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title\[data-node-type="queries-folder"\]\)::before/);
+    expect(css).toMatch(/\.ant-tree-iconEle \{[^}]*height: 16px !important;[^}]*overflow: hidden;/s);
+    expect(css).toMatch(/\.ant-tree-iconEle \[data-db-icon-frame="true"\] \{[^}]*max-width: 16px !important;[^}]*max-height: 16px !important;/s);
+    expect(css).toMatch(/\.ant-tree-node-content-wrapper:focus-visible \{[^}]*outline: 2px solid var\(--gn-accent\);/s);
+    expect(css).not.toMatch(/\.gn-v2-object-explorer \.ant-tree \.ant-tree-node-content-wrapper\.ant-tree-node-selected::before/);
+    expect(source).toContain('getDbIcon(iconType, iconColor, 20)');
+    expect(source).not.toContain('getDbIcon(iconType, iconColor, 16)');
+    expect(source).not.toContain('getDbIcon(iconType, iconColor, 22)');
+    expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title\.is-connection\) \.ant-tree-iconEle,[\s\S]*?\{[^}]*width: 20px !important;[^}]*height: 20px !important;/s);
     expect(css).not.toContain('.gn-v2-tree-connection-meta');
   });
 

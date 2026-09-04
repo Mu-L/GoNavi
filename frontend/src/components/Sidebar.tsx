@@ -557,7 +557,7 @@ export const buildAllSavedQueriesTreeNode = (
           automaticChildren.push({
               title: conn.name || conn.id,
               key: `all-saved-queries-connection-${conn.id}`,
-              icon: getDbIcon(iconType, iconColor, 22),
+              icon: getDbIcon(iconType, iconColor, 20),
               type: 'saved-query-group',
               selectable: false,
               isLeaf: false,
@@ -999,7 +999,7 @@ const Sidebar: React.FC<{
   const disableLocalBackdropFilter = isMacLikePlatform();
   const autoFetchVisible = useAutoFetchVisibility();
   const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
-  const isV2Ui = (uiVersion ?? appearance.uiVersion) === 'v2';
+  const isV2Ui = true;
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId) || null, [tabs, activeTabId]);
   const activeTabHasConnection = useMemo(
@@ -1515,7 +1515,7 @@ const Sidebar: React.FC<{
         return {
           title: conn.name,
           key: conn.id,
-          icon: getDbIcon(iconType, iconColor, 22),
+          icon: getDbIcon(iconType, iconColor, 20),
           type: 'connection',
           'data-sidebar-node-key': conn.id,
           'data-sidebar-node-type': 'connection',
@@ -3735,35 +3735,14 @@ const Sidebar: React.FC<{
       };
   }, [displayTreeData, expandedKeys, isV2Ui, sidebarTreeScrollRequest, v2VisibleTreeData]);
 
-  const activeConnectionIsMessageQueue = [
-      'mqtt',
-      'kafka',
-      'rocketmq',
-      'rabbitmq',
-  ].includes(resolveDataSourceType(activeConnection?.config));
-  const legacyToolbarButtonColor = darkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)';
-  const legacyToolbarStyle: React.CSSProperties = {
-      padding: '6px 16px',
-      display: 'grid',
-      gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-      gap: 8,
-      alignItems: 'center',
-      justifyItems: 'center',
-      borderTop: `1px solid ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
-      borderBottom: `1px solid ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
-      background: darkMode ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.015)',
-  };
-  const legacyToolbarItemStyle: React.CSSProperties = {
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minWidth: 0,
-  };
-  const legacyToolbarDisabledWrapStyle: React.CSSProperties = {
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-  };
+  const showV2ObjectKindFilters = isV2Ui
+      && getDataSourceCapabilities(activeConnection?.config).supportsRelationalObjectKindFilter;
+  useEffect(() => {
+      if (!showV2ObjectKindFilters && v2ExplorerFilter !== 'all') {
+          setV2ExplorerFilter('all');
+      }
+  }, [showV2ObjectKindFilters, v2ExplorerFilter]);
+
 
   const {
       contextMenu,
@@ -4745,7 +4724,7 @@ const Sidebar: React.FC<{
         </div>
         )}
 
-        {isV2Ui && !activeConnectionIsMessageQueue && (
+        {showV2ObjectKindFilters && (
             <div className="gn-v2-explorer-filter-tabs" aria-label={t('sidebar.command_search.object_kind.filter_aria')}>
                 {V2_EXPLORER_FILTER_OPTIONS.map((item) => (
                     <button
@@ -4759,93 +4738,6 @@ const Sidebar: React.FC<{
                     </button>
                 ))}
             </div>
-        )}
-
-        {/* Toolbar */}
-        {!isV2Ui && (
-        <div data-sidebar-legacy-toolbar="true" style={legacyToolbarStyle}>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={t('sidebar.action.new_group')}>
-                    <Button
-                        size="small"
-                        type="text"
-                        icon={<FolderOpenOutlined />}
-                        aria-label={t('sidebar.action.new_group')}
-                        data-sidebar-create-group-action="true"
-                        onClick={() => { setRenameViewTarget(null); createTagForm.resetFields(); setIsCreateTagModalOpen(true); }}
-                        style={{ color: legacyToolbarButtonColor }}
-                    />
-                </Tooltip>
-            </div>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={t('sidebar.action.batch_tables')}>
-                    <Button
-                        size="small"
-                        type="text"
-                        icon={<TableOutlined />}
-                        aria-label={t('sidebar.action.batch_tables')}
-                        data-sidebar-batch-table-action="true"
-                        onClick={openBatchTableWorkbench}
-                        style={{ color: legacyToolbarButtonColor }}
-                    />
-                </Tooltip>
-            </div>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={t('sidebar.action.batch_databases')}>
-                    <Button
-                        size="small"
-                        type="text"
-                        icon={<DatabaseOutlined />}
-                        aria-label={t('sidebar.action.batch_databases')}
-                        data-sidebar-batch-database-action="true"
-                        onClick={openBatchDatabaseWorkbench}
-                        style={{ color: legacyToolbarButtonColor }}
-                    />
-                </Tooltip>
-            </div>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={v2DataImportLabel}>
-                    <Button
-                        size="small"
-                        type="text"
-                        icon={<ImportOutlined />}
-                        aria-label={v2DataImportLabel}
-                        data-sidebar-data-import-action="true"
-                        onClick={handleOpenDataImportWorkbench}
-                        style={{ color: legacyToolbarButtonColor }}
-                    />
-                </Tooltip>
-            </div>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={v2OpenExternalSqlFileLabel}>
-                    <Button
-                        size="small"
-                        type="text"
-                        icon={<FileAddOutlined />}
-                        aria-label={v2OpenExternalSqlFileLabel}
-                        data-sidebar-open-external-sql-file-action="true"
-                        onClick={handleOpenSQLFileFromToolbar}
-                        style={{ color: legacyToolbarButtonColor }}
-                    />
-                </Tooltip>
-            </div>
-            <div data-sidebar-legacy-toolbar-item="true" style={legacyToolbarItemStyle}>
-                <Tooltip title={canLocateActiveTab ? t('sidebar.action.locate_current_tab') : t('sidebar.message.locate_current_tab_unavailable')}>
-                    <span style={legacyToolbarDisabledWrapStyle}>
-                        <Button
-                            size="small"
-                            type="text"
-                            icon={<AimOutlined />}
-                            aria-label={t('sidebar.action.locate_current_tab')}
-                            data-sidebar-locate-current-tab-action="true"
-                            disabled={!canLocateActiveTab}
-                            onClick={handleLocateActiveTabInSidebar}
-                            style={{ color: legacyToolbarButtonColor }}
-                        />
-                    </span>
-                </Tooltip>
-            </div>
-        </div>
         )}
 
         <div

@@ -42,6 +42,18 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('only shows relational object-kind filters for schema-capable SQL sources', () => {
+    expect(getDataSourceCapabilities({ type: 'postgres' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'mysql' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'clickhouse' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'duckdb' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'nacos' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'redis' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'rabbitmq' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'elasticsearch' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities(null).supportsRelationalObjectKindFilter).toBe(false);
+  });
+
   it('keeps MySQL on automatic total count mode', () => {
     expect(getDataSourceCapabilities({ type: 'mysql' })).toMatchObject({
       type: 'mysql',

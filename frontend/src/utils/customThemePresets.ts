@@ -466,7 +466,7 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-live-dot.is-live,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-rail-status.is-live,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-tree-status.is-success::before {
   background: var(--gn-status-connected) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-status-connected) 22%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-status-connected) 22%, transparent) !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-live-dot.is-loading,

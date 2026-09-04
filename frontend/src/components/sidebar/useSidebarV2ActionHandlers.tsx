@@ -534,7 +534,7 @@ export const useSidebarV2ActionHandlers = ({
   const createConnectionTreeNode = (conn: SavedConnection): TreeNode => ({
     title: conn.name,
     key: conn.id,
-    icon: getDbIcon(resolveConnectionIconType(conn), resolveConnectionAccentColor(conn), 22),
+    icon: getDbIcon(resolveConnectionIconType(conn), resolveConnectionAccentColor(conn), 20),
     type: 'connection',
     dataRef: conn,
     isLeaf: false,
