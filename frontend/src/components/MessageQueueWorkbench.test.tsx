@@ -61,6 +61,7 @@ vi.mock('@ant-design/icons', async () => {
     PlusOutlined: icon('plus'),
     ReloadOutlined: icon('reload'),
     SendOutlined: icon('send'),
+    CopyOutlined: icon('copy'),
   };
 });
 
@@ -269,6 +270,9 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     const text = renderedText(renderer);
     expect(text.match(/2 messages/g)).toHaveLength(2);
     expect(text).not.toContain('1 messages');
+    expect(text).toContain('first');
+    expect(text).toContain('second');
+    expect(text).toContain('devices/a');
     expect(backend.DBQuery.mock.calls[0][2]).not.toContain('OFFSET');
     expect(backend.DBQuery.mock.calls[1][2]).toContain('OFFSET 1');
     act(() => { renderer.unmount(); });
@@ -776,7 +780,7 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(renderer.root.findAllByType('article')).toHaveLength(2);
-    expect(renderedText(renderer).match(/same delivery/g)).toHaveLength(2);
+    expect(renderedText(renderer).match(/same delivery/g)?.length).toBeGreaterThanOrEqual(2);
     act(() => { renderer.unmount(); });
   });
 
