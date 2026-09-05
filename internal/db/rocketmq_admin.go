@@ -309,6 +309,11 @@ func (g *rocketmqAdminGateway) consumerConnections(ctx context.Context, brokerAd
 		return nil, nil
 	}
 	if response.Code != rocketMQAdminResponseSuccess {
+		// broker 对没有在线成员的组返回 SYSTEM_ERROR + "no consumer for
+		// this group"——这是正常空态而非故障。
+		if strings.Contains(strings.ToLower(response.Remark), "no consumer for this group") {
+			return nil, nil
+		}
 		return nil, &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
 	}
 	return parseRocketMQAdminConsumerConnections(body)
@@ -352,7 +357,7 @@ type rocketmqAdminClusterInfo struct {
 func parseRocketMQAdminClusterBrokers(body []byte) ([]rocketmqAdminClusterBroker, error) {
 	var cluster rocketmqAdminClusterInfo
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &cluster); err != nil {
+		if err := json.Unmarshal(rocketmqAdminLenientJSON(body), &cluster); err != nil {
 			return nil, fmt.Errorf("解析 broker 集群信息失败：%w", err)
 		}
 	}
@@ -372,7 +377,7 @@ func parseRocketMQAdminSubscriptionGroupNames(body []byte) ([]string, error) {
 		SubscriptionGroupTable map[string]json.RawMessage `json:"subscriptionGroupTable"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &wrapper); err != nil {
+		if err := json.Unmarshal(rocketmqAdminLenientJSON(body), &wrapper); err != nil {
 			return nil, fmt.Errorf("解析订阅组配置失败：%w", err)
 		}
 	}
@@ -388,13 +393,41 @@ func parseRocketMQAdminSubscriptionGroupNames(body []byte) ([]string, error) {
 }
 
 func parseRocketMQAdminConsumerConnections(body []byte) ([]rocketmqAdminConsumerConnection, error) {
+	// 响应是 Java GetConsumerListByGroupResponseBody：
+	// {"consumerIdList":["<host>@<pid>", ...]}；兼容 connectionSet 对象形式。
+	var wrapper struct {
+		ConsumerIDList []string `json:"consumerIdList"`
+		ConnectionSet  []struct {
+			ClientID   string `json:"clientId"`
+			ClientAddr string `json:"clientAddr"`
+		} `json:"connectionSet"`
+	}
 	var connections []struct {
 		ClientID   string `json:"clientId"`
 		ClientAddr string `json:"clientAddr"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &connections); err != nil {
+		lenient := rocketmqAdminLenientJSON(body)
+		if err := json.Unmarshal(lenient, &wrapper); err != nil {
 			return nil, fmt.Errorf("解析消费组客户端连接失败：%w", err)
+		}
+	}
+	if len(wrapper.ConsumerIDList) > 0 {
+		for _, id := range wrapper.ConsumerIDList {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				connections = append(connections, struct {
+					ClientID   string `json:"clientId"`
+					ClientAddr string `json:"clientAddr"`
+				}{ClientID: id, ClientAddr: id})
+			}
+		}
+	} else {
+		for _, conn := range wrapper.ConnectionSet {
+			connections = append(connections, struct {
+				ClientID   string `json:"clientId"`
+				ClientAddr string `json:"clientAddr"`
+			}{ClientID: strings.TrimSpace(conn.ClientID), ClientAddr: strings.TrimSpace(conn.ClientAddr)})
 		}
 	}
 	result := make([]rocketmqAdminConsumerConnection, 0, len(connections))
@@ -419,7 +452,7 @@ type rocketmqAdminOffsetWrapper struct {
 func parseRocketMQAdminConsumeStats(body []byte) ([]rocketmqAdminOffsetEntry, error) {
 	var stats rocketmqAdminConsumeStats
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &stats); err != nil {
+		if err := json.Unmarshal(rocketmqAdminLenientJSON(body), &stats); err != nil {
 			return nil, fmt.Errorf("解析消费位点统计失败：%w", err)
 		}
 	}
@@ -457,6 +490,155 @@ func parseRocketMQAdminConsumeStats(body []byte) ([]rocketmqAdminOffsetEntry, er
 	return entries, nil
 }
 
+// rocketmqAdminLenientJSON 把对象键位置上的裸数字键加引号，兼容
+// Java fastjson 对非 String 键（如 ClusterInfo 中 Map<Long, String> 的
+// brokerAddrs）输出的非标准 JSON：{0:"127.0.0.1:10911"}。标准 JSON 要求数
+// 对象键必须带引号，Go 的 json.Unmarshal 会直接失败——这也是
+// rocketmq-client-go 公开 Admin API 缺失这些命令的原因之一。
+// 字符串字面量内的内容（含转义）原样保留。
+func rocketmqAdminLenientJSON(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+
+	out := make([]byte, 0, len(body)+16)
+	type frame struct {
+		isObject  bool
+		expectKey bool
+	}
+	// 栈底哨兵表示“root 之外”：root 的 '{' 本身不能被当作键。
+	stack := []frame{{isObject: false, expectKey: false}}
+	inString := false
+	escaped := false
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if inString {
+			out = append(out, ch)
+			if escaped {
+				escaped = false
+			} else if ch == 92 {
+				escaped = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			out = append(out, ch)
+			stack[len(stack)-1].expectKey = false
+		case '{':
+			if len(stack) > 0 && stack[len(stack)-1].isObject && stack[len(stack)-1].expectKey {
+				// 键位置的对象字面量（fastjson 对 Map<复杂键, ...> 的输出）：
+				// 收集整个平衡对象并转成 JSON 字符串键。
+				objectEnd := i + rocketmqAdminSkipBalancedObject(body[i:])
+				objectJSON := body[i : objectEnd+1]
+				encodedKey, err := json.Marshal(string(objectJSON))
+				if err != nil {
+					return body
+				}
+				out = append(out, encodedKey...)
+				stack[len(stack)-1].expectKey = false
+				i = objectEnd
+				continue
+			}
+			stack = append(stack, frame{isObject: true, expectKey: true})
+			out = append(out, ch)
+		case '[':
+			stack = append(stack, frame{isObject: false, expectKey: false})
+			out = append(out, ch)
+		case '}', ']':
+			stack = stack[:len(stack)-1]
+			if len(stack) > 0 {
+				stack[len(stack)-1].expectKey = false
+			}
+			out = append(out, ch)
+		case ':':
+			stack[len(stack)-1].expectKey = false
+			out = append(out, ch)
+		case ',':
+			if stack[len(stack)-1].isObject {
+				stack[len(stack)-1].expectKey = true
+			}
+			out = append(out, ch)
+		default:
+			if rocketmqAdminIsDigit(ch) || ch == '-' {
+				if len(stack) > 0 && stack[len(stack)-1].isObject && stack[len(stack)-1].expectKey {
+					// 对象键位置的裸数字：加引号并消费整个数字 token。
+					out = append(out, '"')
+					out = append(out, ch)
+					i++
+					for i < len(body) && (rocketmqAdminIsDigit(body[i]) || body[i] == '.') {
+						out = append(out, body[i])
+						i++
+					}
+					out = append(out, '"')
+					// 回退一格，循环的自增会前进到下一个字符。
+					i--
+					continue
+				}
+			}
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+func rocketmqAdminIsDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
+}
+
+// rocketmqAdminSkipBalancedObject 返回从 body[start]（应为 '{'）开始的
+// 平衡对象字面量的结束下标（'}' 的位置），正确处理字符串与嵌套。
+func rocketmqAdminSkipBalancedObject(body []byte) int {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if ch == 92 {
+				escaped = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(body) - 1
+}
+
+// rocketmqAdminSkipString 返回从 body[start]（应为 '"'）开始的字符串字面量长度。
+func rocketmqAdminSkipString(body []byte) int {
+	length := 1
+	for i := 1; i < len(body); i++ {
+		if body[i] == 92 {
+			length++
+			i++
+			continue
+		}
+		if body[i] == '"' {
+			return length + 1
+		}
+		length++
+	}
+	return length
+}
+
 var rocketmqAdminMessageQueueKeyRE = regexp.MustCompile(`topic\s*=\s*([^,\]]+),\s*brokerName\s*=\s*[^,\]]+,\s*queueId\s*=\s*(-?\d+)`)
 
 // parseRocketMQAdminOffsetKey 解析 offsetTable 的键。fastjson 序列化
@@ -466,6 +648,16 @@ var rocketmqAdminMessageQueueKeyRE = regexp.MustCompile(`topic\s*=\s*([^,\]]+),\
 func parseRocketMQAdminOffsetKey(key string) (string, int, bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
+		return "", 0, false
+	}
+	if strings.HasPrefix(key, "{") {
+		var decoded struct {
+			Topic   string `json:"topic"`
+			QueueID int    `json:"queueId"`
+		}
+		if err := json.Unmarshal([]byte(key), &decoded); err == nil && decoded.Topic != "" {
+			return decoded.Topic, decoded.QueueID, true
+		}
 		return "", 0, false
 	}
 	if index := strings.LastIndex(key, "@"); index > 0 {

@@ -682,6 +682,10 @@ func (r *nativeRocketMQRuntime) inspectRocketMQConsumerGroup(ctx context.Context
 }
 
 func rocketmqClientHost(clientAddr string) string {
+	// GET_CONSUMER_LIST_BY_GROUP 的成员是 "<host>@<pid>" 形式。
+	if index := strings.Index(clientAddr, "@"); index > 0 {
+		return clientAddr[:index]
+	}
 	if host, _, err := net.SplitHostPort(clientAddr); err == nil {
 		return host
 	}
