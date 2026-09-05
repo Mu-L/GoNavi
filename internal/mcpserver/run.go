@@ -28,6 +28,12 @@ const (
 	// （goroutine 无法强制终止），关闭流程继续推进，保证 Backend.Close
 	// 与进程退出不被无限阻塞。
 	streamableHTTPForceCloseTimeout = 3 * time.Second
+	// stdioShutdownTimeout 是 stdio 服务在父 Context 取消后等待在途工具
+	// 调用自然完成的有界窗口。SDK 的 jsonrpc2 连接层经 notDone 与请求
+	// Context 脱钩，取消无法传播到工具 handler，无法像 Streamable HTTP
+	// 那样强制取消；超时后放弃等待，保证 Backend.Close 与进程退出不被
+	// 无限阻塞。
+	stdioShutdownTimeout = 5 * time.Second
 )
 
 // HTTPServerOptions 描述远程 Streamable HTTP MCP 入口。
@@ -108,14 +114,44 @@ func RunAppStdioServer(ctx context.Context) error {
 	return RunStdioServer(ctx, backend)
 }
 
+// errAbandonedStdioHandlers 标记 stdio 优雅窗口耗尽后仍有在途工具调用未完成。
+var errAbandonedStdioHandlers = errors.New("stdio handlers abandoned after shutdown wait")
+
 // RunStdioServer 使用指定 backend 启动 stdio MCP server。
 func RunStdioServer(ctx context.Context, backend Backend) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	return runStdioServer(ctx, backend, &mcp.StdioTransport{}, stdioShutdownTimeout)
+}
 
+// runStdioServer 包装 Server.Run：ctx 取消后先给在途请求一个优雅窗口
+// 自然完成，超时则放弃等待。SDK 的 Server.Run 在 ctx 取消后调用
+// ss.Close() 并等待 jsonrpc2 连接空闲；工具调用 context 经 notDone 与
+// 父 Context 脱钩，阻塞的 handler 收不到取消信号也无法被强制终止，
+// 原先会让进程永久挂起、Backend.Close 永不执行。放弃契约与 Streamable
+// HTTP（forceCloseActiveRequests）一致：被放弃的工具调用之后可能在
+// 已关闭的 backend 上报错，属于相比进程永久卡死的有意取舍。
+func runStdioServer(ctx context.Context, backend Backend, transport mcp.Transport, shutdownTimeout time.Duration) error {
 	server := NewServer(backend)
-	return server.Run(ctx, &mcp.StdioTransport{})
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- server.Run(ctx, transport)
+	}()
+
+	select {
+	case err := <-runDone:
+		return err
+	case <-ctx.Done():
+	}
+	graceTimer := time.NewTimer(shutdownTimeout)
+	defer graceTimer.Stop()
+	select {
+	case err := <-runDone:
+		return err
+	case <-graceTimer.C:
+		return fmt.Errorf("%w: 优雅窗口 %v 内仍有在途工具调用未完成，已放弃等待", errAbandonedStdioHandlers, shutdownTimeout)
+	}
 }
 
 // StartAppStreamableHTTPServer 启动基于真实 GoNavi App 的 Streamable HTTP MCP server，并立即返回可停止句柄。
