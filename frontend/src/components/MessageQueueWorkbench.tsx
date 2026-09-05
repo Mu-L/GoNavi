@@ -841,27 +841,10 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
           </div>
         </div>
         <Space size={8} wrap>
-          {profile.type === 'kafka' && (
+          {(profile.type === 'kafka' || profile.type === 'rocketmq') && (
             <Button icon={<InboxOutlined />} onClick={() => { void openConsumerGroups(); }} loading={consumerGroupsLoading}>
               {t('message_queue_workbench.consumer_groups.action.open')}
             </Button>
-          )}
-          {profile.type === 'rocketmq' && (
-            <Tooltip title={t('message_queue_workbench.consumer_groups.error.rocketmq_unsupported')}>
-              <span
-                tabIndex={0}
-                aria-describedby="rocketmq-consumer-groups-unavailable"
-              >
-                <Button icon={<InboxOutlined />} disabled>
-                  {t('message_queue_workbench.consumer_groups.action.open')}
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-          {profile.type === 'rocketmq' && (
-            <span id="rocketmq-consumer-groups-unavailable" className="gn-message-workbench-sr-only">
-              {t('message_queue_workbench.consumer_groups.error.rocketmq_unsupported')}
-            </span>
           )}
           <Button
             icon={<CodeOutlined />}

@@ -10129,7 +10129,6 @@
   "message_queue_workbench.consumer_groups.column.topic": "Топик",
   "message_queue_workbench.consumer_groups.empty": "Группы потребителей не найдены",
   "message_queue_workbench.consumer_groups.error.unavailable": "Невозможно запросить группы потребителей для этого подключения. Проверьте версию broker и права чтения.",
-  "message_queue_workbench.consumer_groups.error.rocketmq_unsupported": "Для проверки групп потребителей RocketMQ, прогресса очередей и Lag требуется административный клиент с поддержкой маршрутизации брокера.",
   "message_queue_workbench.consumer_groups.loading": "Загрузка...",
   "message_queue_workbench.consumer_groups.title": "Группы потребителей",
   "message_queue_workbench.error.connection_unavailable": "Подключение к очереди сообщений недоступно",

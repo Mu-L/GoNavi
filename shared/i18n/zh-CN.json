@@ -10129,7 +10129,6 @@
   "message_queue_workbench.consumer_groups.column.topic": "主题",
   "message_queue_workbench.consumer_groups.empty": "没有消费组",
   "message_queue_workbench.consumer_groups.error.unavailable": "此连接无法查询消费组，请检查消息代理版本和读取权限。",
-  "message_queue_workbench.consumer_groups.error.rocketmq_unsupported": "RocketMQ 消费组成员、队列进度和 Lag 查询需要支持消息代理路由的管理客户端。",
   "message_queue_workbench.consumer_groups.loading": "正在加载...",
   "message_queue_workbench.consumer_groups.title": "消费组",
   "message_queue_workbench.error.connection_unavailable": "消息队列连接不可用",

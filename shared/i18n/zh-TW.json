@@ -10129,7 +10129,6 @@
   "message_queue_workbench.consumer_groups.column.topic": "主題",
   "message_queue_workbench.consumer_groups.empty": "找不到消費群組",
   "message_queue_workbench.consumer_groups.error.unavailable": "此連線無法查詢消費群組，請檢查 broker 版本和讀取權限。",
-  "message_queue_workbench.consumer_groups.error.rocketmq_unsupported": "RocketMQ 消費群組成員、佇列進度和 Lag 查詢需要支援 broker 路由的管理用戶端。",
   "message_queue_workbench.consumer_groups.loading": "載入中...",
   "message_queue_workbench.consumer_groups.title": "消費群組",
   "message_queue_workbench.error.connection_unavailable": "訊息佇列連線不可用",

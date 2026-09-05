@@ -900,25 +900,70 @@ describe('MessageQueueWorkbench MQTT stream lifecycle', () => {
     act(() => { renderer.unmount(); });
   });
 
-  it('explains that RocketMQ consumer group inspection is unavailable before sending a query', () => {
+  it('shows RocketMQ consumer group details returned by the backend', async () => {
     storeState.connections = [{
       id: 'rocketmq-1',
       name: 'RocketMQ test',
       config: { type: 'rocketmq', host: '127.0.0.1', port: 9876 },
     }];
+    backend.DBQuery.mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          group: 'orders-group', state: '', member: '', client_id: 'client-a',
+          client_host: '192.168.1.10', topic: '', queue_id: null,
+          current_offset: null, log_end_offset: null, lag: null,
+        },
+        {
+          group: 'orders-group', state: '', member: '', client_id: '',
+          client_host: '', topic: 'orders.events', queue_id: 0,
+          current_offset: 8, log_end_offset: 12, lag: 4,
+        },
+      ],
+    });
     const rocketMQTab = { ...tab, id: 'message-queue-rocketmq-1-topics', connectionId: 'rocketmq-1', dbName: 'topics' } as any;
     const renderer = renderWorkbench(rocketMQTab);
 
     const consumerGroupsButton = renderer.root.findAllByType('button').find((candidate) => (
       collectText(candidate.props.children).includes('message_queue_workbench.consumer_groups.action.open')
     ));
-    expect(consumerGroupsButton?.props.disabled).toBe(true);
-    const unavailableControl = renderer.root.findAllByType('span').find((candidate) => (
-      candidate.props['aria-describedby'] === 'rocketmq-consumer-groups-unavailable'
+    expect(consumerGroupsButton).toBeTruthy();
+    expect(consumerGroupsButton?.props.disabled).toBeFalsy();
+    clickButtonWithText(renderer, 'message_queue_workbench.consumer_groups.action.open');
+    await act(async () => { await Promise.resolve(); });
+
+    expect(backend.DBQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'rocketmq' }),
+      'topics',
+      'SHOW CONSUMER GROUPS;',
+    );
+    expect(renderedText(renderer)).toContain('client-a');
+    expect(renderedText(renderer)).toContain('orders.events');
+    expect(renderedText(renderer)).toContain('4');
+    act(() => { renderer.unmount(); });
+  });
+
+  it('surfaces the backend reason when RocketMQ consumer group inspection fails', async () => {
+    storeState.connections = [{
+      id: 'rocketmq-1',
+      name: 'RocketMQ test',
+      config: { type: 'rocketmq', host: '127.0.0.1', port: 9876 },
+    }];
+    backend.DBQuery.mockResolvedValueOnce({
+      success: false,
+      message: 'RocketMQ 消费组诊断需要读取 broker 集群信息，请检查 NameServer/broker 可达性',
+    });
+    const rocketMQTab = { ...tab, id: 'message-queue-rocketmq-1-topics', connectionId: 'rocketmq-1', dbName: 'topics' } as any;
+    const renderer = renderWorkbench(rocketMQTab);
+
+    clickButtonWithText(renderer, 'message_queue_workbench.consumer_groups.action.open');
+    await act(async () => { await Promise.resolve(); });
+
+    // antd Empty 的 passthrough mock 把 description 挂在 prop 上而非 children。
+    const emptyNode = renderer.root.findAllByType('div').find((candidate) => (
+      typeof candidate.props.description === 'string' && candidate.props.description.includes('RocketMQ 消费组诊断需要读取 broker 集群信息')
     ));
-    expect(unavailableControl?.props.tabIndex).toBe(0);
-    expect(renderedText(renderer)).toContain('message_queue_workbench.consumer_groups.error.rocketmq_unsupported');
-    expect(backend.DBQuery).not.toHaveBeenCalled();
+    expect(emptyNode).toBeTruthy();
     act(() => { renderer.unmount(); });
   });
 });
