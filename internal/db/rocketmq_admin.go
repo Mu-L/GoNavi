@@ -408,7 +408,12 @@ func parseRocketMQAdminConsumerConnections(body []byte) ([]rocketmqAdminConsumer
 	}
 	if len(body) > 0 {
 		lenient := rocketmqAdminLenientJSON(body)
-		if err := json.Unmarshal(lenient, &wrapper); err != nil {
+		trimmed := strings.TrimSpace(string(lenient))
+		if strings.HasPrefix(trimmed, "[") {
+			if err := json.Unmarshal(lenient, &connections); err != nil {
+				return nil, fmt.Errorf("解析消费组客户端连接失败：%w", err)
+			}
+		} else if err := json.Unmarshal(lenient, &wrapper); err != nil {
 			return nil, fmt.Errorf("解析消费组客户端连接失败：%w", err)
 		}
 	}
