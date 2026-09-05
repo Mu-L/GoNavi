@@ -1429,6 +1429,136 @@ func firstTextContent(result *mcp.CallToolResult) string {
 	return text.Text
 }
 
+func TestExecuteSQLReportsUnknownOutcomeAndForbidsRetry(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		safetyLevel: ai.PermissionFull,
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       false,
+			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "insert", ReadOnly: false}},
+		},
+		queryResult: connection.QueryResult{
+			Success:        false,
+			QueryID:        "query-unknown",
+			Message:        "write failed: connection lost",
+			OutcomeUnknown: true,
+		},
+	}
+
+	result, out, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID:  "mysql-main",
+		SQL:           "INSERT INTO users(id) VALUES (1)",
+		AllowMutating: true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("expected tool error, got %#v", result)
+	}
+	text := firstTextContent(result)
+	if !strings.Contains(text, "结果未知") {
+		t.Fatalf("expected unknown-outcome statement in error text, got %q", text)
+	}
+	if !strings.Contains(text, "请勿自动重试") {
+		t.Fatalf("expected no-retry contract in error text, got %q", text)
+	}
+	if !strings.Contains(text, "connection lost") {
+		t.Fatalf("expected original backend message preserved, got %q", text)
+	}
+	if !out.OutcomeUnknown {
+		t.Fatalf("expected structured outcomeUnknown=true, got %#v", out)
+	}
+	if out.QueryID != "query-unknown" {
+		t.Fatalf("expected queryId preserved for later verification, got %q", out.QueryID)
+	}
+}
+
+func TestExecuteSQLUnknownOutcomeWithCancellationStillForbidsRetry(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		safetyLevel: ai.PermissionFull,
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       false,
+			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "update", ReadOnly: false}},
+		},
+		queryResult: connection.QueryResult{
+			Success:           false,
+			Message:           "write failed: context canceled",
+			CancellationState: "cancelled",
+			OutcomeUnknown:    true,
+		},
+	}
+
+	result, out, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID:  "mysql-main",
+		SQL:           "UPDATE users SET name = 'x' WHERE id = 1",
+		AllowMutating: true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("expected tool error, got %#v", result)
+	}
+	text := firstTextContent(result)
+	if !strings.Contains(text, "cancellationState=cancelled") {
+		t.Fatalf("expected cancellation state preserved in error text, got %q", text)
+	}
+	if !strings.Contains(text, "请勿自动重试") {
+		t.Fatalf("expected no-retry contract in error text, got %q", text)
+	}
+	if !out.OutcomeUnknown {
+		t.Fatalf("expected structured outcomeUnknown=true, got %#v", out)
+	}
+}
+
+func TestExecuteSQLDeterministicFailureNotMarkedUnknown(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		safetyLevel: ai.PermissionFull,
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       false,
+			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "insert", ReadOnly: false}},
+		},
+		queryResult: connection.QueryResult{
+			Success: false,
+			Message: "You have an error in your SQL syntax near 'FORM'",
+		},
+	}
+
+	result, out, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID:  "mysql-main",
+		SQL:           "INSERT INTO users(id) VALEUS (1)",
+		AllowMutating: true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || !result.IsError {
+		t.Fatalf("expected tool error, got %#v", result)
+	}
+	text := firstTextContent(result)
+	if strings.Contains(text, "结果未知") || strings.Contains(text, "请勿自动重试") {
+		t.Fatalf("deterministic failure must not carry unknown-outcome guidance, got %q", text)
+	}
+	if out.OutcomeUnknown {
+		t.Fatalf("deterministic failure must not be marked outcomeUnknown, got %#v", out)
+	}
+}
+
 func TestExecuteSQLForwardsNormalizedMaxRowsPerResult(t *testing.T) {
 	cases := []struct {
 		name string
