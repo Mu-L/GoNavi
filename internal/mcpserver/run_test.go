@@ -595,6 +595,64 @@ func TestRunStdioServerAbandonsBlockedHandlerAfterGrace(t *testing.T) {
 	}
 }
 
+func TestRunStdioServerDrainsInFlightRequestWithinGrace(t *testing.T) {
+	const grace = 300 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &blockingConnectionsBackend{
+		closeTrackingBackend: &closeTrackingBackend{fakeBackend: &fakeBackend{}, closed: make(chan struct{})},
+		started:              make(chan struct{}),
+		release:              make(chan struct{}, 1),
+	}
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	runDone := make(chan error, 1)
+	go func() {
+		defer func() { _ = backend.Close(context.Background()) }()
+		runDone <- runStdioServer(ctx, backend, serverTransport, grace)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "run-test-client", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect in-memory client: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_connections"})
+		callDone <- err
+	}()
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("tool handler did not reach the blocking backend")
+	}
+
+	// 取消后在优雅窗口内释放在途请求：它应当自然完成，stdio 服务正常
+	// 返回而不是报放弃错误——这正是优雅窗口存在的意义。
+	cancel()
+	time.Sleep(30 * time.Millisecond)
+	backend.release <- struct{}{}
+
+	select {
+	case err := <-runDone:
+		if errors.Is(err, errAbandonedStdioHandlers) {
+			t.Fatalf("in-flight request drained within grace must not return abandoned-handler error, got %v", err)
+		}
+	case <-time.After(grace + 2*time.Second):
+		t.Fatal("stdio server did not return after in-flight request drained")
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after graceful drain")
+	}
+}
+
 func TestRunStdioServerCompletesCleanlyWithoutBlockedHandler(t *testing.T) {
 	const grace = 200 * time.Millisecond
 
