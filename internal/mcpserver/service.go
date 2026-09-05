@@ -57,7 +57,7 @@ type executeSQLArgs struct {
 	DBName           string `json:"dbName,omitempty" jsonschema:"可选数据库/Schema 名称。为空时优先使用保存连接里的默认数据库"`
 	SQL              string `json:"sql" jsonschema:"待执行的 SQL 文本，可以包含多条语句"`
 	AllowMutating    bool   `json:"allowMutating,omitempty" jsonschema:"当 SQL 包含当前 AI 安全控制允许范围内的 DDL/DML 等非只读语句时，必须显式设为 true"`
-	MaxRowsPerResult int    `json:"maxRowsPerResult,omitempty" jsonschema:"每个结果集最多返回多少行。默认 50，最大 200（少量数据探查）"`
+	MaxRowsPerResult int    `json:"maxRowsPerResult,omitempty" jsonschema:"每个结果集最多返回多少行。默认 50，最大 200（少量数据探查）。达到上限后立即停止读取，剩余行不返回；多语句查询中某条语句达到上限时，后续语句将不执行"`
 }
 
 type connectionDescriptor struct {
