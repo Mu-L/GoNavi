@@ -62,8 +62,9 @@ func TestStartStreamableHTTPServerStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
-func TestStreamableHTTPServerWaitsForActiveHandlerBeforeClosingBackend(t *testing.T) {
-	const shutdownTimeout = 20 * time.Millisecond
+func TestStreamableHTTPServerGracefulShutdownStillWaitsForActiveHandler(t *testing.T) {
+	const shutdownTimeout = 500 * time.Millisecond
+	const forceCloseTimeout = 500 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -90,7 +91,164 @@ func TestStreamableHTTPServerWaitsForActiveHandlerBeforeClosingBackend(t *testin
 		Addr:  "127.0.0.1:0",
 		Path:  "/mcp",
 		Token: "test-token",
-	}, handler, shutdownTimeout)
+	}, handler, shutdownTimeout, forceCloseTimeout)
+	if err != nil {
+		t.Fatalf("startStreamableHTTPServer returned error: %v", err)
+	}
+	closeBackendAfterServerStops(handle, backend)
+
+	requestDone := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://"+handle.Addr+handle.Path, nil)
+		if err != nil {
+			requestDone <- err
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-token")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		requestDone <- err
+	}()
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	// 优雅窗口内：活跃 handler 仍然占用 backend，关闭流程不会越过它。
+	cancel()
+	select {
+	case <-backend.closed:
+		t.Fatal("backend closed while graceful shutdown window was still waiting for the active handler")
+	default:
+	}
+
+	releaseHandler <- struct{}{}
+	if err := <-requestDone; err != nil {
+		t.Fatalf("request returned error after handler release: %v", err)
+	}
+	if err := handle.Wait(); err != nil {
+		t.Fatalf("Wait returned %v after handler drained within the graceful window, want nil", err)
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after handler completed")
+	}
+}
+
+func TestStreamableHTTPServerCancelsActiveHandlerRequestContext(t *testing.T) {
+	const shutdownTimeout = 100 * time.Millisecond
+	const forceCloseTimeout = 300 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &closeTrackingBackend{
+		fakeBackend: &fakeBackend{},
+		closed:      make(chan struct{}),
+	}
+	handlerStarted := make(chan struct{})
+	handlerCanceled := make(chan struct{})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		close(handlerStarted)
+		<-req.Context().Done()
+		close(handlerCanceled)
+	})
+
+	handle, err := startStreamableHTTPServer(ctx, HTTPServerOptions{
+		Addr:  "127.0.0.1:0",
+		Path:  "/mcp",
+		Token: "test-token",
+	}, handler, shutdownTimeout, forceCloseTimeout)
+	if err != nil {
+		t.Fatalf("startStreamableHTTPServer returned error: %v", err)
+	}
+	closeBackendAfterServerStops(handle, backend)
+
+	requestDone := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://"+handle.Addr+handle.Path, nil)
+		if err != nil {
+			requestDone <- err
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-token")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		requestDone <- err
+	}()
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	// 强制关闭阶段必须取消活跃 handler 的请求 context：协作式 handler
+	// 据此立即退出，而不是等优雅窗口耗尽后仍被无界等待。
+	cancel()
+	select {
+	case <-handlerCanceled:
+	case <-time.After(shutdownTimeout + forceCloseTimeout + time.Second):
+		t.Fatal("active handler did not observe request context cancellation")
+	}
+
+	waitErr := make(chan error, 1)
+	go func() {
+		waitErr <- handle.Wait()
+	}()
+	select {
+	case err := <-waitErr:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Wait returned %v after force-canceled handler drained, want graceful deadline exceeded", err)
+		}
+	case <-time.After(forceCloseTimeout + 2*time.Second):
+		t.Fatal("handle did not complete within the bounded shutdown window")
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after handlers drained")
+	}
+}
+
+func TestStreamableHTTPServerForceClosesHandlerIgnoringCancellation(t *testing.T) {
+	const shutdownTimeout = 50 * time.Millisecond
+	const forceCloseTimeout = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &closeTrackingBackend{
+		fakeBackend: &fakeBackend{},
+		closed:      make(chan struct{}),
+	}
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{}, 1)
+	t.Cleanup(func() {
+		select {
+		case releaseHandler <- struct{}{}:
+		default:
+		}
+	})
+	// 该 handler 完全忽略请求 context 取消，只能被有界放弃。
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(handlerStarted)
+		<-releaseHandler
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	handle, err := startStreamableHTTPServer(ctx, HTTPServerOptions{
+		Addr:  "127.0.0.1:0",
+		Path:  "/mcp",
+		Token: "test-token",
+	}, handler, shutdownTimeout, forceCloseTimeout)
 	if err != nil {
 		t.Fatalf("startStreamableHTTPServer returned error: %v", err)
 	}
@@ -118,28 +276,20 @@ func TestStreamableHTTPServerWaitsForActiveHandlerBeforeClosingBackend(t *testin
 	}
 
 	cancel()
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*shutdownTimeout)
-	defer stopCancel()
-	if err := handle.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Stop returned %v while handler was still active, want deadline exceeded", err)
+	start := time.Now()
+	if err := handle.Wait(); err == nil || !strings.Contains(err.Error(), "活跃 handler") {
+		t.Fatalf("Wait returned %v, want abandoned-handler error", err)
 	}
-	select {
-	case <-backend.closed:
-		t.Fatal("backend closed while handler was still active")
-	default:
+	if elapsed := time.Since(start); elapsed > shutdownTimeout+forceCloseTimeout+time.Second {
+		t.Fatalf("shutdown took %v, want completion within the bounded window", elapsed)
 	}
 
-	releaseHandler <- struct{}{}
-	if err := <-requestDone; err != nil {
-		t.Fatalf("request returned error after handler release: %v", err)
-	}
-	if err := handle.Wait(); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Wait returned %v after shutdown timeout, want deadline exceeded", err)
-	}
+	// 核心契约变化：阻塞的 handler 不再挟持关闭流程，Backend.Close 恰好
+	// 执行一次（closeTrackingBackend 二次关闭会 panic）。
 	select {
 	case <-backend.closed:
 	case <-time.After(time.Second):
-		t.Fatal("backend did not close after handler completed")
+		t.Fatal("backend did not close after bounded force close")
 	}
 }
 

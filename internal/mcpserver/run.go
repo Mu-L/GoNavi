@@ -23,6 +23,11 @@ const (
 	defaultStreamableHTTPAddr     = "127.0.0.1:8765"
 	defaultStreamableHTTPPath     = "/mcp"
 	streamableHTTPShutdownTimeout = 5 * time.Second
+	// streamableHTTPForceCloseTimeout 是优雅关闭超时后，等待活跃 handler
+	// 响应强制取消并退出的有界窗口。超时后仍未返回的 handler 会被放弃
+	// （goroutine 无法强制终止），关闭流程继续推进，保证 Backend.Close
+	// 与进程退出不被无限阻塞。
+	streamableHTTPForceCloseTimeout = 3 * time.Second
 )
 
 // HTTPServerOptions 描述远程 Streamable HTTP MCP 入口。
@@ -180,13 +185,22 @@ func StartStreamableHTTPServer(ctx context.Context, backend Backend, options HTT
 		JSONResponse:   normalized.JSONResponse,
 		SessionTimeout: 30 * time.Minute,
 	})
-	return startStreamableHTTPServer(ctx, normalized, streamableHandler, streamableHTTPShutdownTimeout)
+	return startStreamableHTTPServer(ctx, normalized, streamableHandler, streamableHTTPShutdownTimeout, streamableHTTPForceCloseTimeout)
 }
 
-func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, streamableHandler http.Handler, shutdownTimeout time.Duration) (*StreamableHTTPServerHandle, error) {
+func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, streamableHandler http.Handler, shutdownTimeout time.Duration, forceCloseTimeout time.Duration) (*StreamableHTTPServerHandle, error) {
 	var activeRequests sync.WaitGroup
+	inFlight := newActiveRequestTracker()
 	requestHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// 为每个请求派生可取消 context 并替换进 req：MCP 工具调用从
+		// request context 派生执行 context，强制关闭阶段据此通知活跃
+		// handler 尽快退出，而不是只能等连接被硬切断。
+		reqCtx, cancelReq := context.WithCancel(req.Context())
+		defer cancelReq()
+		req = req.Clone(reqCtx)
 		activeRequests.Add(1)
+		inFlight.add(req, cancelReq)
+		defer inFlight.remove(req)
 		defer activeRequests.Done()
 		streamableHandler.ServeHTTP(w, req)
 	})
@@ -224,8 +238,14 @@ func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, s
 		case err := <-errCh:
 			cancel()
 			// Serve can fail for reasons other than an intentional shutdown while
-			// authenticated handlers are still using the backend.
-			activeRequests.Wait()
+			// authenticated handlers are still using the backend. Force-close the
+			// in-flight requests within a bounded window so the shutdown flow can
+			// proceed even if a handler ignores cancellation.
+			abandonErr := forceCloseActiveRequests(httpServer, inFlight, &activeRequests, forceCloseTimeout)
+			if abandonErr != nil {
+				handle.complete(abandonErr)
+				return
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				handle.complete(nil)
 				return
@@ -236,8 +256,17 @@ func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, s
 			defer shutdownCancel()
 			shutdownErr := httpServer.Shutdown(shutdownCtx)
 			serveErr := <-errCh
-			// A Shutdown timeout does not stop active handlers; keep the backend alive until they return.
-			activeRequests.Wait()
+			// 优雅窗口耗尽仍有活跃 handler：取消其请求 context 并强制关闭
+			// 连接，在有界窗口内等待。原先这里是无界 activeRequests.Wait()，
+			// 一个不返回的 handler 会永久阻塞 Backend.Close 与进程退出。
+			var abandonErr error
+			if shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) {
+				abandonErr = forceCloseActiveRequests(httpServer, inFlight, &activeRequests, forceCloseTimeout)
+			}
+			if abandonErr != nil {
+				handle.complete(abandonErr)
+				return
+			}
 			if shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) {
 				handle.complete(shutdownErr)
 				return
@@ -251,6 +280,69 @@ func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, s
 	}()
 
 	return handle, nil
+}
+
+// activeRequestTracker 跟踪在途 HTTP 请求及其派生 context 的取消函数，
+// 供强制关闭阶段统一取消。
+type activeRequestTracker struct {
+	mu   sync.Mutex
+	reqs map[*http.Request]context.CancelFunc
+}
+
+func newActiveRequestTracker() *activeRequestTracker {
+	return &activeRequestTracker{reqs: make(map[*http.Request]context.CancelFunc)}
+}
+
+func (t *activeRequestTracker) add(req *http.Request, cancel context.CancelFunc) {
+	t.mu.Lock()
+	t.reqs[req] = cancel
+	t.mu.Unlock()
+}
+
+func (t *activeRequestTracker) remove(req *http.Request) {
+	t.mu.Lock()
+	delete(t.reqs, req)
+	t.mu.Unlock()
+}
+
+// cancelAll 取消全部在途请求的派生 context，返回取消数量。
+func (t *activeRequestTracker) cancelAll() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	count := len(t.reqs)
+	for _, cancel := range t.reqs {
+		cancel()
+	}
+	t.reqs = make(map[*http.Request]context.CancelFunc)
+	return count
+}
+
+// pending 返回尚未完成的在途请求数。
+func (t *activeRequestTracker) pending() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.reqs)
+}
+
+// forceCloseActiveRequests 在优雅关闭窗口耗尽后强制终止仍在运行的活跃请求：
+// 先取消其派生 context（协作式 handler 可立即退出），再关闭底层连接，
+// 然后在 forceTimeout 内等待。超时后仍未返回的 handler 将被放弃并计入
+// 返回错误——Go 无法强制杀死 goroutine，但关闭流程必须继续推进，
+// 保证 Backend.Close 与进程退出不被无限阻塞。
+func forceCloseActiveRequests(httpServer *http.Server, tracker *activeRequestTracker, activeRequests *sync.WaitGroup, forceTimeout time.Duration) error {
+	tracker.cancelAll()
+	_ = httpServer.Close()
+	drained := make(chan struct{})
+	go func() {
+		activeRequests.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		return nil
+	case <-time.After(forceTimeout):
+		return fmt.Errorf("mcp http 强制关闭后仍有 %d 个活跃 handler 在 %v 内未退出，已放弃等待", tracker.pending(), forceTimeout)
+	}
 }
 
 func streamableHTTPRoutes(options HTTPServerOptions, streamableHandler http.Handler) http.Handler {
