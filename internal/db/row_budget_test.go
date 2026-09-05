@@ -123,9 +123,6 @@ func TestScanMultiRowsStopsReadingAtRowBudget(t *testing.T) {
 	if !counter.nextCalls.CompareAndSwap(51, 51) {
 		t.Fatalf("expected 51 Next calls (50 rows + 1 overflow probe), got %d", counter.nextCalls.Load())
 	}
-	if counter.closeCalls.Load() != 0 {
-		// Rows 由方言层的 defer rows.Close 释放；此处通过显式 Close 模拟并断言可释放。
-	}
 	if err := rows.Close(); err != nil {
 		t.Fatalf("close rows: %v", err)
 	}

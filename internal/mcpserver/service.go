@@ -652,6 +652,21 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	}
 
 	normalizedResults, truncated := normalizeResultSets(resultSets, maxRowsPerResult)
+	message := strings.TrimSpace(queryResult.Message)
+	// 逐条执行路径达到行预算后停止读取并不再执行剩余语句；原生多语句批次
+	// 的语句已在服务端全部执行（ExecutedCount 等于语句总数），不产生该说明。
+	if truncated && queryResult.ExecutedCount > 0 && queryResult.ExecutedCount < inspection.StatementCount {
+		budgetNote := fmt.Sprintf(
+			"已达到每结果集行数上限 %d，剩余 %d 条语句未执行",
+			maxRowsPerResult,
+			inspection.StatementCount-queryResult.ExecutedCount,
+		)
+		if message != "" {
+			message += "；" + budgetNote
+		} else {
+			message = budgetNote
+		}
+	}
 	output := executeSQLResult{
 		RequestID:         mcpRequestID(ctx),
 		ConnectionID:      view.ID,
@@ -660,7 +675,7 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 		ReadOnly:          inspection.ReadOnly,
 		QueryID:           strings.TrimSpace(queryResult.QueryID),
 		CancellationState: strings.TrimSpace(queryResult.CancellationState),
-		Message:           strings.TrimSpace(queryResult.Message),
+		Message:           message,
 		OutcomeUnknown:    queryResult.OutcomeUnknown,
 		Truncated:         truncated,
 		Statements:        toStatementSummaries(inspection.Statements),

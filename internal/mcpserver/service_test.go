@@ -1488,8 +1488,9 @@ func TestExecuteSQLSurfacesBudgetTruncation(t *testing.T) {
 			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}},
 		},
 		queryResult: connection.QueryResult{
-			Success: true,
-			QueryID: "query-budget",
+			Success:       true,
+			QueryID:       "query-budget",
+			ExecutedCount: 1,
 			Data: []connection.ResultSetData{{
 				StatementIndex: 1,
 				Columns:        []string{"id"},
@@ -1527,5 +1528,59 @@ func TestExecuteSQLSurfacesBudgetTruncation(t *testing.T) {
 	}
 	if text := firstTextContent(result); !strings.Contains(text, "已达每结果集行数上限") {
 		t.Fatalf("expected budget truncation wording in content: %q", text)
+	}
+}
+
+func TestExecuteSQLNotesStatementsSkippedByRowBudget(t *testing.T) {
+	rows := make([]map[string]interface{}, 0, 50)
+	for i := 1; i <= 50; i++ {
+		rows = append(rows, map[string]interface{}{"id": int64(i)})
+	}
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 3,
+			ReadOnly:       true,
+			Statements: []appcore.SQLStatementInspection{
+				{Index: 1, Keyword: "select", ReadOnly: true},
+				{Index: 2, Keyword: "select", ReadOnly: true},
+				{Index: 3, Keyword: "select", ReadOnly: true},
+			},
+		},
+		queryResult: connection.QueryResult{
+			Success:       true,
+			QueryID:       "query-skip",
+			ExecutedCount: 1,
+			Data: []connection.ResultSetData{{
+				StatementIndex: 1,
+				Columns:        []string{"id"},
+				Rows:           rows,
+				Truncated:      true,
+			}},
+		},
+	}
+
+	service := NewService(backend)
+	result, out, err := service.ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "mysql-main",
+		SQL:          "select id from users; select id from orders; select id from items",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected success result, got %#v", result)
+	}
+	if !out.Truncated {
+		t.Fatalf("expected truncated output, got %#v", out)
+	}
+	if !strings.Contains(out.Message, "剩余 2 条语句未执行") {
+		t.Fatalf("expected skipped-statement note in message: %q", out.Message)
+	}
+	if text := firstTextContent(result); !strings.Contains(text, "剩余 2 条语句未执行") {
+		t.Fatalf("expected skipped-statement note in content: %q", text)
 	}
 }

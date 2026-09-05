@@ -213,7 +213,7 @@ func (s *SQLiteDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (s *SQLiteDB) Query(query string) ([]map[string]interface{}, []string, error) {
