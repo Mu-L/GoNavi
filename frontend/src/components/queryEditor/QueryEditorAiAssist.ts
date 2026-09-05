@@ -51,6 +51,7 @@ export interface QueryEditorAiContext {
     port?: string | number;
     sourceType?: string;
     sqlDialect?: string;
+    tableAliasPrefix?: string;
     currentDb?: string;
     visibleDbs?: string[];
     tables?: CompletionTableMeta[];
@@ -394,7 +395,7 @@ export const resolveQueryEditorInlineLocalCompletion = ({
 
     const isTableAliasContext = isQueryEditorInlineTableAliasPending(editorSnapshot, dialect);
     const tableAliasInsertText = autoAddTableAlias
-        ? resolveDeterministicInlineTableAliasInsertText(editorSnapshot, dialect)
+        ? resolveDeterministicInlineTableAliasInsertText(editorSnapshot, dialect, aiContext.tableAliasPrefix)
         : '';
     if (tableAliasInsertText) {
         return {
@@ -1818,6 +1819,7 @@ const resolveDeterministicInlineTableInsertText = (
 const resolveDeterministicInlineTableAliasInsertText = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
     dialect?: string,
+    tableAliasPrefix?: string,
 ): string => {
     const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
     if (!/\s$/.test(statementPrefix) || !isQueryEditorTableAliasCompletionContext(statementPrefix, dialect || '')) {
@@ -1828,7 +1830,12 @@ const resolveDeterministicInlineTableAliasInsertText = (
     if (!currentReference || currentReference.alias) {
         return '';
     }
-    const alias = buildQueryEditorTableSourceAlias(currentReference.tableIdent, statementPrefix, dialect || '');
+    const alias = buildQueryEditorTableSourceAlias(
+        currentReference.tableIdent,
+        statementPrefix,
+        dialect || '',
+        tableAliasPrefix,
+    );
     return appendTableAlias('', alias, dialect || '');
 };
 

@@ -3380,6 +3380,8 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
           sharedAllColumnsData,
           allColumnsRef.current,
           visibleDbsRef.current,
+          appearance.customTableAliasPrefixEnabled,
+          appearance.customTableAliasPrefix,
       ];
       const cached = aiContextCacheRef.current;
       if (cached && cached.deps.every((dep, index) => dep === cacheDeps[index])) {
@@ -3422,6 +3424,9 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
               String(conn?.config?.driver || ''),
               { oceanBaseProtocol: conn?.config?.oceanBaseProtocol },
           ),
+          tableAliasPrefix: appearance.customTableAliasPrefixEnabled
+              ? appearance.customTableAliasPrefix
+              : '',
           currentDb: currentDbName,
           visibleDbs: visibleDbsRef.current,
           tables: [...mergedTablesByKey.values()],
@@ -3429,7 +3434,14 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       };
       aiContextCacheRef.current = { deps: cacheDeps, value };
       return value;
-  }, [currentConnectionId, currentDb, tab.connectionId, tab.dbName]);
+  }, [
+      appearance.customTableAliasPrefix,
+      appearance.customTableAliasPrefixEnabled,
+      currentConnectionId,
+      currentDb,
+      tab.connectionId,
+      tab.dbName,
+  ]);
 
   const ensureQueryEditorAiContextMetadata = useCallback(async (
       editorSnapshot: QueryEditorAiEditorSnapshot,
@@ -8291,8 +8303,16 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
               const isTableSourceCompletion = isQueryEditorTableSourceCompletionContext(completionScopeText, activeDialect);
               const isTableAliasCompletion = isQueryEditorTableAliasCompletionContext(completionScopeText, activeDialect);
               const appendTableSourceAlias = (insertText: string, tableName: string) => {
-                  if (!isTableAliasCompletion || useStore.getState().appearance.autoAddTableAlias === false) return insertText;
-                  const alias = buildQueryEditorTableSourceAlias(tableName, completionReferenceText, activeDialect);
+                  const tableAliasSettings = useStore.getState().appearance;
+                  if (!isTableAliasCompletion || tableAliasSettings.autoAddTableAlias === false) return insertText;
+                  const alias = buildQueryEditorTableSourceAlias(
+                      tableName,
+                      completionReferenceText,
+                      activeDialect,
+                      tableAliasSettings.customTableAliasPrefixEnabled
+                          ? tableAliasSettings.customTableAliasPrefix
+                          : '',
+                  );
                   return appendTableAlias(insertText, alias, activeDialect);
               };
 

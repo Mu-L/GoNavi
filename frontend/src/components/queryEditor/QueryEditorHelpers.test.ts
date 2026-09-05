@@ -448,6 +448,22 @@ describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.ta
         expect(buildQueryEditorTableSourceAlias('system_user', 'SELECT * FROM system_user su JOIN service_user su2')).toBe('su3');
     });
 
+    it('uses a valid custom prefix with continuous case-insensitive numbering', () => {
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', 't')).toBe('t0');
+        expect(buildQueryEditorTableSourceAlias('service_user', 'SELECT * FROM system_user t0', 'mysql', 't')).toBe('t1');
+        expect(buildQueryEditorTableSourceAlias('audit_user', 'SELECT * FROM system_user t0 JOIN service_user t1', 'mysql', 't')).toBe('t2');
+        expect(buildQueryEditorTableSourceAlias('public.system_user', 'SELECT * FROM system_user T0', 'mysql', 't')).toBe('t1');
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'oracle', 'T')).toBe('T0');
+        expect(buildQueryEditorTableSourceAlias('service_user', 'SELECT * FROM system_user t0', 'oracle', 'T')).toBe('T1');
+        expect(buildQueryEditorTableSourceAlias('audit_user', 'SELECT * FROM system_user T0 JOIN service_user T1', 'oracle', 'T')).toBe('T2');
+    });
+
+    it('falls back to table-name aliases for disabled or invalid custom prefixes', () => {
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', '')).toBe('su');
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', '1invalid')).toBe('su');
+        expect(buildQueryEditorTableSourceAlias('system_user', 'SELECT * FROM system_user su', 'mysql', 'a'.repeat(25))).toBe('su2');
+    });
+
     it('only permits table aliases for SELECT table sources', () => {
         for (const sql of [
             'UPDATE system_user ',

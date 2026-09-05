@@ -175,6 +175,7 @@ import {
   sanitizeToolbarButtonColorOverrides,
   type ToolbarButtonColorOverrides,
 } from "./utils/toolbarAppearance";
+import { normalizeTableAliasPrefix } from "./utils/tableAliasPrefix";
 
 export type TableDoubleClickAction = "open-data" | "open-design";
 /** SQL 编辑器中按住 Ctrl/Cmd 点击表名时执行的动作。 */
@@ -203,6 +204,8 @@ export interface AppearanceSettings
   customMonoFontFamily: string | null;
   newQuerySqlTemplate: string | null;
   autoAddTableAlias: boolean;
+  customTableAliasPrefixEnabled: boolean;
+  customTableAliasPrefix: string;
   tabDisplay: TabDisplaySettings;
   redisDbAliases: RedisDbAliasMap;
 }
@@ -232,6 +235,8 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   customMonoFontFamily: null,
   newQuerySqlTemplate: null,
   autoAddTableAlias: true,
+  customTableAliasPrefixEnabled: false,
+  customTableAliasPrefix: '',
   tabDisplay: DEFAULT_TAB_DISPLAY_SETTINGS,
   redisDbAliases: DEFAULT_REDIS_DB_ALIASES,
   ...DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
@@ -3243,6 +3248,11 @@ const sanitizeAppearance = (
       typeof appearance.autoAddTableAlias === "boolean"
         ? appearance.autoAddTableAlias
         : DEFAULT_APPEARANCE.autoAddTableAlias,
+    customTableAliasPrefixEnabled:
+      appearance.customTableAliasPrefixEnabled === true,
+    customTableAliasPrefix: normalizeTableAliasPrefix(
+      appearance.customTableAliasPrefix,
+    ),
     tabDisplay: version < TAB_DISPLAY_DEFAULT_MIGRATION_VERSION
       && isLegacyDefaultTabDisplaySettings(appearance.tabDisplay)
       ? sanitizeTabDisplaySettings(DEFAULT_TAB_DISPLAY_SETTINGS)

@@ -7052,14 +7052,38 @@ function App() {
                               )}
                               {renderThemeSettingsSection(
                                   t('app.theme.table_alias.title'),
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                      <div className="gonavi-settings-section-hint" style={{ marginTop: 0 }}>
-                                          {t('app.theme.table_alias.description')}
+                                  <div style={{ display: 'grid', gap: 12 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                          <div className="gonavi-settings-section-hint" style={{ marginTop: 0 }}>
+                                              {t('app.theme.table_alias.description')}
+                                          </div>
+                                          <Switch
+                                              checked={appearance.autoAddTableAlias !== false}
+                                              onChange={(checked) => setAppearance({ autoAddTableAlias: checked })}
+                                          />
                                       </div>
-                                      <Switch
-                                          checked={appearance.autoAddTableAlias !== false}
-                                          onChange={(checked) => setAppearance({ autoAddTableAlias: checked })}
-                                      />
+                                      <div style={{ display: 'grid', gap: 8 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                              <div>
+                                                  <div>{t('app.theme.table_alias.custom_prefix.title')}</div>
+                                                  <div className="gonavi-settings-section-hint" style={{ marginTop: 2 }}>
+                                                      {t('app.theme.table_alias.custom_prefix.description')}
+                                                  </div>
+                                              </div>
+                                              <Switch
+                                                  checked={appearance.customTableAliasPrefixEnabled}
+                                                  disabled={appearance.autoAddTableAlias === false}
+                                                  onChange={(checked) => setAppearance({ customTableAliasPrefixEnabled: checked })}
+                                              />
+                                          </div>
+                                          <Input
+                                              value={appearance.customTableAliasPrefix}
+                                              maxLength={24}
+                                              placeholder={t('app.theme.table_alias.custom_prefix.placeholder')}
+                                              disabled={appearance.autoAddTableAlias === false || !appearance.customTableAliasPrefixEnabled}
+                                              onChange={(event) => setAppearance({ customTableAliasPrefix: event.target.value })}
+                                          />
+                                      </div>
                                   </div>,
                               )}
                               <section className="gonavi-settings-section" ref={tabDisplaySettingsPanelRef}>
