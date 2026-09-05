@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"GoNavi-Wails/internal/logger"
 )
 
 // 最小 RocketMQ remoting 管理协议客户端，只为只读消费组诊断实现。
@@ -276,21 +278,25 @@ func (g *rocketmqAdminGateway) subscriptionGroups(ctx context.Context, brokers [
 		client, err := g.dialBroker(ctx, broker.Address)
 		if err != nil {
 			lastErr = err
+			logger.Warnf("RocketMQ 订阅组枚举跳过 broker %s：%v", broker.Address, err)
 			continue
 		}
 		response, body, invokeErr := client.invoke(ctx, rocketMQAdminCodeGetAllSubscriptionGroupConfig, nil)
 		_ = client.Close()
 		if invokeErr != nil {
 			lastErr = invokeErr
+			logger.Warnf("RocketMQ 订阅组枚举跳过 broker %s：%v", broker.Address, invokeErr)
 			continue
 		}
 		if response.Code != rocketMQAdminResponseSuccess {
 			lastErr = &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
+			logger.Warnf("RocketMQ 订阅组枚举跳过 broker %s：%v", broker.Address, lastErr)
 			continue
 		}
 		names, err := parseRocketMQAdminSubscriptionGroupNames(body)
 		if err != nil {
 			lastErr = err
+			logger.Warnf("RocketMQ 订阅组枚举跳过 broker %s：%v", broker.Address, err)
 			continue
 		}
 		for _, name := range names {
@@ -560,20 +566,17 @@ func rocketmqAdminLenientJSON(body []byte) []byte {
 			}
 		case '{':
 			if len(stack) > 0 {
-				println("DEBUG '{' case: i=", i, "depth", len(stack), "isObject", stack[len(stack)-1].isObject, "expectKey", stack[len(stack)-1].expectKey)
 			}
 			if len(stack) > 0 && stack[len(stack)-1].isObject {
 				// fastjson 对 Map<复杂键, ...> 的输出把对象字面量放在键位置：
 				// 形如 "key":{...}:{value}。识别方式：平衡扫描该对象后紧跟
 				// ':' 即为对象键，转成 JSON 字符串键后再正常解析值。
 				objectEnd := i + rocketmqAdminSkipBalancedObject(body[i:])
-				println("DEBUG skip: i=", i, "objectEnd=", objectEnd, "segment=", string(body[i:min(len(body), i+80)]))
 				peek := objectEnd + 1
 				for peek < len(body) && rocketmqAdminIsSpace(body[peek]) {
 					peek++
 				}
 				if peek < len(body) && body[peek] == ':' {
-					println("DEBUG object-key conversion fired at", i)
 					objectJSON := body[i : objectEnd+1]
 					encodedKey, err := json.Marshal(string(objectJSON))
 					if err != nil {
@@ -673,23 +676,6 @@ func rocketmqAdminSkipBalancedObject(body []byte) int {
 		}
 	}
 	return len(body) - 1
-}
-
-// rocketmqAdminSkipString 返回从 body[start]（应为 '"'）开始的字符串字面量长度。
-func rocketmqAdminSkipString(body []byte) int {
-	length := 1
-	for i := 1; i < len(body); i++ {
-		if body[i] == 92 {
-			length++
-			i++
-			continue
-		}
-		if body[i] == '"' {
-			return length + 1
-		}
-		length++
-	}
-	return length
 }
 
 var rocketmqAdminMessageQueueKeyRE = regexp.MustCompile(`topic\s*=\s*([^,\]]+),\s*brokerName\s*=\s*[^,\]]+,\s*queueId\s*=\s*(-?\d+)`)

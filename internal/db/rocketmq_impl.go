@@ -183,7 +183,7 @@ func (r *RocketMQDB) Connect(config connection.ConnectionConfig) error {
 		_ = r.Close()
 		return err
 	}
-	if native, ok := runtime.(*nativeRocketMQRuntime); ok {
+	if native, ok := runtime.(*nativeRocketMQRuntime); ok && tunnel != nil {
 		native.dialContext = tunnel.dialContext
 	}
 	r.runtime = runtime
@@ -609,7 +609,11 @@ func (r *nativeRocketMQRuntime) InspectConsumerGroups(ctx context.Context, group
 		groupInfos, groupErr := r.inspectRocketMQConsumerGroup(ctx, gateway, brokers, group)
 		if groupErr != nil {
 			if errors.Is(groupErr, rocketmqAdminErrGroupNotExist) {
-				// 组已在枚举后从所有 broker 上被移除：跳过。
+				if groupID != "" {
+					// 指定组在所有可达 broker 上都不存在：给用户明确原因。
+					return nil, fmt.Errorf("RocketMQ 消费组 %s 不存在（请确认消费组名称，或先在 broker 上创建订阅组）：%w", groupID, rocketmqAdminErrGroupNotExist)
+				}
+				// 全量模式：组在枚举后从所有 broker 上被移除，跳过。
 				continue
 			}
 			if groupID != "" {

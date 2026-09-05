@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 // fakeRocketMQAdminBroker 是最小 RocketMQ remoting 假服务端：按请求 code
@@ -457,5 +459,57 @@ func TestRocketMQAdminGatewayDialsBrokersThroughTunnel(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("broker dial did not go through the injected dialer")
+	}
+}
+
+// TestRocketMQAdminLenientJSONToleratesBrokenStructure 回归：结构损坏的
+// 输入（如以 }," 开头）不得 panic，原样透传交给 json.Unmarshal 报错。
+func TestRocketMQAdminLenientJSONToleratesBrokenStructure(t *testing.T) {
+	for _, input := range []string{`},"x"`, `}{`, `{0:"a"}`, `{"a":1}`, `{"offsetTable":{{"brokerName":"b","queueId":0,"topic":"t"}:{"brokerOffset":1}}}`} {
+		got := rocketmqAdminLenientJSON([]byte(input))
+		if len(got) == 0 {
+			t.Fatalf("lenient JSON returned empty for %q", input)
+		}
+	}
+}
+
+// TestNativeRocketMQInspectConsumerGroupsReportsMissingGroup 验收 3：
+// 指定组在所有 broker 上都不存在时返回明确的不存在错误。
+func TestNativeRocketMQInspectConsumerGroupsReportsMissingGroup(t *testing.T) {
+	broker := newFakeRocketMQAdminBroker(t, map[int16]func(*rocketMQAdminCommand) (int16, string, []byte){})
+	broker.handlers[rocketMQAdminCodeGetBrokerClusterInfo] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 0, "", rocketMQAdminJSON(t, map[string]interface{}{
+			"brokerAddrTable": map[string]interface{}{
+				"broker-a": map[string]interface{}{
+					"brokerName":  "broker-a",
+					"brokerAddrs": map[string]interface{}{"0": broker.addr()},
+				},
+			},
+		})
+	}
+	broker.handlers[rocketMQAdminCodeGetConsumerListByGroup] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 26, "subscription group not exist", nil
+	}
+	broker.handlers[rocketMQAdminCodeGetConsumeStats] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 26, "subscription group not exist", nil
+	}
+	broker.start(t)
+
+	runtime := &nativeRocketMQRuntime{nameservers: []string{broker.addr()}, timeout: time.Second}
+	_, err := runtime.InspectConsumerGroups(context.Background(), "missing-group")
+	if err == nil || !errors.Is(err, rocketmqAdminErrGroupNotExist) {
+		t.Fatalf("expected group-not-exist error, got %v", err)
+	}
+}
+
+// TestRocketMQDBConnectDirectReturnsErrorWithoutPanic 回归 B1：直连（无
+// 隧道）场景 tunnel 为 nil，Connect 不得 panic 且应返回连接错误。
+func TestRocketMQDBConnectDirectReturnsErrorWithoutPanic(t *testing.T) {
+	client := &RocketMQDB{}
+	err := client.Connect(connection.ConnectionConfig{
+		Type: "rocketmq", Host: "127.0.0.1", Port: 1, // 不可达端口
+	})
+	if err == nil {
+		t.Fatal("expected connect error for unreachable broker, got nil")
 	}
 }
