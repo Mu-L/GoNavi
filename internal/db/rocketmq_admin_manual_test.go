@@ -11,8 +11,6 @@ import (
 
 	rocketmqconsumer "github.com/apache/rocketmq-client-go/v2/consumer"
 	rocketmqprimitive "github.com/apache/rocketmq-client-go/v2/primitive"
-
-	"GoNavi-Wails/internal/connection"
 )
 
 // TestRocketMQAdminManualBrokerDiagnostics 针对"隔离 Broker"的手动验证入口：
@@ -76,19 +74,6 @@ func TestRocketMQAdminManualBrokerDiagnostics(t *testing.T) {
 	t.Logf("consumed %d messages with orders-group", atomic.LoadInt32(&consumed))
 
 	// 消费者仍在线：诊断应包含成员行（clientId/clientHost）。
-	{
-		client, dialErr := dialRocketMQAdminClient(ctx, "127.0.0.1:10911", 10*time.Second)
-		if dialErr != nil {
-			t.Fatalf("debug dial: %v", dialErr)
-		}
-		resp, raw, _ := client.invoke(ctx, 38, map[string]string{"consumerGroup": "orders-group"})
-		limit := len(raw)
-		if limit > 600 {
-			limit = 600
-		}
-		t.Logf("RAW 38: code=%d remark=%q body=%s", resp.Code, resp.Remark, raw[:limit])
-		_ = client.Close()
-	}
 	liveInfos, err := runtime.InspectConsumerGroups(ctx, "orders-group")
 	if err != nil {
 		t.Fatalf("InspectConsumerGroups(live): %v", err)
@@ -163,5 +148,3 @@ func derefInt64(value *int64) interface{} {
 	}
 	return *value
 }
-
-var _ = connection.ConnectionConfig{}
