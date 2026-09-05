@@ -937,14 +937,8 @@ func (a *App) localizeDriverRuntimeReason(definition driverDefinition, reason st
 }
 
 func (a *App) localizedDriverNeedsUpdateTexts(actual string, expected string, affectedConnections int) (string, string) {
-	reasonParts := []string{a.appText("driver_manager.backend.status.needs_update", nil)}
-	if strings.TrimSpace(actual) != "" {
-		reasonParts = append(reasonParts, a.appText("driver_manager.backend.status.installed_revision", map[string]any{"revision": strings.TrimSpace(actual)}))
-	}
-	if strings.TrimSpace(expected) != "" {
-		reasonParts = append(reasonParts, a.appText("driver_manager.backend.status.expected_revision", map[string]any{"revision": strings.TrimSpace(expected)}))
-	}
-	reason := strings.Join(reasonParts, " ")
+	// revision 细节不再拼进用户可见的状态文案。
+	reason := a.appText("driver_manager.backend.status.needs_update", nil)
 	messageParts := []string{reason}
 	if affectedConnections > 0 {
 		messageParts = append(messageParts, a.appText("driver_manager.backend.status.affected_connections", map[string]any{"count": affectedConnections}))
@@ -1542,7 +1536,11 @@ func (a *App) DownloadDriverPackage(driverType string, version string, downloadU
 
 	if db.IsOptionalGoDriver(definition.Type) {
 		displayName := a.driverStatusDisplayName(definition)
-		a.emitDriverDownloadProgress(definition.Type, "start", 0, 100, a.appText("driver_manager.progress.agent_install_start", map[string]any{"name": displayName}))
+		startMessage := a.appText("driver_manager.progress.agent_install_start", map[string]any{"name": displayName})
+		if v := strings.TrimSpace(selectedVersion); v != "" {
+			startMessage = a.appText("driver_manager.progress.agent_install_start_with_version", map[string]any{"name": displayName, "version": v})
+		}
+		a.emitDriverDownloadProgress(definition.Type, "start", 0, 100, startMessage)
 		meta, installErr := installOptionalDriverAgentPackage(a, definition, selectedVersion, resolvedDir, urlText)
 		if installErr != nil {
 			errText := normalizeErrorMessage(installErr)
@@ -4166,9 +4164,6 @@ func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, execut
 
 	if mkErr := os.MkdirAll(filepath.Dir(executablePath), 0o755); mkErr != nil {
 		return "", "", newLocalizedDriverBackendError("driver_manager.backend.error.create_named_directory_failed", map[string]any{"name": displayName}, mkErr)
-	}
-	if a != nil {
-		a.emitDriverDownloadProgress(driverType, "downloading", 10, 100, planMessage)
 	}
 	cleanupCandidate := func() {
 		_ = os.Remove(executablePath)

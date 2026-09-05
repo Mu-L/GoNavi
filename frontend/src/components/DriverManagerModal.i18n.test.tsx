@@ -289,11 +289,11 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it.each([
-    ['legacy', 'zh-CN', '驱动管理', '安装所有驱动', '搜索驱动名称/类型（如 DuckDB、clickhouse）', '驱动日志 - ClickHouse', '安装目录：', '驱动可执行文件：', '当前驱动暂无操作日志。'],
-    ['v2', 'en-US', 'Driver Manager', 'Install all drivers', 'Search driver name/type (for example DuckDB, clickhouse)', 'Driver Logs - ClickHouse', 'Install directory:', 'Driver executable:', 'This driver has no operation logs yet.'],
+    ['legacy', 'zh-CN', '驱动管理', '安装所有驱动', '搜索驱动名称/类型（如 DuckDB、clickhouse）', '日志', '安装目录：', '驱动可执行文件：', '当前驱动暂无操作日志。'],
+    ['v2', 'en-US', 'Driver Manager', 'Install all drivers', 'Search driver name/type (for example DuckDB, clickhouse)', 'Logs', 'Install directory:', 'Driver executable:', 'This driver has no operation logs yet.'],
   ] as const)(
     'renders localized chrome and preserves raw network summary for %s %s',
-    async (uiVersion, language, titleText, toolbarText, searchText, logTitleText, logInstallDirText, logExecutableText, emptyLogText) => {
+    async (uiVersion, language, titleText, toolbarText, searchText, logLabelText, logInstallDirText, logExecutableText, emptyLogText) => {
       storeState.appearance.uiVersion = uiVersion;
       const { setCurrentLanguage } = await import('../i18n');
       setCurrentLanguage(language);
@@ -309,14 +309,11 @@ describe('DriverManagerModal i18n', () => {
       expect(findInputByPlaceholder(renderer!, searchText)).toBeTruthy();
       expect(textContent(renderer!.toJSON())).toContain('HTTP 403 from GitHub release asset');
 
-      await act(async () => {
-        findButton(renderer!, language === 'en-US' ? 'Logs' : '日志').props.onClick();
-      });
-
-      expect(textContent(renderer!.toJSON())).toContain(logTitleText);
+      const logSection = renderer!.root.findByProps({ className: 'driver-manager-log-section' });
+      expect(textContent(logSection)).toContain(logLabelText);
+      expect(textContent(logSection)).toContain(emptyLogText);
       expect(textContent(renderer!.toJSON())).toContain(logInstallDirText);
       expect(textContent(renderer!.toJSON())).toContain(logExecutableText);
-      expect(textContent(renderer!.toJSON())).toContain(emptyLogText);
     },
   );
 
@@ -430,10 +427,10 @@ describe('DriverManagerModal i18n', () => {
     const updateNote = renderer!.root.findByProps({ className: 'driver-manager-update-note' });
     expect(textContent(titleRow)).toContain('Reinstall needed');
     expect(updateNote.findAll((node) => node.type === 'span' && textContent(node) === 'Reinstall required')).toHaveLength(0);
-    expect(content).toContain('Reinstall required to apply driver updates.');
+    expect(content).toContain('The driver component has an update.');
     expect(content).toContain('Affects 3 saved connections');
-    expect(content).toContain('installed revision rev-old');
-    expect(content).toContain('expected revision rev-new');
+    expect(content).not.toContain('installed revision rev-old');
+    expect(content).not.toContain('expected revision rev-new');
     expect(content).toContain('raw runtime reason: checksum mismatch abc123');
     expect(content).not.toContain('驱动代理需要重装');
   });
@@ -869,14 +866,15 @@ describe('DriverManagerModal i18n', () => {
     await act(async () => {
       findButton(renderer!, t('driver_manager.action.import_package')).props.onClick();
     });
-    await act(async () => {
-      findButton(renderer!, 'Logs').props.onClick();
-    });
 
     const content = textContent(renderer!.toJSON());
-    expect(content).toContain('[START] Starting local import (v9.8.7) (file): D:/manual/GoNavi-DriverAgents.zip');
-    expect(content).toContain('[ERROR] raw system unzip error: HTTP 500');
-    expect(content).toContain('[DONE] Local import installation completed (v9.8.7)');
+    const logSection = textContent(renderer!.root.findByProps({ className: 'driver-manager-log-section' }));
+    expect(logSection).toContain('Starting local import (v9.8.7) (file): D:/manual/GoNavi-DriverAgents.zip');
+    expect(logSection).toContain('raw system unzip error: HTTP 500');
+    expect(logSection).toContain('Local import installation completed (v9.8.7)');
+    expect(logSection).not.toContain('[ERROR]');
+    expect(logSection).not.toContain('[START]');
+    expect(logSection).not.toContain('[DONE]');
     expect(content).not.toContain('开始本地导入');
     expect(content).not.toContain('本地导入安装完成');
   });

@@ -60,12 +60,9 @@ export default function DriverManagerWorkbench({
     };
   }, [loadDownloadSource]);
   const workbenchStyle = {
-    '--driver-manager-workbench-bg': token.colorBgLayout,
     '--driver-manager-workbench-surface': token.colorBgContainer,
-    '--driver-manager-workbench-border': token.colorBorderSecondary,
     '--driver-manager-workbench-text': token.colorText,
     '--driver-manager-workbench-muted': token.colorTextSecondary,
-    '--driver-manager-workbench-subtle': token.colorFillQuaternary,
     '--driver-manager-workbench-primary': token.colorPrimary,
   } as React.CSSProperties;
 

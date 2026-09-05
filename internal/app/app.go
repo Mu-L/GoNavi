@@ -1846,11 +1846,12 @@ func verifyRuntimeOptionalDriverAgentRevision(config connection.ConnectionConfig
 		return nil
 	}
 	displayName := resolveDriverDisplayName(driverDefinition{Type: driverType})
+	// revision 不匹配只告警不阻断连接：旧 agent 仍可正常连库。
 	agentRevision, err := verifyInstalledOptionalDriverAgentRevision(driverType, executablePath, selectedVersion)
 	if err != nil {
-		logger.Warnf("%s driver-agent revision 校验失败，已阻止使用不匹配代理：当前需要=%s version=%s path=%s err=%v",
+		logger.Warnf("%s driver-agent revision 不匹配，放行连接（建议在驱动管理中重装）：当前需要=%s version=%s path=%s err=%v",
 			displayName, expectedRevision, selectedVersion, executablePath, err)
-		return err
+		return nil
 	}
 	logger.Infof("%s driver-agent revision 校验通过：已安装=%s 当前需要=%s version=%s path=%s",
 		displayName, strings.TrimSpace(agentRevision), expectedRevision, selectedVersion, executablePath)
