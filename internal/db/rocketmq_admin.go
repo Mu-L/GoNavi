@@ -565,8 +565,6 @@ func rocketmqAdminLenientJSON(body []byte) []byte {
 				stack[len(stack)-1].expectKey = false
 			}
 		case '{':
-			if len(stack) > 0 {
-			}
 			if len(stack) > 0 && stack[len(stack)-1].isObject {
 				// fastjson 对 Map<复杂键, ...> 的输出把对象字面量放在键位置：
 				// 形如 "key":{...}:{value}。识别方式：平衡扫描该对象后紧跟
