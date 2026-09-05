@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"GoNavi-Wails/internal/connection"
 	httpserverlimits "GoNavi-Wails/internal/httpserver"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -516,5 +517,188 @@ func TestBearerTokenAuthHandlerRejectsMissingOrWrongToken(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("next handler should be called with valid token")
+	}
+}
+
+type blockingConnectionsBackend struct {
+	*closeTrackingBackend
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingConnectionsBackend) GetSavedConnections() ([]connection.SavedConnectionView, error) {
+	close(b.started)
+	<-b.release
+	return nil, nil
+}
+
+func TestRunStdioServerAbandonsBlockedHandlerAfterGrace(t *testing.T) {
+	const grace = 100 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &blockingConnectionsBackend{
+		closeTrackingBackend: &closeTrackingBackend{fakeBackend: &fakeBackend{}, closed: make(chan struct{})},
+		started:              make(chan struct{}),
+		release:              make(chan struct{}, 1),
+	}
+	t.Cleanup(func() {
+		select {
+		case backend.release <- struct{}{}:
+		default:
+		}
+	})
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	runDone := make(chan error, 1)
+	go func() {
+		// 复刻 RunAppStdioServer 的关闭接线：run 返回后 backend.Close 恰好执行一次。
+		defer func() { _ = backend.Close(context.Background()) }()
+		runDone <- runStdioServer(ctx, backend, serverTransport, grace)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "run-test-client", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect in-memory client: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_connections"})
+		callDone <- err
+	}()
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("tool handler did not reach the blocking backend")
+	}
+
+	// 父 Context 取消后，阻塞的 handler 收不到取消信号（SDK notDone 脱钩），
+	// stdio 服务必须在优雅窗口耗尽后放弃等待并返回，而不是永久挂起。
+	cancel()
+	start := time.Now()
+	if err := <-runDone; !errors.Is(err, errAbandonedStdioHandlers) {
+		t.Fatalf("run returned %v, want abandoned-handler error", err)
+	}
+	if elapsed := time.Since(start); elapsed > grace+2*time.Second {
+		t.Fatalf("stdio shutdown took %v, want completion within the bounded window", elapsed)
+	}
+
+	// Backend.Close 恰好执行一次（closeTrackingBackend 二次关闭会 panic）。
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after bounded abandon")
+	}
+}
+
+func TestRunStdioServerDrainsInFlightRequestWithinGrace(t *testing.T) {
+	const grace = 300 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &blockingConnectionsBackend{
+		closeTrackingBackend: &closeTrackingBackend{fakeBackend: &fakeBackend{}, closed: make(chan struct{})},
+		started:              make(chan struct{}),
+		release:              make(chan struct{}, 1),
+	}
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	runDone := make(chan error, 1)
+	go func() {
+		defer func() { _ = backend.Close(context.Background()) }()
+		runDone <- runStdioServer(ctx, backend, serverTransport, grace)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "run-test-client", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect in-memory client: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	t.Cleanup(func() {
+		select {
+		case backend.release <- struct{}{}:
+		default:
+		}
+	})
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_connections"})
+		callDone <- err
+	}()
+	select {
+	case <-backend.started:
+	case <-time.After(time.Second):
+		t.Fatal("tool handler did not reach the blocking backend")
+	}
+
+	// 取消后在优雅窗口内释放在途请求：它应当自然完成，stdio 服务正常
+	// 返回而不是报放弃错误——这正是优雅窗口存在的意义。
+	cancel()
+	time.Sleep(30 * time.Millisecond)
+	backend.release <- struct{}{}
+
+	select {
+	case err := <-runDone:
+		if errors.Is(err, errAbandonedStdioHandlers) {
+			t.Fatalf("in-flight request drained within grace must not return abandoned-handler error, got %v", err)
+		}
+	case <-time.After(grace + 2*time.Second):
+		t.Fatal("stdio server did not return after in-flight request drained")
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after graceful drain")
+	}
+}
+
+func TestRunStdioServerCompletesCleanlyWithoutBlockedHandler(t *testing.T) {
+	const grace = 200 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &closeTrackingBackend{fakeBackend: &fakeBackend{}, closed: make(chan struct{})}
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	runDone := make(chan error, 1)
+	go func() {
+		defer func() { _ = backend.Close(context.Background()) }()
+		runDone <- runStdioServer(ctx, backend, serverTransport, grace)
+	}()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "run-test-client", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect in-memory client: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	if _, err := session.ListTools(ctx, nil); err != nil {
+		t.Fatalf("list tools over in-memory session: %v", err)
+	}
+
+	// 无阻塞 handler 时取消 Context：在途请求自然排空，正常退出，
+	// 不产生放弃错误。
+	cancel()
+	select {
+	case err := <-runDone:
+		if errors.Is(err, errAbandonedStdioHandlers) {
+			t.Fatalf("clean shutdown must not return abandoned-handler error, got %v", err)
+		}
+	case <-time.After(grace + 2*time.Second):
+		t.Fatal("stdio server did not return after context cancellation")
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after clean shutdown")
 	}
 }
