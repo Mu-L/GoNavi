@@ -326,13 +326,6 @@ func (t *activeRequestTracker) cancelAll() int {
 	return count
 }
 
-// pending 返回尚未完成的在途请求数。
-func (t *activeRequestTracker) pending() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return len(t.reqs)
-}
-
 // errAbandonedActiveHandlers 标记强制关闭窗口耗尽后仍有活跃 handler 未退出。
 var errAbandonedActiveHandlers = errors.New("active handlers abandoned after force close")
 
