@@ -15,6 +15,7 @@ __pycache__/
 *.py[cod]
 
 dist/
+frontend/dist.zip
 .DS_Store
 .gemini-clipboard
 .env
