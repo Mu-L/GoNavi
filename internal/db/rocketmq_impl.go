@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -147,6 +148,8 @@ type nativeRocketMQRuntime struct {
 	namespace   string
 	timeout     time.Duration
 	sendTimeout time.Duration
+	// dialContext 来自隧道（SSH/代理），消费组诊断的 broker 管理请求经它拨号。
+	dialContext rocketmqDialContextFunc
 }
 
 var newRocketMQRuntime = func(config connection.ConnectionConfig) (rocketmqRuntime, error) {
@@ -179,6 +182,9 @@ func (r *RocketMQDB) Connect(config connection.ConnectionConfig) error {
 	if err != nil {
 		_ = r.Close()
 		return err
+	}
+	if native, ok := runtime.(*nativeRocketMQRuntime); ok {
+		native.dialContext = tunnel.dialContext
 	}
 	r.runtime = runtime
 	r.defaultTopic = rocketmqDefaultTopic(runConfig)
@@ -582,7 +588,7 @@ func (r *nativeRocketMQRuntime) ListTopics(ctx context.Context, includeSystem bo
 // 否则只查指定组。纯只读元数据查询，不创建消费组、不提交或重置任何位点。
 func (r *nativeRocketMQRuntime) InspectConsumerGroups(ctx context.Context, groupID string) ([]rocketmqConsumerGroupInfo, error) {
 	groupID = strings.TrimSpace(groupID)
-	gateway := newRocketMQAdminGateway(r.nameservers, r.timeout)
+	gateway := newRocketMQAdminGateway(r.nameservers, r.timeout, r.dialContext)
 	brokers, err := gateway.brokerAddresses(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("RocketMQ 消费组诊断需要读取 broker 集群信息，请检查 NameServer/broker 可达性：%w", err)
@@ -597,18 +603,32 @@ func (r *nativeRocketMQRuntime) InspectConsumerGroups(ctx context.Context, group
 	}
 
 	infos := make([]rocketmqConsumerGroupInfo, 0)
+	failedGroups := 0
+	var firstGroupErr error
 	for _, group := range groups {
 		groupInfos, groupErr := r.inspectRocketMQConsumerGroup(ctx, gateway, brokers, group)
 		if groupErr != nil {
+			if errors.Is(groupErr, rocketmqAdminErrGroupNotExist) {
+				// 组已在枚举后从所有 broker 上被移除：跳过。
+				continue
+			}
 			if groupID != "" {
 				// 指定组查询失败必须给出原因（验收：权限不足/不支持时显示原因）。
 				return nil, groupErr
 			}
-			// 全量扫描时单组失败不阻断其余组：记录日志后继续。
+			// 全量扫描时单组失败不阻断其余组：记录日志后继续；
+			// 但全部组都失败时应报错而不是退化为静默空结果。
+			failedGroups++
+			if firstGroupErr == nil {
+				firstGroupErr = groupErr
+			}
 			logger.Warnf("RocketMQ 消费组 %s 诊断失败，已跳过：%v", group, groupErr)
 			continue
 		}
 		infos = append(infos, groupInfos...)
+	}
+	if len(groups) > 0 && failedGroups == len(groups) && len(infos) == 0 {
+		return nil, fmt.Errorf("RocketMQ 消费组诊断全部失败（共 %d 组）：%w", failedGroups, firstGroupErr)
 	}
 	sortRocketMQConsumerGroupInfos(infos)
 	return infos, nil
@@ -619,9 +639,14 @@ func (r *nativeRocketMQRuntime) inspectRocketMQConsumerGroup(ctx context.Context
 
 	// 成员连接：同一客户端可能同时连多个 broker，按 clientId/clientAddr 去重。
 	memberSeen := make(map[string]struct{})
+	memberNotExistCount := 0
 	for _, broker := range brokers {
 		connections, err := gateway.consumerConnections(ctx, broker.Address, groupID)
 		if err != nil {
+			if errors.Is(err, rocketmqAdminErrGroupNotExist) {
+				memberNotExistCount++
+				continue
+			}
 			return nil, fmt.Errorf("RocketMQ 消费组 %s 成员读取失败（可能缺少管理权限或 broker 版本不支持）：%w", groupID, err)
 		}
 		for _, conn := range connections {
@@ -641,9 +666,14 @@ func (r *nativeRocketMQRuntime) inspectRocketMQConsumerGroup(ctx context.Context
 	// 队列位点与 Lag：GET_CONSUME_STATS 一次返回该组全部 topic@queue 的
 	// consumerOffset/brokerOffset。
 	offsetSeen := make(map[string]struct{})
+	statsNotExistCount := 0
 	for _, broker := range brokers {
 		entries, err := gateway.consumeStats(ctx, broker.Address, groupID)
 		if err != nil {
+			if errors.Is(err, rocketmqAdminErrGroupNotExist) {
+				statsNotExistCount++
+				continue
+			}
 			return nil, fmt.Errorf("RocketMQ 消费组 %s 队列位点读取失败（可能缺少管理权限或 broker 版本不支持）：%w", groupID, err)
 		}
 		for _, entry := range entries {
@@ -675,6 +705,10 @@ func (r *nativeRocketMQRuntime) inspectRocketMQConsumerGroup(ctx context.Context
 	}
 
 	if len(infos) == 0 {
+		// 所有 broker 都报告订阅组不存在：明确报错（指定组场景给用户原因）。
+		if memberNotExistCount == len(brokers) && statsNotExistCount == len(brokers) && len(brokers) > 0 {
+			return nil, rocketmqAdminErrGroupNotExist
+		}
 		// 组已登记但没有任何在线成员与位点：输出单行说明组存在（与 Kafka 空组行为一致）。
 		infos = append(infos, rocketmqConsumerGroupInfo{GroupID: groupID})
 	}

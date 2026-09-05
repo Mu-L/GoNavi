@@ -149,7 +149,7 @@ func TestRocketMQAdminGatewayParsesClusterAndGroups(t *testing.T) {
 	}
 	broker.start(t)
 
-	gateway := newRocketMQAdminGateway([]string{broker.addr()}, time.Second)
+	gateway := newRocketMQAdminGateway([]string{broker.addr()}, time.Second, nil)
 	brokers, err := gateway.brokerAddresses(context.Background())
 	if err != nil {
 		t.Fatalf("brokerAddresses: %v", err)
@@ -224,22 +224,21 @@ func TestNativeRocketMQInspectConsumerGroupsEndToEnd(t *testing.T) {
 				},
 			})
 		},
+		// 真实 broker（4.9.4）回放的形态：成员是 consumerIdList 字符串数组。
 		rocketMQAdminCodeGetConsumerListByGroup: func(*rocketMQAdminCommand) (int16, string, []byte) {
-			return 0, "", rocketMQAdminJSON(t, []map[string]interface{}{
-				{"clientId": "client-a", "clientAddr": "192.168.1.10:51234"},
-			})
+			return 0, "", []byte(`{"consumerIdList":["192.168.2.141@28408"]}`)
 		},
+		// 真实 broker 的位点响应：offsetTable 键是裸 JSON 对象字面量（非标准
+		// JSON），由 rocketmqAdminLenientJSON 转成字符串键后解析。
 		rocketMQAdminCodeGetConsumeStats: func(*rocketMQAdminCommand) (int16, string, []byte) {
-			return 0, "", rocketMQAdminJSON(t, map[string]interface{}{
-				"offsetTable": map[string]interface{}{
-					"MessageQueue [topic=orders.events, brokerName=broker-a, queueId=0]": map[string]interface{}{
-						"brokerOffset": 12, "consumerOffset": 8,
-					},
-					"MessageQueue [topic=orders.events, brokerName=broker-a, queueId=1]": map[string]interface{}{
-						"brokerOffset": 7, "consumerOffset": 7,
-					},
-				},
-			})
+			key1 := `{"brokerName":"broker-a","queueId":0,"topic":"orders-events"}`
+			key2 := `{"brokerName":"broker-a","queueId":1,"topic":"orders-events"}`
+			value1 := `{"brokerOffset":12,"consumerOffset":8}`
+			value2 := `{"brokerOffset":7,"consumerOffset":7}`
+			body := `{"consumeTps":0.16,"offsetTable":{` +
+				key1 + `:` + value1 + `,` +
+				key2 + `:` + value2 + `}}`
+			return 0, "", []byte(body)
 		},
 	}
 	broker := newFakeRocketMQAdminBroker(t, handlers)
@@ -266,14 +265,14 @@ func TestNativeRocketMQInspectConsumerGroupsEndToEnd(t *testing.T) {
 		t.Fatalf("expected 1 member row + 2 offset rows, got %#v", infos)
 	}
 	member := infos[0]
-	if member.GroupID != "orders-group" || member.ClientID != "client-a" || member.ClientHost != "192.168.1.10" {
+	if member.GroupID != "orders-group" || member.ClientID != "192.168.2.141@28408" || member.ClientHost != "192.168.2.141" {
 		t.Fatalf("unexpected member row: %#v", member)
 	}
 	if member.Topic != "" || member.QueueID != nil || member.Lag != nil {
 		t.Fatalf("member row must not carry queue/offset data: %#v", member)
 	}
 	firstQueue := infos[1]
-	if firstQueue.Topic != "orders.events" || firstQueue.QueueID == nil || *firstQueue.QueueID != 0 {
+	if firstQueue.Topic != "orders-events" || firstQueue.QueueID == nil || *firstQueue.QueueID != 0 {
 		t.Fatalf("unexpected first queue row: %#v", firstQueue)
 	}
 	if firstQueue.CurrentOffset == nil || *firstQueue.CurrentOffset != 8 || firstQueue.LogEndOffset == nil || *firstQueue.LogEndOffset != 12 {
@@ -353,5 +352,63 @@ func TestRocketMQAdminInvokeRejectsOpaqueMismatch(t *testing.T) {
 
 	if _, _, err := client.invoke(context.Background(), rocketMQAdminCodeGetBrokerClusterInfo, nil); err == nil || !strings.Contains(err.Error(), "opaque") {
 		t.Fatalf("expected opaque mismatch error, got %v", err)
+	}
+}
+
+// TestRocketMQAdminFrameEncodeGolden 用手写字节验证帧编码（非循环验证）：
+// [4B 总长][1B 序列化类型 0 + 3B 头长][JSON 头][body]。
+func TestRocketMQAdminFrameEncodeGolden(t *testing.T) {
+	command := &rocketMQAdminCommand{
+		Code:      rocketMQAdminCodeGetConsumerListByGroup,
+		Language:  rocketMQAdminLanguage,
+		Opaque:    7,
+		ExtFields: map[string]string{"consumerGroup": "g1"},
+	}
+	frame, err := encodeRocketMQAdminFrame(command, nil)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	header := `{"code":38,"language":"GO","version":0,"opaque":7,"flag":0,"remark":"","extFields":{"consumerGroup":"g1"}}`
+	expected := append([]byte{0x00, 0x00, 0x00, byte(4 + len(header)), 0x00, 0x00, 0x00, byte(len(header))}, []byte(header)...)
+	if string(frame) != string(expected) {
+		t.Fatalf("frame mismatch: got %q, want %q", frame, expected)
+	}
+}
+
+// TestRocketMQAdminFrameDecodeGolden 用手写字节验证响应解码：真实 broker
+// 返回的响应头带 codecType 高字节，body 独立传输。
+func TestRocketMQAdminFrameDecodeGolden(t *testing.T) {
+	header := `{"code":0,"language":"JAVA","version":4,"opaque":9,"flag":1,"remark":"","extFields":{"offset":"12"}}`
+	body := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	headerLen := len(header)
+	frame := make([]byte, 0, 4+headerLen+len(body))
+	frame = append(frame, 0x00, byte(headerLen>>16), byte(headerLen>>8), byte(headerLen))
+	frame = append(frame, []byte(header)...)
+	frame = append(frame, body...)
+
+	command, decodedBody, err := decodeRocketMQAdminFrame(frame)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if command.Code != 0 || command.Opaque != 9 || command.Flag != 1 {
+		t.Fatalf("unexpected header: %+v", command)
+	}
+	if len(command.ExtFields) != 1 || command.ExtFields["offset"] != "12" {
+		t.Fatalf("unexpected extFields: %#v", command.ExtFields)
+	}
+	if len(decodedBody) != len(body) {
+		t.Fatalf("unexpected body length: %d", len(decodedBody))
+	}
+}
+
+// TestParseRocketMQAdminConsumerConnections 兼容 consumerIdList 与裸数组。
+func TestParseRocketMQAdminConsumerConnections(t *testing.T) {
+	realForm, err := parseRocketMQAdminConsumerConnections([]byte(`{"consumerIdList":["192.168.2.141@28408"]}`))
+	if err != nil || len(realForm) != 1 || realForm[0].ClientID != "192.168.2.141@28408" {
+		t.Fatalf("consumerIdList form: %#v err=%v", realForm, err)
+	}
+	legacyForm, err := parseRocketMQAdminConsumerConnections([]byte(`[{"clientId":"client-x","clientAddr":"10.0.0.9:80"}]`))
+	if err != nil || len(legacyForm) != 1 || legacyForm[0].ClientID != "client-x" {
+		t.Fatalf("array form: %#v err=%v", legacyForm, err)
 	}
 }

@@ -56,6 +56,9 @@ type rocketMQAdminCommand struct {
 }
 
 // rocketMQAdminError 表示 broker/NameServer 返回的非 0 响应码。
+// rocketmqAdminErrGroupNotExist 表示所有可达 broker 都报告订阅组不存在。
+var rocketmqAdminErrGroupNotExist = errors.New("RocketMQ 消费组不存在")
+
 type rocketmqAdminError struct {
 	Code   int16
 	Remark string
@@ -97,6 +100,11 @@ func (c *rocketmqAdminClient) invoke(ctx context.Context, code int16, extFields 
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// ctx 取消/超时立即关闭连接，解除阻塞中的读等待。
+	if stopWatch := context.AfterFunc(ctx, func() { _ = c.conn.Close() }); stopWatch != nil {
+		defer stopWatch()
+	}
 
 	deadline := time.Time{}
 	if rawDeadline, ok := ctx.Deadline(); ok {
@@ -199,10 +207,25 @@ func decodeRocketMQAdminFrame(frame []byte) (*rocketMQAdminCommand, []byte, erro
 type rocketmqAdminGateway struct {
 	nameservers []string
 	timeout     time.Duration
+	// dialContext 仅用于 broker 地址：SSH/代理隧道场景下 NameServer 走
+	// 本地转发地址（普通拨号），而 106 响应返回的 broker 地址是远端真实
+	// 地址（隧道不改写 brokerAddrTable），必须经隧道拨号函数才能到达。
+	dialContext rocketmqDialContextFunc
 }
 
-func newRocketMQAdminGateway(nameservers []string, timeout time.Duration) *rocketmqAdminGateway {
-	return &rocketmqAdminGateway{nameservers: append([]string(nil), nameservers...), timeout: timeout}
+func newRocketMQAdminGateway(nameservers []string, timeout time.Duration, dialContext rocketmqDialContextFunc) *rocketmqAdminGateway {
+	return &rocketmqAdminGateway{nameservers: append([]string(nil), nameservers...), timeout: timeout, dialContext: dialContext}
+}
+
+func (g *rocketmqAdminGateway) dialBroker(ctx context.Context, addr string) (*rocketmqAdminClient, error) {
+	if g.dialContext != nil {
+		conn, err := g.dialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("连接 RocketMQ 管理地址 %s 失败：%w", addr, err)
+		}
+		return &rocketmqAdminClient{addr: addr, conn: conn, timeout: g.timeout}, nil
+	}
+	return dialRocketMQAdminClient(ctx, addr, g.timeout)
 }
 
 type rocketmqAdminClusterBroker struct {
@@ -250,7 +273,7 @@ func (g *rocketmqAdminGateway) subscriptionGroups(ctx context.Context, brokers [
 	groups := make(map[string]struct{})
 	var lastErr error
 	for _, broker := range brokers {
-		client, err := dialRocketMQAdminClient(ctx, broker.Address, g.timeout)
+		client, err := g.dialBroker(ctx, broker.Address)
 		if err != nil {
 			lastErr = err
 			continue
@@ -296,7 +319,7 @@ type rocketmqAdminConsumerConnection struct {
 // consumerConnections 查询一个消费组在指定 broker 上的客户端连接。
 // 组在该 broker 上不存在时返回空列表（err 非空表示真实故障）。
 func (g *rocketmqAdminGateway) consumerConnections(ctx context.Context, brokerAddr string, groupID string) ([]rocketmqAdminConsumerConnection, error) {
-	client, err := dialRocketMQAdminClient(ctx, brokerAddr, g.timeout)
+	client, err := g.dialBroker(ctx, brokerAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +329,7 @@ func (g *rocketmqAdminGateway) consumerConnections(ctx context.Context, brokerAd
 		return nil, err
 	}
 	if response.Code == rocketMQAdminResponseSubscriptionGroupNotExist {
-		return nil, nil
+		return nil, rocketmqAdminErrGroupNotExist
 	}
 	if response.Code != rocketMQAdminResponseSuccess {
 		// broker 对没有在线成员的组返回 SYSTEM_ERROR + "no consumer for
@@ -328,7 +351,7 @@ type rocketmqAdminOffsetEntry struct {
 
 // consumeStats 查询一个消费组在指定 broker 上的全部队列位点。
 func (g *rocketmqAdminGateway) consumeStats(ctx context.Context, brokerAddr string, groupID string) ([]rocketmqAdminOffsetEntry, error) {
-	client, err := dialRocketMQAdminClient(ctx, brokerAddr, g.timeout)
+	client, err := g.dialBroker(ctx, brokerAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +361,7 @@ func (g *rocketmqAdminGateway) consumeStats(ctx context.Context, brokerAddr stri
 		return nil, err
 	}
 	if response.Code == rocketMQAdminResponseSubscriptionGroupNotExist {
-		return nil, nil
+		return nil, rocketmqAdminErrGroupNotExist
 	}
 	if response.Code != rocketMQAdminResponseSuccess {
 		return nil, &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
@@ -532,21 +555,36 @@ func rocketmqAdminLenientJSON(body []byte) []byte {
 		case '"':
 			inString = true
 			out = append(out, ch)
-			stack[len(stack)-1].expectKey = false
-		case '{':
-			if len(stack) > 0 && stack[len(stack)-1].isObject && stack[len(stack)-1].expectKey {
-				// 键位置的对象字面量（fastjson 对 Map<复杂键, ...> 的输出）：
-				// 收集整个平衡对象并转成 JSON 字符串键。
-				objectEnd := i + rocketmqAdminSkipBalancedObject(body[i:])
-				objectJSON := body[i : objectEnd+1]
-				encodedKey, err := json.Marshal(string(objectJSON))
-				if err != nil {
-					return body
-				}
-				out = append(out, encodedKey...)
+			if len(stack) > 0 {
 				stack[len(stack)-1].expectKey = false
-				i = objectEnd
-				continue
+			}
+		case '{':
+			if len(stack) > 0 {
+				println("DEBUG '{' case: i=", i, "depth", len(stack), "isObject", stack[len(stack)-1].isObject, "expectKey", stack[len(stack)-1].expectKey)
+			}
+			if len(stack) > 0 && stack[len(stack)-1].isObject {
+				// fastjson 对 Map<复杂键, ...> 的输出把对象字面量放在键位置：
+				// 形如 "key":{...}:{value}。识别方式：平衡扫描该对象后紧跟
+				// ':' 即为对象键，转成 JSON 字符串键后再正常解析值。
+				objectEnd := i + rocketmqAdminSkipBalancedObject(body[i:])
+				println("DEBUG skip: i=", i, "objectEnd=", objectEnd, "segment=", string(body[i:min(len(body), i+80)]))
+				peek := objectEnd + 1
+				for peek < len(body) && rocketmqAdminIsSpace(body[peek]) {
+					peek++
+				}
+				if peek < len(body) && body[peek] == ':' {
+					println("DEBUG object-key conversion fired at", i)
+					objectJSON := body[i : objectEnd+1]
+					encodedKey, err := json.Marshal(string(objectJSON))
+					if err != nil {
+						return body
+					}
+					out = append(out, encodedKey...)
+					out = append(out, ':')
+					stack[len(stack)-1].expectKey = false
+					i = peek
+					continue
+				}
 			}
 			stack = append(stack, frame{isObject: true, expectKey: true})
 			out = append(out, ch)
@@ -554,16 +592,22 @@ func rocketmqAdminLenientJSON(body []byte) []byte {
 			stack = append(stack, frame{isObject: false, expectKey: false})
 			out = append(out, ch)
 		case '}', ']':
-			stack = stack[:len(stack)-1]
+			// 结构损坏（多余闭合符）时不弹空栈，原样透传交给
+			// json.Unmarshal 报错，避免本函数 panic。
+			if len(stack) > 1 {
+				stack = stack[:len(stack)-1]
+				if len(stack) > 0 {
+					stack[len(stack)-1].expectKey = false
+				}
+			}
+			out = append(out, ch)
+		case ':':
 			if len(stack) > 0 {
 				stack[len(stack)-1].expectKey = false
 			}
 			out = append(out, ch)
-		case ':':
-			stack[len(stack)-1].expectKey = false
-			out = append(out, ch)
 		case ',':
-			if stack[len(stack)-1].isObject {
+			if len(stack) > 0 && stack[len(stack)-1].isObject {
 				stack[len(stack)-1].expectKey = true
 			}
 			out = append(out, ch)
@@ -588,6 +632,10 @@ func rocketmqAdminLenientJSON(body []byte) []byte {
 		}
 	}
 	return out
+}
+
+func rocketmqAdminIsSpace(ch byte) bool {
+	return ch == ' ' || ch == 9 || ch == 10 || ch == 13
 }
 
 func rocketmqAdminIsDigit(ch byte) bool {
