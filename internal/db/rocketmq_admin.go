@@ -38,6 +38,8 @@ const (
 	rocketMQAdminCodeGetConsumerListByGroup        = int16(38)
 	rocketMQAdminCodeGetAllSubscriptionGroupConfig = int16(201)
 	rocketMQAdminCodeGetConsumeStats               = int16(208)
+	rocketMQAdminCodeGetAllConsumerOffset          = int16(43)
+	rocketMQAdminCodeGetMaxOffset                  = int16(30)
 
 	rocketMQAdminResponseSuccess                   = int16(0)
 	rocketMQAdminResponseSubscriptionGroupNotExist = int16(26)
@@ -372,7 +374,136 @@ func (g *rocketmqAdminGateway) consumeStats(ctx context.Context, brokerAddr stri
 	if response.Code != rocketMQAdminResponseSuccess {
 		return nil, &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
 	}
-	return parseRocketMQAdminConsumeStats(body)
+	entries, err := parseRocketMQAdminConsumeStats(body)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) > 0 {
+		return entries, nil
+	}
+	// GET_CONSUME_STATS 依赖 broker 的运行时消费组注册状态：组没有在线
+	// 消费者时即使持久化位点存在也返回空表。回退到 GET_ALL_CONSUMER_OFFSET
+	// （持久化位点全表）+ GET_MAX_OFFSET 补全位点与 Lag。
+	return g.offsetsFromAllConsumerOffsets(ctx, brokerAddr, groupID)
+}
+
+// offsetsFromAllConsumerOffsets 经 GET_ALL_CONSUMER_OFFSET(43) 读取
+// broker 持久化位点全表，再逐队列用 GET_MAX_OFFSET(30) 取末端位点。
+func (g *rocketmqAdminGateway) offsetsFromAllConsumerOffsets(ctx context.Context, brokerAddr string, groupID string) ([]rocketmqAdminOffsetEntry, error) {
+	client, err := g.dialBroker(ctx, brokerAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.Close() }()
+
+	response, body, err := client.invoke(ctx, rocketMQAdminCodeGetAllConsumerOffset, nil)
+	if err != nil {
+		return nil, err
+	}
+	if response.Code != rocketMQAdminResponseSuccess {
+		return nil, &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
+	}
+	groupOffsets, err := parseRocketMQAdminAllConsumerOffsets(body, groupID)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]rocketmqAdminOffsetEntry, 0, len(groupOffsets))
+	for _, offsetEntry := range groupOffsets {
+		brokerOffset, maxErr := g.maxOffset(ctx, brokerAddr, offsetEntry.Topic, offsetEntry.QueueID)
+		if maxErr != nil {
+			return nil, maxErr
+		}
+		consumerOffset := offsetEntry.ConsumerOffset
+		entry := rocketmqAdminOffsetEntry{
+			Topic:          offsetEntry.Topic,
+			QueueID:        offsetEntry.QueueID,
+			ConsumerOffset: consumerOffset,
+			BrokerOffset:   brokerOffset,
+		}
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Topic != entries[j].Topic {
+			return entries[i].Topic < entries[j].Topic
+		}
+		return entries[i].QueueID < entries[j].QueueID
+	})
+	return entries, nil
+}
+
+// maxOffset 查询指定队列的末端位点（GET_MAX_OFFSET，响应 extFields 的 offset）。
+func (g *rocketmqAdminGateway) maxOffset(ctx context.Context, brokerAddr string, topic string, queueID int) (*int64, error) {
+	client, err := g.dialBroker(ctx, brokerAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = client.Close() }()
+	response, body, err := client.invoke(ctx, rocketMQAdminCodeGetMaxOffset, map[string]string{
+		"topic":   topic,
+		"queueId": strconv.Itoa(queueID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if response.Code != rocketMQAdminResponseSuccess {
+		return nil, &rocketmqAdminError{Code: response.Code, Remark: response.Remark}
+	}
+	if raw, ok := response.ExtFields["offset"]; ok {
+		if value, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); parseErr == nil {
+			return &value, nil
+		}
+	}
+	var decoded struct {
+		Offset *int64 `json:"offset"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &decoded); err == nil && decoded.Offset != nil {
+			return decoded.Offset, nil
+		}
+	}
+	return nil, fmt.Errorf("GET_MAX_OFFSET 响应缺少 offset 字段")
+}
+
+// parseRocketMQAdminAllConsumerOffsets 解析 GET_ALL_CONSUMER_OFFSET 响应：
+// {"offsetTable":{"topic@group":{queueId: offset}}}，键的数字为裸数字，
+// 由 rocketmqAdminLenientJSON 修复；按组名过滤出目标组的条目。
+func parseRocketMQAdminAllConsumerOffsets(body []byte, groupID string) ([]rocketmqAdminOffsetEntry, error) {
+	var wrapper struct {
+		OffsetTable map[string]json.RawMessage `json:"offsetTable"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(rocketmqAdminLenientJSON(body), &wrapper); err != nil {
+			return nil, fmt.Errorf("解析消费位点全表失败：%w", err)
+		}
+	}
+	entries := make([]rocketmqAdminOffsetEntry, 0)
+	for key, raw := range wrapper.OffsetTable {
+		index := strings.LastIndex(key, "@")
+		if index <= 0 {
+			continue
+		}
+		topic := strings.TrimSpace(key[:index])
+		group := strings.TrimSpace(key[index+1:])
+		if group != groupID || topic == "" {
+			continue
+		}
+		var queueOffsets map[string]*int64
+		if err := json.Unmarshal(raw, &queueOffsets); err != nil {
+			return nil, fmt.Errorf("解析组 %s 的队列位点失败：%w", group, err)
+		}
+		for queueKey, offset := range queueOffsets {
+			queueID, parseErr := strconv.Atoi(strings.TrimSpace(queueKey))
+			if parseErr != nil {
+				continue
+			}
+			entries = append(entries, rocketmqAdminOffsetEntry{
+				Topic:          topic,
+				QueueID:        queueID,
+				ConsumerOffset: offset,
+			})
+		}
+	}
+	return entries, nil
 }
 
 type rocketmqAdminClusterInfo struct {

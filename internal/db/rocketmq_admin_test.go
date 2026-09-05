@@ -433,6 +433,10 @@ func TestRocketMQAdminGatewayDialsBrokersThroughTunnel(t *testing.T) {
 	broker.handlers[rocketMQAdminCodeGetConsumeStats] = func(*rocketMQAdminCommand) (int16, string, []byte) {
 		return 0, "", []byte(`{"consumeTps":0,"offsetTable":{}}`)
 	}
+	// 208 空表触发回退路径：43 全表为空 + 30 不会被调用（无队列条目）。
+	broker.handlers[rocketMQAdminCodeGetAllConsumerOffset] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 0, "", []byte(`{"offsetTable":{}}`)
+	}
 	broker.start(t)
 
 	dialed := make(chan string, 1)
