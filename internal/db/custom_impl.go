@@ -102,7 +102,7 @@ func (c *CustomDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, c.scanDialect())
+	return scanRowsForDialectContext(ctx, rows, c.scanDialect())
 }
 
 func (c *CustomDB) Query(query string) ([]map[string]interface{}, []string, error) {

@@ -121,19 +121,22 @@ func (executor *MCPQueryExecutor) DBQueryMulti(
 	dbName string,
 	query string,
 ) connection.QueryResult {
-	return executor.DBQueryMultiContext(context.Background(), config, dbName, query)
+	return executor.DBQueryMultiContext(context.Background(), config, dbName, query, 0)
 }
 
 // DBQueryMultiContext binds an MCP request lifecycle to the underlying
 // database query. This keeps an HTTP client disconnect or stdio shutdown from
 // leaving a query running after its MCP caller has gone away.
+// maxRowsPerResult 是每个结果集的物化行数上限（0 表示不限制）：达到上限后
+// db 层停止读取行并释放连接，避免在完整物化后才截断。
 func (executor *MCPQueryExecutor) DBQueryMultiContext(
 	ctx context.Context,
 	config connection.ConnectionConfig,
 	dbName string,
 	query string,
+	maxRowsPerResult int,
 ) connection.QueryResult {
-	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, true)
+	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, true, maxRowsPerResult)
 }
 
 // DBQueryMultiAuthorizedContext is the MCP execution boundary. It resolves
@@ -147,8 +150,9 @@ func (executor *MCPQueryExecutor) DBQueryMultiAuthorizedContext(
 	dbName string,
 	query string,
 	allowMutating bool,
+	maxRowsPerResult int,
 ) connection.QueryResult {
-	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating)
+	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating, maxRowsPerResult)
 }
 
 func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
@@ -157,6 +161,7 @@ func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
 	dbName string,
 	query string,
 	allowMutating bool,
+	maxRowsPerResult int,
 ) connection.QueryResult {
 	if executor == nil || executor.app == nil {
 		return connection.QueryResult{Success: false, Message: "MCP query executor is unavailable"}
@@ -178,6 +183,7 @@ func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
 		auditWrites:      true,
 		source:           "mcp",
 		executionContext: ctx,
+		RowBudget:        maxRowsPerResult,
 	})
 }
 

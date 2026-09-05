@@ -946,7 +946,7 @@ func (m *MySQLDB) QueryMultiContext(ctx context.Context, query string) ([]connec
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRowsForDialect(rows, "mysql")
+	return scanMultiRowsForDialectContext(ctx, rows, "mysql")
 }
 
 func (m *MySQLDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
@@ -960,7 +960,7 @@ func (m *MySQLDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, "mysql")
+	return scanRowsForDialectContext(ctx, rows, "mysql")
 }
 
 func (m *MySQLDB) Query(query string) ([]map[string]interface{}, []string, error) {

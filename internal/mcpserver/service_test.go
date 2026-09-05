@@ -15,30 +15,31 @@ import (
 )
 
 type fakeBackend struct {
-	savedConnections    []connection.SavedConnectionView
-	savedConnectionsErr error
-	editableConnection  connection.SavedConnectionView
-	editableErr         error
-	databasesResult     connection.QueryResult
-	tablesResult        connection.QueryResult
-	viewsResult         connection.QueryResult
-	objectsResult       connection.QueryResult
-	allColumnsResult    connection.QueryResult
-	columnsResult       connection.QueryResult
-	indexesResult       connection.QueryResult
-	foreignKeysResult   connection.QueryResult
-	triggersResult      connection.QueryResult
-	ddlResult           connection.QueryResult
-	queryResult         connection.QueryResult
-	inspection          appcore.SQLInspection
-	safetyLevel         ai.SQLPermissionLevel
-	queryCalled         bool
-	queryContext        context.Context
-	authorizeErr        error
-	authorizeCalls      int
-	authorizedConfig    connection.ConnectionConfig
-	authorizedSQL       string
-	events              []string
+	savedConnections      []connection.SavedConnectionView
+	savedConnectionsErr   error
+	editableConnection    connection.SavedConnectionView
+	editableErr           error
+	databasesResult       connection.QueryResult
+	tablesResult          connection.QueryResult
+	viewsResult           connection.QueryResult
+	objectsResult         connection.QueryResult
+	allColumnsResult      connection.QueryResult
+	columnsResult         connection.QueryResult
+	indexesResult         connection.QueryResult
+	foreignKeysResult     connection.QueryResult
+	triggersResult        connection.QueryResult
+	ddlResult             connection.QueryResult
+	queryResult           connection.QueryResult
+	inspection            appcore.SQLInspection
+	safetyLevel           ai.SQLPermissionLevel
+	queryCalled           bool
+	queryContext          context.Context
+	queryMaxRowsPerResult int
+	authorizeErr          error
+	authorizeCalls        int
+	authorizedConfig      connection.ConnectionConfig
+	authorizedSQL         string
+	events                []string
 }
 
 type cancellableTablesBackend struct {
@@ -139,9 +140,10 @@ func (f *fakeBackend) DBShowCreateTable(context.Context, connection.ConnectionCo
 	return f.ddlResult
 }
 
-func (f *fakeBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
+func (f *fakeBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string, maxRowsPerResult int) connection.QueryResult {
 	f.queryCalled = true
 	f.queryContext = ctx
+	f.queryMaxRowsPerResult = maxRowsPerResult
 	f.events = append(f.events, "query")
 	return f.queryResult
 }
@@ -1425,4 +1427,160 @@ func firstTextContent(result *mcp.CallToolResult) string {
 		return ""
 	}
 	return text.Text
+}
+
+func TestExecuteSQLForwardsNormalizedMaxRowsPerResult(t *testing.T) {
+	cases := []struct {
+		name string
+		arg  int
+		want int
+	}{
+		{name: "unset falls back to default", arg: 0, want: defaultMaxRowsPerResult},
+		{name: "above limit clamps to limit", arg: 5000, want: maxRowsPerResultLimit},
+		{name: "explicit value passes through", arg: 120, want: 120},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeBackend{
+				editableConnection: connection.SavedConnectionView{
+					ID:     "mysql-main",
+					Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+				},
+				inspection: appcore.SQLInspection{
+					StatementCount: 1,
+					ReadOnly:       true,
+					Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}},
+				},
+				queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{}},
+			}
+			service := NewService(backend)
+			result, _, err := service.ExecuteSQL(context.Background(), nil, executeSQLArgs{
+				ConnectionID:     "mysql-main",
+				SQL:              "select 1",
+				MaxRowsPerResult: tc.arg,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteSQL returned error: %v", err)
+			}
+			if result == nil || result.IsError {
+				t.Fatalf("expected success result, got %#v", result)
+			}
+			if backend.queryMaxRowsPerResult != tc.want {
+				t.Fatalf("backend received maxRowsPerResult=%d, want %d", backend.queryMaxRowsPerResult, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecuteSQLSurfacesBudgetTruncation(t *testing.T) {
+	rows := make([]map[string]interface{}, 0, 50)
+	for i := 1; i <= 50; i++ {
+		rows = append(rows, map[string]interface{}{"id": int64(i)})
+	}
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       true,
+			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}},
+		},
+		queryResult: connection.QueryResult{
+			Success:       true,
+			QueryID:       "query-budget",
+			ExecutedCount: 1,
+			Data: []connection.ResultSetData{{
+				StatementIndex: 1,
+				Columns:        []string{"id"},
+				Rows:           rows,
+				Truncated:      true,
+			}},
+		},
+	}
+
+	service := NewService(backend)
+	result, out, err := service.ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "mysql-main",
+		SQL:          "select id from users",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected success result, got %#v", result)
+	}
+	if !out.Truncated || len(out.Results) != 1 || !out.Results[0].Truncated {
+		t.Fatalf("expected truncated output, got %#v", out)
+	}
+	if out.Results[0].RowCount != 50 || len(out.Results[0].Rows) != 50 {
+		t.Fatalf("unexpected row counts: rowCount=%d rows=%d", out.Results[0].RowCount, len(out.Results[0].Rows))
+	}
+	foundBudgetNote := false
+	for _, message := range out.Results[0].Messages {
+		if strings.Contains(message, "剩余行未读取") {
+			foundBudgetNote = true
+		}
+	}
+	if !foundBudgetNote {
+		t.Fatalf("expected budget truncation note in messages: %#v", out.Results[0].Messages)
+	}
+	if text := firstTextContent(result); !strings.Contains(text, "已达每结果集行数上限") {
+		t.Fatalf("expected budget truncation wording in content: %q", text)
+	}
+}
+
+func TestExecuteSQLNotesStatementsSkippedByRowBudget(t *testing.T) {
+	rows := make([]map[string]interface{}, 0, 50)
+	for i := 1; i <= 50; i++ {
+		rows = append(rows, map[string]interface{}{"id": int64(i)})
+	}
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 3,
+			ReadOnly:       true,
+			Statements: []appcore.SQLStatementInspection{
+				{Index: 1, Keyword: "select", ReadOnly: true},
+				{Index: 2, Keyword: "select", ReadOnly: true},
+				{Index: 3, Keyword: "select", ReadOnly: true},
+			},
+		},
+		queryResult: connection.QueryResult{
+			Success:       true,
+			QueryID:       "query-skip",
+			ExecutedCount: 1,
+			Data: []connection.ResultSetData{{
+				StatementIndex: 1,
+				Columns:        []string{"id"},
+				Rows:           rows,
+				Truncated:      true,
+			}},
+		},
+	}
+
+	service := NewService(backend)
+	result, out, err := service.ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "mysql-main",
+		SQL:          "select id from users; select id from orders; select id from items",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected success result, got %#v", result)
+	}
+	if !out.Truncated {
+		t.Fatalf("expected truncated output, got %#v", out)
+	}
+	if !strings.Contains(out.Message, "剩余 2 条语句未执行") {
+		t.Fatalf("expected skipped-statement note in message: %q", out.Message)
+	}
+	if text := firstTextContent(result); !strings.Contains(text, "剩余 2 条语句未执行") {
+		t.Fatalf("expected skipped-statement note in content: %q", text)
+	}
 }
