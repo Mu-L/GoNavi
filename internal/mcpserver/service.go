@@ -637,10 +637,19 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 			OutcomeUnknown:    queryResult.OutcomeUnknown,
 			Statements:        toStatementSummaries(inspection.Statements),
 		}
+		var failureText string
 		if queryResult.CancellationState != "" {
-			return toolError("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message)), failure, nil
+			failureText = fmt.Sprintf("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message))
+		} else {
+			failureText = fmt.Sprintf("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message))
 		}
-		return toolError("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message)), failure, nil
+		if queryResult.OutcomeUnknown {
+			// 结果未知的错误对 Agent 不是普通失败：底层语句可能已生效，
+			// 自动重试非幂等写入会造成重复数据。错误文本必须显式传达
+			// 禁止重试契约；结构化输出同时携带 outcomeUnknown 标记。
+			failureText += "\n" + unknownSQLOutcomeGuidance
+		}
+		return toolError("%s", failureText), failure, nil
 	}
 
 	resultSets, err := decodeResultSets(queryResult.Data)
@@ -684,6 +693,11 @@ func textResult(text string) *mcp.CallToolResult {
 		},
 	}
 }
+
+// unknownSQLOutcomeGuidance 把 QueryResult.OutcomeUnknown 的禁止重试契约
+// 转达给 MCP 客户端：结果未知意味着语句可能已生效，与可安全重试的
+// 确定性失败（如语法错误、约束冲突）不同。
+const unknownSQLOutcomeGuidance = "执行结果未知：连接中断、超时或提交响应丢失，无法确认语句是否已在服务端生效。请勿自动重试该语句（尤其是非幂等写入），请先查询核实实际结果后再决定后续操作。"
 
 func toolError(format string, args ...interface{}) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
