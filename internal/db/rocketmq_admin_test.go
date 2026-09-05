@@ -412,3 +412,50 @@ func TestParseRocketMQAdminConsumerConnections(t *testing.T) {
 		t.Fatalf("array form: %#v err=%v", legacyForm, err)
 	}
 }
+
+// TestRocketMQAdminGatewayDialsBrokersThroughTunnel 验证 SSH/代理场景：
+// 集群信息返回的远端 broker 地址经注入的 dialContext 拨号（隧道转发），
+// 而不是裸直连。
+func TestRocketMQAdminGatewayDialsBrokersThroughTunnel(t *testing.T) {
+	broker := newFakeRocketMQAdminBroker(t, map[int16]func(*rocketMQAdminCommand) (int16, string, []byte){})
+	broker.handlers[rocketMQAdminCodeGetBrokerClusterInfo] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 0, "", rocketMQAdminJSON(t, map[string]interface{}{
+			"brokerAddrTable": map[string]interface{}{
+				"broker-a": map[string]interface{}{
+					"brokerName":  "broker-a",
+					"brokerAddrs": map[string]interface{}{"0": "10.0.0.1:10911"},
+				},
+			},
+		})
+	}
+	broker.handlers[rocketMQAdminCodeGetConsumeStats] = func(*rocketMQAdminCommand) (int16, string, []byte) {
+		return 0, "", []byte(`{"consumeTps":0,"offsetTable":{}}`)
+	}
+	broker.start(t)
+
+	dialed := make(chan string, 1)
+	gateway := newRocketMQAdminGateway([]string{broker.addr()}, time.Second, func(ctx context.Context, network, address string) (net.Conn, error) {
+		select {
+		case dialed <- address:
+		default:
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, broker.addr())
+	})
+
+	stats, err := gateway.consumeStats(context.Background(), "10.0.0.1:10911", "orders-group")
+	if err != nil {
+		t.Fatalf("consumeStats through tunnel dialer: %v", err)
+	}
+	if len(stats) != 0 {
+		t.Fatalf("expected empty offset table, got %#v", stats)
+	}
+	select {
+	case addr := <-dialed:
+		if addr != "10.0.0.1:10911" {
+			t.Fatalf("unexpected tunneled address: %q", addr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("broker dial did not go through the injected dialer")
+	}
+}
