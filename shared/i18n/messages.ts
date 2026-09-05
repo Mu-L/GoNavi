@@ -822,7 +822,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.card.status.builtIn": "内置驱动，可直接连接。",
     "driver.modal.card.status.runtimeAvailable": "纯 Go 驱动已启用，可直接连接。",
     "driver.modal.card.status.needsUpdate":
-      "需要重装以应用驱动侧更新。",
+      "驱动组件有更新，建议重装以获得最新修复与兼容性改进；当前版本仍可正常使用。",
     "driver.modal.card.status.installedRevision":
       "已安装 revision {revision}。",
     "driver.modal.card.status.expectedRevision":
@@ -1796,7 +1796,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.card.status.builtIn": "Built-in driver, ready to connect.",
     "driver.modal.card.status.runtimeAvailable": "Pure Go driver is enabled and ready to connect.",
     "driver.modal.card.status.needsUpdate":
-      "Reinstall required to apply driver updates.",
+      "The driver component has an update. Reinstall to get the latest fixes and compatibility improvements; the current version still works.",
     "driver.modal.card.status.installedRevision":
       "installed revision {revision}.",
     "driver.modal.card.status.expectedRevision":

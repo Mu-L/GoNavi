@@ -275,7 +275,7 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.className).toBe('driver-manager-progress driver-manager-progress-lg');
   });
 
-  it('keeps complete driver workbench cards inside the embedded tab view', async () => {
+  it('keeps the embedded tab view as a two-pane driver workbench', async () => {
     let embeddedRenderer: ReactTestRenderer;
     await act(async () => {
       embeddedRenderer = create(<DriverManagerModal open embedded onClose={vi.fn()} />);
@@ -284,11 +284,12 @@ describe('DriverManagerModal toolbar actions', () => {
 
     const embeddedShell = embeddedRenderer!.root.findByProps({ className: 'driver-manager-shell is-embedded' });
     const embeddedLayout = embeddedRenderer!.root.findByProps({ className: 'driver-manager-embedded-layout' });
-    const embeddedCard = embeddedShell.findByProps({ className: 'driver-manager-card' });
     expect(embeddedLayout.children[0]).toBe(embeddedShell);
     expect(embeddedLayout.findByProps({ className: 'driver-manager-footer-actions' })).toBeTruthy();
-    expect(embeddedCard.props.style.border).not.toBe('none');
-    expect(embeddedCard.props.style.background).not.toBe('transparent');
+    // DuckDB is auto-selected; its controls render inside the detail pane.
+    const detail = embeddedShell.findByProps({ className: 'driver-manager-detail' });
+    expect(detail.findByProps({ className: 'driver-manager-title-row' })).toBeTruthy();
+    expect(detail.findByProps({ className: 'driver-manager-detail-controls' })).toBeTruthy();
     expect(findButton(embeddedRenderer!, t('driver.modal.card.action.install')).props.size).toBe('small');
     expect(embeddedRenderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
 
@@ -299,8 +300,7 @@ describe('DriverManagerModal toolbar actions', () => {
     await flushPromises();
 
     const modalShell = modalRenderer!.root.findByProps({ className: 'driver-manager-shell' });
-    const modalCard = modalShell.findByProps({ className: 'driver-manager-card' });
-    expect(modalCard.props.style.background).not.toBe('transparent');
+    expect(modalShell.findByProps({ className: 'driver-manager-detail' })).toBeTruthy();
     expect(findButton(modalRenderer!, t('driver.modal.card.action.install')).props.size).toBeUndefined();
   });
 

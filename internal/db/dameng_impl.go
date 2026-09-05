@@ -176,7 +176,7 @@ func (d *DamengDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (d *DamengDB) Query(query string) ([]map[string]interface{}, []string, error) {

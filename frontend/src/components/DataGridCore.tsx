@@ -254,6 +254,42 @@ const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | nu
         colName: cellKey.slice(sepIndex + CELL_KEY_SEP.length),
     };
 };
+const buildDataGridCellSelectionRectangle = ({
+    startRowIndex,
+    startColIndex,
+    endRowIndex,
+    endColIndex,
+    rows,
+    columnNames,
+    rowKeyField = GONAVI_ROW_KEY,
+    canSelectColumn = () => true,
+}: {
+    startRowIndex: number;
+    startColIndex: number;
+    endRowIndex: number;
+    endColIndex: number;
+    rows: Array<Record<string, any>>;
+    columnNames: string[];
+    rowKeyField?: string;
+    canSelectColumn?: (columnName: string) => boolean;
+}): Set<string> => {
+    const selectedCells = new Set<string>();
+    const minRowIndex = Math.min(startRowIndex, endRowIndex);
+    const maxRowIndex = Math.max(startRowIndex, endRowIndex);
+    const minColIndex = Math.min(startColIndex, endColIndex);
+    const maxColIndex = Math.max(startColIndex, endColIndex);
+
+    for (let rowIndex = minRowIndex; rowIndex <= maxRowIndex; rowIndex++) {
+        const rowKey = rows[rowIndex]?.[rowKeyField];
+        if (rowKey === undefined || rowKey === null) continue;
+        for (let colIndex = minColIndex; colIndex <= maxColIndex; colIndex++) {
+            const columnName = columnNames[colIndex];
+            if (!columnName || !canSelectColumn(columnName)) continue;
+            selectedCells.add(makeCellKey(String(rowKey), columnName));
+        }
+    }
+    return selectedCells;
+};
 const collectDataGridCellSelectionRowKeys = (cellKeys: Iterable<string>): string[] => {
     const rowKeys = new Set<string>();
     for (const cellKey of cellKeys) {
@@ -2002,6 +2038,7 @@ export {
     useDataGridI18nLanguage,
     makeCellKey,
     splitCellKey,
+    buildDataGridCellSelectionRectangle,
     collectDataGridCellSelectionRowKeys,
     filterDataGridCellSelectionToVisibleRows,
     resolveDataGridCellSelectionAnchor,

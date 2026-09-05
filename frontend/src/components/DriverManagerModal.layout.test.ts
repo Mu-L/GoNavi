@@ -75,25 +75,35 @@ const readCssRule = (selector: string): string => {
 };
 
 describe('DriverManagerModal embedded layout', () => {
-  it('keeps the reference workbench cards, stats, and desktop actions intact', () => {
+  it('keeps the two-pane master-detail driver workbench layout', () => {
+    // Two-pane body: fixed-width driver list pane + fluid detail pane.
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-hero\s*\{[^}]*padding:\s*16px 18px[^}]*border-radius:\s*12px/s,
+      /\.driver-manager-columns\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(280px, 360px\) minmax\(0, 1fr\)/s,
     );
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-hero \.driver-manager-stats\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s,
+      /\.driver-manager-list-pane\s*\{[^}]*padding-right:\s*16px[^}]*border-right:\s*1px solid/s,
+    );
+    // List rows are quiet selectable items with a soft selected state.
+    expect(appCss).toMatch(
+      /\.driver-manager-list-item\.is-selected\s*\{[^}]*background:\s*rgba\(22, 119, 255, 0\.10\)/s,
     );
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-list\s*\{[^}]*gap:\s*10px[^}]*border-top:\s*0/s,
+      /\.driver-manager-list-item-meta\s*\{[^}]*text-overflow:\s*ellipsis/s,
     );
+    // Detail pane holds the selected driver's controls.
+    expect(appCss).toMatch(/\.driver-manager-detail-controls\s*\{/);
+    // Bulk operations live on a slim bar above the panes.
+    expect(appCss).toMatch(/\.driver-manager-bulkbar\s*\{[^}]*display:\s*flex/s);
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card\s*\{[^}]*padding:\s*16px[^}]*border-radius:\s*12px/s,
+      /\.driver-manager-bulkbar-dir\s*\{[^}]*margin-left:\s*auto/s,
     );
+    // Footer: ambient network status left, action buttons right.
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card-actions\s*\{[^}]*justify-content:\s*flex-end/s,
+      /\.driver-manager-footer-actions\s*\{[^}]*justify-content:\s*space-between/s,
     );
-    expect(appCss).toMatch(
-      /@container driver-card \(max-width: 780px\)\s*\{[\s\S]*?\.driver-manager-shell\.is-embedded \.driver-manager-card-body\s*\{[^}]*flex-direction:\s*column/s,
-    );
+    // The old single-column card list chrome is gone.
+    expect(appCss).not.toMatch(/\.driver-manager-card\s[{,]/);
+    expect(appCss).not.toMatch(/@container driver-card/);
     expect(appCss).toMatch(
       /\.driver-manager-control-block\s*\{[^}]*min-width:\s*0/s,
     );

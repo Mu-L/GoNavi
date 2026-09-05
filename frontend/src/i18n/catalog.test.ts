@@ -353,6 +353,9 @@ describe("i18n catalog", () => {
       "app.theme.query_template.reset_default",
       "app.theme.query_template.title",
       "app.theme.table_alias.description",
+      "app.theme.table_alias.custom_prefix.description",
+      "app.theme.table_alias.custom_prefix.placeholder",
+      "app.theme.table_alias.custom_prefix.title",
       "app.theme.table_alias.title",
       "app.theme.theme_settings_description",
       "app.theme.theme_settings_title",
@@ -381,6 +384,11 @@ describe("i18n catalog", () => {
     expect(v2Source).toContain("app.theme.table_alias.title");
     expect(v2Source).toContain("app.theme.table_alias.description");
     expect(v2Source).toContain("setAppearance({ autoAddTableAlias: checked })");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.title");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.description");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.placeholder");
+    expect(v2Source).toContain("setAppearance({ customTableAliasPrefixEnabled: checked })");
+    expect(v2Source).toContain("setAppearance({ customTableAliasPrefix: event.target.value })");
   });
 
   it("includes App shortcut modal keys required by every supported language", () => {

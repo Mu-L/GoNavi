@@ -363,6 +363,8 @@ type ResultSetData struct {
 	Columns        []string                 `json:"columns"`
 	Messages       []string                 `json:"messages,omitempty"`
 	StatementIndex int                      `json:"statementIndex,omitempty"`
+	// Truncated 表示该结果集达到调用方行预算后停止读取，行数可能不完整。
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 const QueryCancellationStateUnsupported = "unsupported"

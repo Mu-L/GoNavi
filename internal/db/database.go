@@ -541,7 +541,7 @@ func (e *sqlConnStatementExecer) QueryContext(ctx context.Context, query string)
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRowsForDialect(rows, e.scanDialect)
+	return scanRowsForDialectContext(ctx, rows, e.scanDialect)
 }
 
 func (e *sqlConnStatementExecer) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -573,7 +573,7 @@ func (e *sqlConnStatementExecer) QueryMultiContext(ctx context.Context, query st
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRowsForDialect(rows, e.scanDialect)
+	return scanMultiRowsForDialectContext(ctx, rows, e.scanDialect)
 }
 
 func (e *sqlConnStatementExecer) QueryMulti(query string) ([]connection.ResultSetData, error) {
@@ -688,7 +688,7 @@ func (e *sqlConnTransactionExecer) QueryContext(ctx context.Context, query strin
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRowsForDialect(rows, e.scanDialect)
+	return scanRowsForDialectContext(ctx, rows, e.scanDialect)
 }
 
 func (e *sqlConnTransactionExecer) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -722,7 +722,7 @@ func (e *sqlConnTransactionExecer) QueryMultiContext(ctx context.Context, query 
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRowsForDialect(rows, e.scanDialect)
+	return scanMultiRowsForDialectContext(ctx, rows, e.scanDialect)
 }
 
 func (e *sqlConnTransactionExecer) QueryMulti(query string) ([]connection.ResultSetData, error) {
@@ -891,7 +891,7 @@ func (e *sqlTxStatementExecer) QueryContext(ctx context.Context, query string) (
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (e *sqlTxStatementExecer) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -925,7 +925,7 @@ func (e *sqlTxStatementExecer) QueryMultiContext(ctx context.Context, query stri
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRows(rows)
+	return scanMultiRowsContext(ctx, rows)
 }
 
 func (e *sqlTxStatementExecer) QueryMulti(query string) ([]connection.ResultSetData, error) {

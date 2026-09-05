@@ -272,7 +272,7 @@ func (o *OracleDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, o.scanDialect)
+	return scanRowsForDialectContext(ctx, rows, o.scanDialect)
 }
 
 func (o *OracleDB) Query(query string) ([]map[string]interface{}, []string, error) {

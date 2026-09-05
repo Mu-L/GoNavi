@@ -73,16 +73,20 @@ jobs:
           set -euo pipefail
           mkdir -p frontend/dist
           printf '<!doctype html><title>GoNavi</title>\n' > frontend/dist/index.html
+          cp tools/stub-dist.zip frontend/dist.zip
           wails generate module
           node frontend/scripts/wails-frontend-install.mjs
           npm --prefix frontend run build
+          test -s frontend/dist.zip
 
       - name: Test frontend virtual scrolling
         run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/DataGrid.layout.test.tsx
 
       - name: Pack frontend dist
         shell: bash
-        run: tar -cf frontend-dist.tar -C frontend/dist .
+        run: |
+          test -s frontend/dist.zip
+          tar -cf frontend-dist.tar -C frontend/dist . -C frontend dist.zip
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v6
@@ -579,6 +583,9 @@ jobs:
           test -s frontend-artifact/frontend-dist.tar
           tar -xf frontend-artifact/frontend-dist.tar -C frontend/dist
           test -s frontend/dist/index.html
+          # dist.zip 与 dist 内容一起打在 tar 里,移到 frontend/ 下供 go:embed
+          mv frontend/dist/dist.zip frontend/dist.zip
+          test -s frontend/dist.zip
 
       - name: Install WiX Toolset (Windows)
         if: contains(matrix.platform, 'windows')
@@ -1102,14 +1109,18 @@ jobs:
               exit 1
           }
 
-          Write-Host "ℹ️ 保留 Wails 原始 Windows EXE，避免可执行文件打包器增加杀毒软件误报。"
+          Write-Host "ℹ️ 便携版 EXE 采用 7z SFX 静默自解压（官方 LZMA SDK 7zSD.sfx，版本+SHA256 锁定，双击无感启动）。"
 
           $releaseRoot = (Resolve-Path -LiteralPath "..\\..").Path
           $licenseFile = (Resolve-Path -LiteralPath "..\\..\\LICENSE").Path
           $noticeFile = (Resolve-Path -LiteralPath "..\\..\\NOTICE").Path
 
-          Write-Host "📦 输出旧客户端兼容 EXE $portableExeName..."
-          Copy-Item -LiteralPath $finalExe -Destination (Join-Path $releaseRoot $portableExeName) -Force
+          Write-Host "📦 输出 7z SFX 便携版 EXE $portableExeName..."
+          $finalExePath = (Resolve-Path -LiteralPath $finalExe).Path
+          & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
+          if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
+              throw "SFX 便携版 EXE 生成失败: $portableExeName"
+          }
 
           $portableDir = Join-Path $env:RUNNER_TEMP "gonavi-portable-$archName"
           if (Test-Path -LiteralPath $portableDir) {
