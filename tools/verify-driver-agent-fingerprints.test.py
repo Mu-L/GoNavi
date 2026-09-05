@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 
 import importlib.util
 import json
@@ -67,7 +67,7 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
             assets_dir = tmpdir / "release-assets"
             write_agent(assets_dir / "drivers" / "Windows" / "sphinx-driver-agent-windows-amd64.exe", SPHINX_REVISION)
 
-            # zip 成员里的 agent 同样要被扫到（打包后的发布形态）
+            # zip 鎴愬憳閲岀殑 agent 鍚屾牱瑕佽鎵埌锛堟墦鍖呭悗鐨勫彂甯冨舰鎬侊級
             import zipfile
             zip_path = assets_dir / "sqlserver-driver-agent-linux-amd64.zip"
             with zipfile.ZipFile(zip_path, "w") as archive:
@@ -77,7 +77,7 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
                 "windows/amd64": {"sphinx": SPHINX_REVISION},
                 "linux/amd64": {"sqlserver": SQLSERVER_REVISION},
             }
-            checked, failures = module.verify_binaries(assets_dir, maps)
+            checked, failures, skipped = module.verify_binaries(assets_dir, maps)
             self.assertEqual(2, checked)
             self.assertEqual([], failures)
 
@@ -89,7 +89,7 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
                 assets_dir / "drivers" / "Windows" / "sphinx-driver-agent-windows-amd64.exe",
                 STALE_REVISION,
             )
-            checked, failures = module.verify_binaries(
+            checked, failures, skipped = module.verify_binaries(
                 assets_dir, {"windows/amd64": {"sphinx": SPHINX_REVISION}}
             )
             self.assertEqual(1, checked)
@@ -108,7 +108,7 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
             ambiguous.write_bytes(
                 b"x" + ("src-" + "a" * 16).encode("ascii") + b"y" + ("src-" + "b" * 16).encode("ascii")
             )
-            checked, failures = module.verify_binaries(
+            checked, failures, skipped = module.verify_binaries(
                 assets_dir,
                 {
                     "windows/amd64": {"sphinx": SPHINX_REVISION, "duckdb": SPHINX_REVISION},
@@ -129,7 +129,7 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
                 assets_dir / "drivers" / "Windows" / "mongodb-driver-agent-v2-windows-amd64.exe",
                 SQLSERVER_REVISION,
             )
-            checked, failures = module.verify_binaries(
+            checked, failures, skipped = module.verify_binaries(
                 assets_dir, {"windows/amd64": {"mongodb": SQLSERVER_REVISION}}
             )
             self.assertEqual(2, checked)
@@ -140,12 +140,83 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
             assets_dir = Path(tmp) / "release-assets"
             assets_dir.mkdir(parents=True, exist_ok=True)
-            checked, failures = module.verify_binaries(
+            checked, failures, skipped = module.verify_binaries(
                 assets_dir, {"windows/amd64": {"sphinx": SPHINX_REVISION}}
             )
             self.assertEqual(0, checked)
             self.assertEqual(1, len(failures))
             self.assertIn("windows/amd64", failures[0])
+
+    def test_dynamic_probe_platform_uses_prober_result(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-amd64", STALE_REVISION)
+
+            probes = []
+            records = {}
+
+            def fake_prober(payload: bytes) -> str:
+                probes.append(payload)
+                return records.setdefault("value", SPHINX_REVISION)
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=fake_prober,
+            )
+            self.assertEqual(1, len(probes))
+            self.assertEqual(1, checked)
+            self.assertEqual([], failures)
+            self.assertEqual([], skipped)
+
+            # 指纹与 map 不一致时同样要失败
+            records["value"] = STALE_REVISION
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=fake_prober,
+            )
+            self.assertEqual(1, checked)
+            self.assertEqual(1, len(failures))
+            self.assertIn(STALE_REVISION, failures[0])
+
+    def test_dynamic_probe_error_is_reported_as_failure(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-amd64", STALE_REVISION)
+
+            def broken_prober(payload: bytes) -> str:
+                raise RuntimeError("agent 无法启动")
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/amd64": {"sphinx": SPHINX_REVISION}},
+                dynamic_probe_platforms=("linux/amd64",),
+                prober=broken_prober,
+            )
+            self.assertEqual(0, checked)
+            self.assertEqual(1, len(failures))
+            self.assertIn("agent 无法启动", failures[0])
+
+    def test_skip_platform_is_reported_but_not_failed(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "Linux" / "sphinx-driver-agent-linux-arm64", STALE_REVISION)
+
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir,
+                {"linux/arm64": {"sphinx": SPHINX_REVISION}},
+                skip_platforms=("linux/arm64",),
+            )
+            self.assertEqual(0, checked)
+            self.assertEqual([], failures)
+            self.assertEqual(1, len(skipped))
+            self.assertIn("linux/arm64", skipped[0])
 
 
 class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):

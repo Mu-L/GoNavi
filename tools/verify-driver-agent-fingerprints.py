@@ -30,7 +30,10 @@ mongodb v1 变体（mongodb-driver-agent-v1-*）不在 revision map 覆盖范围
 import argparse
 import json
 import re
+import stat
+import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -72,40 +75,87 @@ def collect_release_agent_files(assets_dir):
                 for member in archive.infolist():
                     match = AGENT_FILENAME_RE.match(Path(member.filename).name)
                     if match:
-                        files.append((f"{path.name}!{member.filename}", match.groupdict(), archive.read(member)))
+                        groups = match.groupdict()
+                        groups["_name"] = Path(member.filename).name
+                        files.append((f"{path.name}!{member.filename}", groups, archive.read(member)))
             continue
         match = AGENT_FILENAME_RE.match(path.name)
         if match:
-            files.append((str(path), match.groupdict(), path.read_bytes()))
+            groups = match.groupdict()
+            groups["_name"] = path.name
+            files.append((str(path), groups, path.read_bytes()))
     return files
 
 
-def verify_binaries(assets_dir, revision_maps):
+def probe_agent_payload(payload: bytes, timeout_seconds: int = 30, suffix: str = "") -> str:
+    """运行 agent 二进制并通过 stdio metadata 协议取回自报指纹。
+
+    与 tools/compress-driver-artifact.sh 的冒烟测试同协议：
+    stdin 发 {"id":1,"method":"metadata"}，首行 JSON 的 data.agentRevision 即指纹。
+    linux 产物经过 UPX 加壳，静态扫描不可行，只能这样运行时探测。
+    suffix 用于 Windows 上运行 PE 时补 .exe 扩展名。
+    """
+    with tempfile.TemporaryDirectory(prefix="gonavi-agent-probe-") as tmp:
+        exe = Path(tmp) / ("agent" + suffix)
+        exe.write_bytes(payload)
+        exe.chmod(0o755)
+        try:
+            proc = subprocess.run(
+                [str(exe)],
+                input=b'{"id":1,"method":"metadata"}\n',
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("metadata 探测超时") from exc
+        if proc.returncode != 0 and not proc.stdout:
+            raise RuntimeError(
+                f"agent 退出码 {proc.returncode}: {proc.stderr.decode('utf-8', 'replace')[:200]}"
+            )
+        for line in proc.stdout.decode("utf-8", "replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            payload_json = json.loads(line)
+            if not payload_json.get("success"):
+                raise RuntimeError(f"metadata 调用失败: {str(payload_json.get('error'))[:200]}")
+            data = payload_json.get("data") or {}
+            revision = str(data.get("agentRevision") or "").strip()
+            if not revision:
+                raise RuntimeError("metadata 响应缺少 agentRevision")
+            return revision
+        raise RuntimeError("metadata 响应为空")
+
+
+def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_platforms=(), prober=None):
+    prober = prober or probe_agent_payload
+    dynamic_probe_platforms = set(dynamic_probe_platforms)
+    skip_platforms = set(skip_platforms)
     failures = []
+    skipped = []
     checked = 0
     platform_files = {}
     for label, groups, payload in collect_release_agent_files(assets_dir):
         platform = f"{groups['goos']}/{groups['goarch']}"
         platform_files.setdefault(platform, []).append((label, groups, payload))
 
+    for platform in sorted(skip_platforms):
+        if platform in platform_files:
+            skipped.append(f"{platform}: 共 {len(platform_files[platform])} 个 agent 跳过校验")
+
     for platform, revision_map in sorted(revision_maps.items()):
         entries = platform_files.get(platform, [])
         if not entries:
             failures.append(f"{platform}: revision map 存在但发布产物里没有该平台的 agent 文件")
             continue
+        if platform in skip_platforms:
+            continue
         for label, groups, payload in entries:
             driver = groups["driver"]
             variant = groups["variant"]
             expected = revision_map.get(driver)
-            found = sorted({match.decode("ascii") for match in REVISION_RE.findall(payload)})
             label = f"{platform} {label}"
-            if not found:
-                failures.append(f"{label}: 未内嵌任何 revision 指纹")
-                continue
-            if len(found) > 1:
-                failures.append(f"{label}: 内嵌了多个不同指纹 {found}，无法判定")
-                continue
-            actual = found[0]
             if driver not in revision_map:
                 failures.append(f"{label}: revision map 中没有驱动 {driver} 的条目")
                 continue
@@ -116,6 +166,24 @@ def verify_binaries(assets_dir, revision_maps):
             if not expected:
                 checked += 1
                 continue
+            if platform in dynamic_probe_platforms:
+                try:
+                    actual = prober(payload)
+                except Exception as exc:  # noqa: BLE001 - 探测失败必须显式暴露
+                    failures.append(f"{label}: 运行时探测失败: {exc}")
+                    continue
+            else:
+                found = sorted({match.decode("ascii") for match in REVISION_RE.findall(payload)})
+                if not found:
+                    failures.append(
+                        f"{label}: 未内嵌任何 revision 指纹（若该平台产物经 UPX 等加壳，"
+                        "应改用 --dynamic-probe 运行时探测）"
+                    )
+                    continue
+                if len(found) > 1:
+                    failures.append(f"{label}: 内嵌了多个不同指纹 {found}，无法判定")
+                    continue
+                actual = found[0]
             checked += 1
             if actual != expected:
                 failures.append(
@@ -125,7 +193,7 @@ def verify_binaries(assets_dir, revision_maps):
     for platform in sorted(set(platform_files) - set(revision_maps)):
         failures.append(f"{platform}: 发布产物里有该平台的 agent，但未提供对应的 --revision-map")
 
-    return checked, failures
+    return checked, failures, skipped
 
 
 def verify_published(manifest_path, revision_maps):
@@ -174,11 +242,15 @@ def verify_published(manifest_path, revision_maps):
     return checked, failures
 
 
-def report(mode, checked, failures):
+def report(mode, checked, failures, skipped=None):
     summary = f"{mode}: 比对 {checked} 个 agent 指纹"
+    if skipped:
+        summary += f"，跳过 {len(skipped)} 项"
     if failures:
         summary += f"，{len(failures)} 个不一致"
     print(summary)
+    for skip in skipped or []:
+        print(f"  SKIP {skip}")
     for failure in failures:
         print(f"  MISMATCH {failure}")
     if failures:
@@ -200,6 +272,12 @@ def main():
     binaries.add_argument("--release-assets-dir", required=True)
     binaries.add_argument("--revision-map", action="append", default=[],
                           metavar="GOOS/GOARCH=PATH")
+    binaries.add_argument("--dynamic-probe", action="append", default=[],
+                          metavar="GOOS/GOARCH",
+                          help="该平台的 agent 经 UPX 等加壳，静态扫描不可行，改为运行时探测")
+    binaries.add_argument("--skip-platform", action="append", default=[],
+                          metavar="GOOS/GOARCH",
+                          help="完全跳过该平台的校验（如无法在 runner 上执行的架构）")
 
     published = subparsers.add_parser("published", help="校验已发布的 driver manifest")
     published.add_argument("--manifest", required=True)
@@ -212,11 +290,17 @@ def main():
     if args.mode == "binaries":
         if not Path(args.release_assets_dir).is_dir():
             raise SystemExit(f"发布产物目录不存在: {args.release_assets_dir}")
-        checked, failures = verify_binaries(args.release_assets_dir, revision_maps)
+        checked, failures, skipped = verify_binaries(
+            args.release_assets_dir,
+            revision_maps,
+            dynamic_probe_platforms=args.dynamic_probe,
+            skip_platforms=args.skip_platform,
+        )
     else:
         checked, failures = verify_published(args.manifest, revision_maps)
+        skipped = []
 
-    raise SystemExit(report(args.mode, checked, failures))
+    raise SystemExit(report(args.mode, checked, failures, skipped))
 
 
 if __name__ == "__main__":

@@ -1595,9 +1595,13 @@ jobs:
           set -euo pipefail
           # 根治闸门：发布 zip 内 agent 自报指纹必须等于本提交的 canonical revision map，
           # 否则客户端会拒绝所有预编译包并回退本地源码构建。
+          # 平台策略：linux 产物经 UPX 加壳无法静态扫描——amd64 在 runner 上运行时探测，
+          # arm64 无法在 x64 runner 执行而跳过（同源构建由 amd64 探测覆盖）；windows/darwin 未加壳走静态扫描。
           # 校验器会递归展开 zip 成员与平台子目录。
           python3 tools/verify-driver-agent-fingerprints.py binaries \
             --release-assets-dir driver-release-assets \
+            --dynamic-probe linux/amd64 \
+            --skip-platform linux/arm64 \
             --revision-map "darwin/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-amd64/driver_agent_revisions_gen.go" \
             --revision-map "darwin/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-arm64/driver_agent_revisions_gen.go" \
             --revision-map "linux/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-linux-amd64/driver_agent_revisions_gen.go" \
