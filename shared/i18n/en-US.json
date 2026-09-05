@@ -10129,7 +10129,6 @@
   "message_queue_workbench.consumer_groups.column.topic": "Topic",
   "message_queue_workbench.consumer_groups.empty": "No consumer groups found",
   "message_queue_workbench.consumer_groups.error.unavailable": "Consumer group inspection is unavailable for this connection. Check broker version and read permissions.",
-  "message_queue_workbench.consumer_groups.error.rocketmq_unsupported": "RocketMQ consumer group member, queue progress, and Lag inspection requires an administrative client that supports broker routing.",
   "message_queue_workbench.consumer_groups.loading": "Loading...",
   "message_queue_workbench.consumer_groups.title": "Consumer groups",
   "message_queue_workbench.error.connection_unavailable": "The message queue connection is unavailable",

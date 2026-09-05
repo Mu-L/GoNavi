@@ -10129,7 +10129,6 @@
   "message_queue_workbench.consumer_groups.column.topic": "Topic",
   "message_queue_workbench.consumer_groups.empty": "Keine Consumer-Gruppen gefunden",
   "message_queue_workbench.consumer_groups.error.unavailable": "Consumer-Gruppen sind für diese Verbindung nicht verfügbar. Prüfen Sie Broker-Version und Leserechte.",
-  "message_queue_workbench.consumer_groups.error.rocketmq_unsupported": "Die Prüfung von RocketMQ-Consumer-Gruppen, Warteschlangenfortschritt und Lag erfordert einen Verwaltungsclient mit Broker-Routing-Unterstützung.",
   "message_queue_workbench.consumer_groups.loading": "Wird geladen...",
   "message_queue_workbench.consumer_groups.title": "Consumer-Gruppen",
   "message_queue_workbench.error.connection_unavailable": "Die Message-Queue-Verbindung ist nicht verfügbar",
