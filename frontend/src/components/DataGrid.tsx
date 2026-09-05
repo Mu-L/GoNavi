@@ -186,7 +186,11 @@ import { useExportProgressDialog } from './ExportProgressModal';
 import { useDataGridFilters } from './useDataGridFilters';
 import { useDataGridDdlView } from './useDataGridDdlView';
 import { useDataGridModalEditors } from './useDataGridModalEditors';
-import { useDataGridBatchActions } from './useDataGridBatchActions';
+import {
+    useDataGridBatchActions,
+    type CellSelectionAutoScrollController,
+    type CellSelectionAutoScrollViewport,
+} from './useDataGridBatchActions';
 import { useDataGridV2Actions } from './useDataGridV2Actions';
 import { useDataGridMetadata } from './useDataGridMetadata';
 import { useDataGridColumnResize } from './useDataGridColumnResize';
@@ -997,6 +1001,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<VirtualTableScrollReference | null>(null);
+  const cellSelectionAutoScrollControllerRef = useRef<CellSelectionAutoScrollController | null>(null);
   const tableScrollTargetsRef = useRef<HTMLElement[]>([]);
   const externalHorizontalScrollRef = useRef<HTMLDivElement | null>(null);
   const virtualHorizontalElementsRef = useRef<{
@@ -2115,6 +2120,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     cancelAnimationFrame,
     cellEditModeRef,
     cellSelectionAutoScrollRafRef,
+    cellSelectionAutoScrollControllerRef,
     cellSelectionPointerRef,
     cellSelectionRafRef,
     cellSelectionScrollRafRef,
@@ -4701,6 +4707,88 @@ const DataGrid: React.FC<DataGridProps> = ({
       const body = tableContainer.querySelector('.ant-table-body') as HTMLElement | null;
       return virtualHolder || rcVirtualHolder || body;
   }, []);
+
+  const getCellSelectionAutoScrollViewport = useCallback((): CellSelectionAutoScrollViewport | null => {
+      if (!enableVirtual || !isTableSurfaceActive) return null;
+      const tableContainer = tableContainerRef.current;
+      if (!(tableContainer instanceof HTMLElement)) return null;
+
+      const verticalTarget = pickVerticalScrollTarget(tableContainer);
+      if (!(verticalTarget instanceof HTMLElement)) return null;
+
+      const horizontalTarget = pickHorizontalScrollTargets(tableContainer)[0] || verticalTarget;
+      const rect = verticalTarget.getBoundingClientRect();
+      const clientWidth = Math.max(0, horizontalTarget.clientWidth || verticalTarget.clientWidth);
+      return {
+          rect,
+          scrollTop: Number.isFinite(verticalTarget.scrollTop) ? verticalTarget.scrollTop : 0,
+          scrollLeft: readVirtualHorizontalOffset(tableContainer),
+          maxScrollTop: Math.max(0, verticalTarget.scrollHeight - verticalTarget.clientHeight),
+          maxScrollLeft: Math.max(0, tableScrollX - clientWidth),
+      };
+  }, [enableVirtual, isTableSurfaceActive, pickHorizontalScrollTargets, pickVerticalScrollTarget, readVirtualHorizontalOffset, tableScrollX]);
+
+  const scrollCellSelectionBy = useCallback((deltaX: number, deltaY: number): boolean => {
+      if (!enableVirtual || !isTableSurfaceActive) return false;
+      const tableContainer = tableContainerRef.current;
+      if (!(tableContainer instanceof HTMLElement)) return false;
+
+      let didScroll = false;
+      if (deltaY !== 0) {
+          const verticalTarget = pickVerticalScrollTarget(tableContainer);
+          if (verticalTarget instanceof HTMLElement) {
+              const currentTop = Number.isFinite(verticalTarget.scrollTop) ? verticalTarget.scrollTop : 0;
+              const maxTop = Math.max(0, verticalTarget.scrollHeight - verticalTarget.clientHeight);
+              const nextTop = Math.max(0, Math.min(maxTop, currentTop + deltaY));
+              if (Math.abs(nextTop - currentTop) > 0.5) {
+                  const tableInstance = tableRef.current;
+                  if (tableInstance && typeof tableInstance.scrollTo === 'function') {
+                      tableInstance.scrollTo({ top: nextTop });
+                  } else {
+                      verticalTarget.scrollTop = nextTop;
+                  }
+                  didScroll = true;
+              }
+          }
+      }
+
+      if (deltaX !== 0) {
+          const currentLeft = readVirtualHorizontalOffset(tableContainer);
+          const applied = applyVirtualHorizontalOffset(tableContainer, currentLeft + deltaX, {
+              forceInternalScroll: true,
+          });
+          if (applied) {
+              const resolvedLeft = readVirtualHorizontalOffset(tableContainer);
+              const externalScroll = externalHorizontalScrollRef.current;
+              if (externalScroll && Math.abs(externalScroll.scrollLeft - resolvedLeft) > 1) {
+                  externalScroll.scrollLeft = resolvedLeft;
+              }
+              lastTableScrollLeftRef.current = resolvedLeft;
+              lastExternalScrollLeftRef.current = externalScroll?.scrollLeft ?? resolvedLeft;
+              didScroll = didScroll || Math.abs(resolvedLeft - currentLeft) > 0.5;
+          }
+      }
+
+      return didScroll;
+  }, [applyVirtualHorizontalOffset, enableVirtual, isTableSurfaceActive, pickVerticalScrollTarget, readVirtualHorizontalOffset]);
+
+  useEffect(() => {
+      if (!enableVirtual || !isTableSurfaceActive) {
+          cellSelectionAutoScrollControllerRef.current = null;
+          return;
+      }
+
+      const controller: CellSelectionAutoScrollController = {
+          getViewport: getCellSelectionAutoScrollViewport,
+          scrollBy: scrollCellSelectionBy,
+      };
+      cellSelectionAutoScrollControllerRef.current = controller;
+      return () => {
+          if (cellSelectionAutoScrollControllerRef.current === controller) {
+              cellSelectionAutoScrollControllerRef.current = null;
+          }
+      };
+  }, [enableVirtual, getCellSelectionAutoScrollViewport, isTableSurfaceActive, scrollCellSelectionBy]);
 
   const focusPageFindMatch = useCallback((match: DataGridFindMatch) => {
       if (!match) return;

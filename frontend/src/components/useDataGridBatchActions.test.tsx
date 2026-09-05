@@ -86,12 +86,13 @@ describe('useDataGridBatchActions clipboard paste', () => {
     selectedRowKeys = [] as React.Key[],
     copiedCellPatch = null as { sourceRowKey: string; values: Record<string, any> } | null,
     canUseCellSelectionAsFillTemplateTargets = true,
+    selectionScrollController = null as any,
   } = {}) => {
     const containerTarget = createEventTarget();
     const container = {
       ...containerTarget,
       contains: vi.fn(() => true),
-      querySelector: vi.fn(() => null),
+      querySelector: vi.fn<(selector: string) => HTMLElement | null>(() => null),
       querySelectorAll: vi.fn(() => []),
     };
     const rows = [
@@ -109,6 +110,24 @@ describe('useDataGridBatchActions clipboard paste', () => {
     const setSelectedCells = vi.fn();
     const updateCellSelection = vi.fn();
     const resetCellSelection = vi.fn();
+    const animationFrameCallbacks = new Map<number, FrameRequestCallback>();
+    let nextAnimationFrameId = 1;
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      const frameId = nextAnimationFrameId++;
+      animationFrameCallbacks.set(frameId, callback);
+      return frameId;
+    });
+    const cancelAnimationFrame = vi.fn((frameId: number) => {
+      animationFrameCallbacks.delete(frameId);
+    });
+    const runNextAnimationFrame = () => {
+      const next = animationFrameCallbacks.entries().next().value;
+      if (!next) return false;
+      const [frameId, callback] = next;
+      animationFrameCallbacks.delete(frameId);
+      act(() => callback(0));
+      return true;
+    };
 
     const ctx = {
       CELL_SELECTION_DRAG_THRESHOLD_PX: 4,
@@ -117,12 +136,13 @@ describe('useDataGridBatchActions clipboard paste', () => {
       batchEditSetNull: false,
       batchEditValue: '',
       canModifyData,
-      cancelAnimationFrame: vi.fn(),
+      cancelAnimationFrame,
       cellEditModeRef: { current: false },
       cellSelectionAutoScrollRafRef: { current: null },
       cellSelectionPointerRef: { current: null },
       cellSelectionRafRef: { current: null },
       cellSelectionScrollRafRef: { current: null },
+      cellSelectionAutoScrollControllerRef: { current: selectionScrollController },
       closeBatchEditModal: vi.fn(),
       columnIndexMap: new Map([['id', 0], ['generated', 1], ['name', 2]]),
       containerRef: { current: container },
@@ -143,7 +163,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
       markCellSelectionUserSelection: vi.fn(),
       modifiedRows,
       pendingCellSelectionStartRef: { current: null },
-      requestAnimationFrame: (callback: FrameRequestCallback) => { callback(0); return 1; },
+      requestAnimationFrame,
       resetCellSelection,
       rowIndexMapRef: { current: new Map<string, number>() },
       rowKeyStr: String,
@@ -183,6 +203,7 @@ describe('useDataGridBatchActions clipboard paste', () => {
       setSelectedCells,
       updateCellSelection,
       resetCellSelection,
+      runNextAnimationFrame,
       getActions: () => actions!,
       rerender: () => act(() => { renderer?.update(<Harness />); }),
     };
@@ -216,6 +237,282 @@ describe('useDataGridBatchActions clipboard paste', () => {
     });
     return { cell, preventDefault, clickPreventDefault, stopPropagation };
   };
+
+  it('accelerates lower-right drag auto-scroll and clamps it at grid bounds', () => {
+    const hook = renderHook();
+    const tableBody = {
+      clientHeight: 200,
+      clientWidth: 200,
+      scrollHeight: 400,
+      scrollLeft: 0,
+      scrollTop: 0,
+      scrollWidth: 400,
+      getBoundingClientRect: () => ({ top: 0, right: 200, bottom: 200, left: 0 }),
+    };
+    hook.container.querySelector.mockReturnValue(tableBody as unknown as HTMLElement);
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    const dragTo = (x: number, y: number) => {
+      act(() => {
+        (hook.container.listeners.get('mousedown') as any)?.({
+          button: 0,
+          target: startCell,
+          clientX: 10,
+          clientY: 10,
+          preventDefault: vi.fn(),
+        });
+        (hook.container.listeners.get('mousemove') as any)?.({
+          target: {},
+          clientX: x,
+          clientY: y,
+          preventDefault: vi.fn(),
+        });
+      });
+      expect(hook.runNextAnimationFrame()).toBe(true);
+      act(() => {
+        (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: x, clientY: y });
+      });
+    };
+
+    dragTo(137, 137);
+    expect({ top: tableBody.scrollTop, left: tableBody.scrollLeft }).toEqual({ top: 4, left: 4 });
+
+    tableBody.scrollTop = 0;
+    tableBody.scrollLeft = 0;
+    dragTo(168, 168);
+    expect({ top: tableBody.scrollTop, left: tableBody.scrollLeft }).toEqual({ top: 15, left: 15 });
+
+    tableBody.scrollTop = 200;
+    tableBody.scrollLeft = 200;
+    dragTo(200, 200);
+    expect({ top: tableBody.scrollTop, left: tableBody.scrollLeft }).toEqual({ top: 200, left: 200 });
+  });
+
+  it('uses the injected virtual scroll controller when no ant table body exists', () => {
+    const virtualViewport = {
+      rect: { top: 0, right: 200, bottom: 200, left: 0 },
+      scrollTop: 0,
+      scrollLeft: 0,
+      maxScrollTop: 200,
+      maxScrollLeft: 200,
+    };
+    const scrollBy = vi.fn((deltaX: number, deltaY: number) => {
+      virtualViewport.scrollLeft += deltaX;
+      virtualViewport.scrollTop += deltaY;
+      return deltaX !== 0 || deltaY !== 0;
+    });
+    const hook = renderHook({
+      selectionScrollController: {
+        getViewport: () => virtualViewport,
+        scrollBy,
+      },
+    });
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    act(() => {
+      (hook.container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: startCell,
+        clientX: 10,
+        clientY: 10,
+        preventDefault: vi.fn(),
+      });
+      (hook.container.listeners.get('mousemove') as any)?.({
+        target: {},
+        clientX: 168,
+        clientY: 168,
+        preventDefault: vi.fn(),
+      });
+    });
+
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect(scrollBy).toHaveBeenCalledWith(15, 15);
+    expect(virtualViewport).toMatchObject({ scrollTop: 15, scrollLeft: 15 });
+
+    act(() => {
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: 168, clientY: 168 });
+    });
+  });
+
+  it('extends the selection from the visible edge cell when the pointer leaves the table body', () => {
+    const hook = renderHook();
+    const tableBody = {
+      clientHeight: 200,
+      clientWidth: 200,
+      scrollHeight: 400,
+      scrollLeft: 0,
+      scrollTop: 0,
+      scrollWidth: 400,
+      getBoundingClientRect: () => ({ top: 0, right: 200, bottom: 200, left: 0 }),
+    };
+    const edgeCell = new MockHTMLElement({ 'data-row-key': 'row-2', 'data-col-name': 'name' });
+    documentTarget.elementFromPoint.mockImplementation((x: number, y: number) => (
+      x === 199 && y === 199 ? edgeCell : null
+    ));
+    hook.container.querySelector.mockReturnValue(tableBody as unknown as HTMLElement);
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    act(() => {
+      (hook.container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: startCell,
+        clientX: 10,
+        clientY: 10,
+        preventDefault: vi.fn(),
+      });
+      (hook.container.listeners.get('mousemove') as any)?.({
+        target: {},
+        clientX: 220,
+        clientY: 220,
+        preventDefault: vi.fn(),
+      });
+    });
+
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'),
+      makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'),
+      makeCellKey('row-2', 'name'),
+    ]));
+
+    act(() => {
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: 220, clientY: 220 });
+    });
+  });
+
+  it('uses the visible edge cell when releasing the drag outside the table body', () => {
+    const hook = renderHook();
+    const tableBody = {
+      clientHeight: 200,
+      clientWidth: 200,
+      scrollHeight: 400,
+      scrollLeft: 200,
+      scrollTop: 200,
+      scrollWidth: 400,
+      getBoundingClientRect: () => ({ top: 0, right: 200, bottom: 200, left: 0 }),
+    };
+    const edgeCell = new MockHTMLElement({ 'data-row-key': 'row-3', 'data-col-name': 'name' });
+    documentTarget.elementFromPoint.mockImplementation((x: number, y: number) => (
+      x === 199 && y === 199 ? edgeCell : null
+    ));
+    hook.container.querySelector.mockReturnValue(tableBody as unknown as HTMLElement);
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    act(() => {
+      (hook.container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: startCell,
+        clientX: 10,
+        clientY: 10,
+        preventDefault: vi.fn(),
+      });
+      (hook.container.listeners.get('mousemove') as any)?.({
+        target: {},
+        clientX: 220,
+        clientY: 220,
+        preventDefault: vi.fn(),
+      });
+    });
+
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect(hook.currentSelectionRef.current).toEqual(new Set([makeCellKey('row-1', 'id')]));
+
+    act(() => {
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: 220, clientY: 220 });
+    });
+    expect(hook.currentSelectionRef.current).toEqual(new Set([
+      makeCellKey('row-1', 'id'),
+      makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'),
+      makeCellKey('row-2', 'name'),
+      makeCellKey('row-3', 'id'),
+      makeCellKey('row-3', 'name'),
+    ]));
+  });
+
+  it('does not treat the center of a compact table body as an edge', () => {
+    const hook = renderHook();
+    const tableBody = {
+      clientHeight: 100,
+      clientWidth: 100,
+      scrollHeight: 200,
+      scrollLeft: 50,
+      scrollTop: 50,
+      scrollWidth: 200,
+      getBoundingClientRect: () => ({ top: 0, right: 100, bottom: 100, left: 0 }),
+    };
+    hook.container.querySelector.mockReturnValue(tableBody as unknown as HTMLElement);
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    act(() => {
+      (hook.container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: startCell,
+        clientX: 10,
+        clientY: 10,
+        preventDefault: vi.fn(),
+      });
+      (hook.container.listeners.get('mousemove') as any)?.({
+        target: {},
+        clientX: 50,
+        clientY: 50,
+        preventDefault: vi.fn(),
+      });
+    });
+
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect({ top: tableBody.scrollTop, left: tableBody.scrollLeft }).toEqual({ top: 50, left: 50 });
+
+    act(() => {
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: 50, clientY: 50 });
+    });
+  });
+
+  it('recovers an out-of-range scroll position while the pointer is away from the edges', () => {
+    const hook = renderHook();
+    const tableBody = {
+      clientHeight: 200,
+      clientWidth: 200,
+      scrollHeight: 400,
+      scrollLeft: 250,
+      scrollTop: -12,
+      scrollWidth: 400,
+      getBoundingClientRect: () => ({ top: 0, right: 200, bottom: 200, left: 0 }),
+    };
+    hook.container.querySelector.mockReturnValue(tableBody as unknown as HTMLElement);
+    hook.ctx.cellEditModeRef.current = true;
+    const startCell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'id' });
+
+    act(() => {
+      (hook.container.listeners.get('mousedown') as any)?.({
+        button: 0,
+        target: startCell,
+        clientX: 10,
+        clientY: 10,
+        preventDefault: vi.fn(),
+      });
+      (hook.container.listeners.get('mousemove') as any)?.({
+        target: {},
+        clientX: 100,
+        clientY: 100,
+        preventDefault: vi.fn(),
+      });
+    });
+
+    expect(hook.runNextAnimationFrame()).toBe(true);
+    expect({ top: tableBody.scrollTop, left: tableBody.scrollLeft }).toEqual({ top: 0, left: 200 });
+
+    act(() => {
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: {}, clientX: 100, clientY: 100 });
+    });
+  });
 
   it('builds a closed rectangle from the current rows and skips unavailable columns', () => {
     expect(buildDataGridCellSelectionRectangle({

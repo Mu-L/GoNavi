@@ -9,6 +9,29 @@ import {
 import type { Item } from './DataGridCore';
 import { buildDataGridClipboardPasteRows, parseDataGridClipboardData } from './dataGridClipboardPaste';
 import { canSelectGridCellForClipboard } from './dataGridSelectionCopy';
+import {
+  clampDataGridSelectionAutoScrollDelta,
+  DATA_GRID_SELECTION_AUTO_SCROLL_EDGE_THRESHOLD_PX,
+  getDataGridSelectionAutoScrollStep,
+} from './dataGridSelectionAutoScroll';
+
+export type CellSelectionAutoScrollRect = Pick<
+  DOMRect,
+  'top' | 'right' | 'bottom' | 'left'
+> & Partial<Pick<DOMRect, 'width' | 'height'>>;
+
+export type CellSelectionAutoScrollViewport = {
+  rect: CellSelectionAutoScrollRect;
+  scrollTop: number;
+  scrollLeft: number;
+  maxScrollTop: number;
+  maxScrollLeft: number;
+};
+
+export type CellSelectionAutoScrollController = {
+  getViewport: () => CellSelectionAutoScrollViewport | null;
+  scrollBy: (deltaX: number, deltaY: number) => boolean;
+};
 
 type DataGridBatchActionsContext = Record<string, any> & {
   CELL_SELECTION_DRAG_THRESHOLD_PX: number;
@@ -32,6 +55,7 @@ type DataGridBatchActionsContext = Record<string, any> & {
   cellSelectionAnchorSourceRef: React.MutableRefObject<'user' | 'page-find' | null>;
   cellEditModeRef: React.MutableRefObject<boolean>;
   cellSelectionAutoScrollRafRef: React.MutableRefObject<number | null>;
+  cellSelectionAutoScrollControllerRef?: React.MutableRefObject<CellSelectionAutoScrollController | null>;
   cellSelectionPointerRef: React.MutableRefObject<{ x: number; y: number } | null>;
   cellSelectionRafRef: React.MutableRefObject<number | null>;
   cellSelectionScrollRafRef: React.MutableRefObject<number | null>;
@@ -77,6 +101,7 @@ export const useDataGridBatchActions = (ctx: DataGridBatchActionsContext) => {
     cancelAnimationFrame,
     cellEditModeRef,
     cellSelectionAutoScrollRafRef,
+    cellSelectionAutoScrollControllerRef,
     cellSelectionPointerRef,
     cellSelectionRafRef,
     cellSelectionScrollRafRef,
@@ -384,9 +409,6 @@ const handleBatchFillCells = useCallback(() => {
     const container = containerRef.current;
     if (!isActive || !isTableSurfaceActive) return;
     if (!container) return;
-    const EDGE_THRESHOLD_PX = 28;
-    const MIN_SCROLL_STEP = 8;
-    const MAX_SCROLL_STEP = 24;
 
     const isInteractiveTarget = (target: HTMLElement | null): boolean => {
       if (!target) return false;
@@ -415,9 +437,23 @@ const handleBatchFillCells = useCallback(() => {
       return { rowKey, colName };
     };
 
-    const getCellInfoFromPoint = (x: number, y: number): { rowKey: string; colName: string } | null => {
-      const target = document.elementFromPoint(x, y) as HTMLElement | null;
-      return getCellInfo(target);
+    const getCellInfoFromPoint = (
+      x: number,
+      y: number,
+      fallbackRect?: Pick<DOMRect, 'top' | 'right' | 'bottom' | 'left'>,
+    ): { rowKey: string; colName: string } | null => {
+      const directCell = getCellInfo(document.elementFromPoint(x, y) as HTMLElement | null);
+      if (directCell || !fallbackRect) return directCell;
+
+      const clampToInterior = (value: number, start: number, end: number) => {
+        const inset = Math.min(1, Math.max(0, (end - start) / 2));
+        return Math.min(end - inset, Math.max(start + inset, value));
+      };
+      const fallbackX = clampToInterior(x, fallbackRect.left, fallbackRect.right);
+      const fallbackY = clampToInterior(y, fallbackRect.top, fallbackRect.bottom);
+      if (fallbackX === x && fallbackY === y) return null;
+
+      return getCellInfo(document.elementFromPoint(fallbackX, fallbackY) as HTMLElement | null);
     };
 
     const applySelectionUpdate = (cellInfo: { rowKey: string; colName: string }): boolean => {
@@ -472,9 +508,32 @@ const handleBatchFillCells = useCallback(() => {
       }
     };
 
-    const getScrollStep = (distanceToEdge: number): number => {
-      const ratio = Math.min(1, Math.max(0, distanceToEdge / EDGE_THRESHOLD_PX));
-      return Math.round(MIN_SCROLL_STEP + (MAX_SCROLL_STEP - MIN_SCROLL_STEP) * ratio);
+    const getScrollViewport = (): {
+      viewport: CellSelectionAutoScrollViewport;
+      tableBody: HTMLElement | null;
+      controller: CellSelectionAutoScrollController | null;
+    } | null => {
+      const controller = cellSelectionAutoScrollControllerRef?.current || null;
+      const controlledViewport = controller?.getViewport() || null;
+      if (controlledViewport) {
+        return { viewport: controlledViewport, tableBody: null, controller };
+      }
+
+      const tableBody = container.querySelector('.ant-table-body') as HTMLElement | null;
+      if (!tableBody) return null;
+
+      const rect = tableBody.getBoundingClientRect();
+      return {
+        viewport: {
+          rect,
+          scrollTop: Number.isFinite(tableBody.scrollTop) ? tableBody.scrollTop : 0,
+          scrollLeft: Number.isFinite(tableBody.scrollLeft) ? tableBody.scrollLeft : 0,
+          maxScrollTop: Math.max(0, tableBody.scrollHeight - tableBody.clientHeight),
+          maxScrollLeft: Math.max(0, tableBody.scrollWidth - tableBody.clientWidth),
+        },
+        tableBody,
+        controller: null,
+      };
     };
 
     const autoScrollTick = () => {
@@ -484,53 +543,67 @@ const handleBatchFillCells = useCallback(() => {
       }
 
       const pointer = cellSelectionPointerRef.current;
-      const tableBody = container.querySelector('.ant-table-body') as HTMLElement | null;
-      if (!pointer || !tableBody) {
+      const scrollViewport = getScrollViewport();
+      if (!pointer || !scrollViewport) {
         cellSelectionAutoScrollRafRef.current = requestAnimationFrame(autoScrollTick);
         return;
       }
 
-      const rect = tableBody.getBoundingClientRect();
-      const maxScrollTop = Math.max(0, tableBody.scrollHeight - tableBody.clientHeight);
-      const maxScrollLeft = Math.max(0, tableBody.scrollWidth - tableBody.clientWidth);
+      const { viewport, tableBody, controller } = scrollViewport;
+      const { rect, scrollTop, scrollLeft, maxScrollTop, maxScrollLeft } = viewport;
+      const rectHeight = typeof rect.height === 'number' && Number.isFinite(rect.height)
+        ? rect.height
+        : rect.bottom - rect.top;
+      const rectWidth = typeof rect.width === 'number' && Number.isFinite(rect.width)
+        ? rect.width
+        : rect.right - rect.left;
+      const verticalEdgeThreshold = Math.min(
+        DATA_GRID_SELECTION_AUTO_SCROLL_EDGE_THRESHOLD_PX,
+        Math.max(0, rectHeight / 2),
+      );
+      const horizontalEdgeThreshold = Math.min(
+        DATA_GRID_SELECTION_AUTO_SCROLL_EDGE_THRESHOLD_PX,
+        Math.max(0, rectWidth / 2),
+      );
       let deltaY = 0;
       let deltaX = 0;
 
-      if (pointer.y < rect.top + EDGE_THRESHOLD_PX && tableBody.scrollTop > 0) {
-        const distance = rect.top + EDGE_THRESHOLD_PX - pointer.y;
-        deltaY = -getScrollStep(distance);
-      } else if (pointer.y > rect.bottom - EDGE_THRESHOLD_PX && tableBody.scrollTop < maxScrollTop) {
-        const distance = pointer.y - (rect.bottom - EDGE_THRESHOLD_PX);
-        deltaY = getScrollStep(distance);
+      if (pointer.y < rect.top + verticalEdgeThreshold) {
+        const distance = rect.top + verticalEdgeThreshold - pointer.y;
+        deltaY = -getDataGridSelectionAutoScrollStep(distance);
+      } else if (pointer.y > rect.bottom - verticalEdgeThreshold) {
+        const distance = pointer.y - (rect.bottom - verticalEdgeThreshold);
+        deltaY = getDataGridSelectionAutoScrollStep(distance);
       }
 
-      if (pointer.x < rect.left + EDGE_THRESHOLD_PX && tableBody.scrollLeft > 0) {
-        const distance = rect.left + EDGE_THRESHOLD_PX - pointer.x;
-        deltaX = -getScrollStep(distance);
-      } else if (pointer.x > rect.right - EDGE_THRESHOLD_PX && tableBody.scrollLeft < maxScrollLeft) {
-        const distance = pointer.x - (rect.right - EDGE_THRESHOLD_PX);
-        deltaX = getScrollStep(distance);
+      if (pointer.x < rect.left + horizontalEdgeThreshold) {
+        const distance = rect.left + horizontalEdgeThreshold - pointer.x;
+        deltaX = -getDataGridSelectionAutoScrollStep(distance);
+      } else if (pointer.x > rect.right - horizontalEdgeThreshold) {
+        const distance = pointer.x - (rect.right - horizontalEdgeThreshold);
+        deltaX = getDataGridSelectionAutoScrollStep(distance);
       }
 
       let didScroll = false;
-      if (deltaY !== 0) {
-        const nextTop = Math.max(0, Math.min(maxScrollTop, tableBody.scrollTop + deltaY));
-        if (nextTop !== tableBody.scrollTop) {
-          tableBody.scrollTop = nextTop;
+      const clampedDeltaY = clampDataGridSelectionAutoScrollDelta(deltaY, scrollTop, maxScrollTop);
+      const clampedDeltaX = clampDataGridSelectionAutoScrollDelta(deltaX, scrollLeft, maxScrollLeft);
+      if (controller) {
+        if (clampedDeltaX !== 0 || clampedDeltaY !== 0) {
+          didScroll = controller.scrollBy(clampedDeltaX, clampedDeltaY);
+        }
+      } else if (tableBody) {
+        if (clampedDeltaY !== 0) {
+          tableBody.scrollTop = scrollTop + clampedDeltaY;
           didScroll = true;
         }
-      }
-
-      if (deltaX !== 0) {
-        const nextLeft = Math.max(0, Math.min(maxScrollLeft, tableBody.scrollLeft + deltaX));
-        if (nextLeft !== tableBody.scrollLeft) {
-          tableBody.scrollLeft = nextLeft;
+        if (clampedDeltaX !== 0) {
+          tableBody.scrollLeft = scrollLeft + clampedDeltaX;
           didScroll = true;
         }
       }
 
       if (didScroll) {
-        const cellInfo = getCellInfoFromPoint(pointer.x, pointer.y);
+        const cellInfo = getCellInfoFromPoint(pointer.x, pointer.y, rect);
         if (cellInfo) scheduleSelectionUpdate(cellInfo);
       }
 
@@ -713,7 +786,12 @@ const handleBatchFillCells = useCallback(() => {
       ensureAutoScroll();
 
       const target = e.target instanceof HTMLElement ? e.target : null;
-      const cellInfo = getCellInfo(target) || getCellInfoFromPoint(e.clientX, e.clientY);
+      const scrollViewport = getScrollViewport();
+      const cellInfo = getCellInfo(target) || getCellInfoFromPoint(
+        e.clientX,
+        e.clientY,
+        scrollViewport?.viewport.rect,
+      );
       if (!cellInfo) return;
       scheduleSelectionUpdate(cellInfo);
     };
@@ -737,7 +815,12 @@ const handleBatchFillCells = useCallback(() => {
       }
 
       const target = e.target instanceof HTMLElement ? e.target : null;
-      const cellInfo = getCellInfo(target) || getCellInfoFromPoint(e.clientX, e.clientY);
+      const scrollViewport = getScrollViewport();
+      const cellInfo = getCellInfo(target) || getCellInfoFromPoint(
+        e.clientX,
+        e.clientY,
+        scrollViewport?.viewport.rect,
+      );
       if (cellInfo) applySelectionUpdate(cellInfo);
 
       if (currentSelectionRef.current.size > 0) {
