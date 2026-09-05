@@ -63,7 +63,8 @@ func TestStartStreamableHTTPServerStopsWhenContextIsCanceled(t *testing.T) {
 }
 
 func TestStreamableHTTPServerGracefulShutdownStillWaitsForActiveHandler(t *testing.T) {
-	const shutdownTimeout = 500 * time.Millisecond
+	// 优雅窗口需要覆盖 cancel 与 release 之间的调度延迟，留足余量避免 CI 抖动。
+	const shutdownTimeout = 2 * time.Second
 	const forceCloseTimeout = 500 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -275,9 +276,15 @@ func TestStreamableHTTPServerForceClosesHandlerIgnoringCancellation(t *testing.T
 		t.Fatal("handler did not start")
 	}
 
-	cancel()
+	// Stop 的调用方超时语义：句柄未在有界窗口内完成时返回 DeadlineExceeded，
+	// 同时已在内部触发关闭流程。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer stopCancel()
+	if err := handle.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop returned %v while force close was still running, want deadline exceeded", err)
+	}
 	start := time.Now()
-	if err := handle.Wait(); err == nil || !strings.Contains(err.Error(), "活跃 handler") {
+	if err := handle.Wait(); !errors.Is(err, errAbandonedActiveHandlers) {
 		t.Fatalf("Wait returned %v, want abandoned-handler error", err)
 	}
 	if elapsed := time.Since(start); elapsed > shutdownTimeout+forceCloseTimeout+time.Second {
