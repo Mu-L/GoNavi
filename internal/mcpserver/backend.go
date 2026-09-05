@@ -29,7 +29,7 @@ type Backend interface {
 	DBGetForeignKeys(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult
 	DBGetTriggers(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult
 	DBShowCreateTable(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult
-	ExecuteSQLFromMCP(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult
+	ExecuteSQLFromMCP(context.Context, connection.ConnectionConfig, string, string, int) connection.QueryResult
 	InspectSQL(dbType string, sql string) appcore.SQLInspection
 	GetSQLSafetyLevel() ai.SQLPermissionLevel
 	AuthorizeSQLConnection(config connection.ConnectionConfig, sql string) error
@@ -39,7 +39,7 @@ type Backend interface {
 // implementations. Production AppBackend uses it to close the gap between the
 // service's presentation-time policy check and database dispatch.
 type executionAuthorizingBackend interface {
-	ExecuteAuthorizedSQLFromMCP(context.Context, string, connection.ConnectionConfig, string, string, bool) connection.QueryResult
+	ExecuteAuthorizedSQLFromMCP(context.Context, string, connection.ConnectionConfig, string, string, bool, int) connection.QueryResult
 }
 
 // AppBackend 基于现有 internal/app.App 暴露 MCP 所需数据库能力。
@@ -158,18 +158,19 @@ func (b *AppBackend) DBShowCreateTable(ctx context.Context, config connection.Co
 // ExecuteAuthorizedSQLFromMCP resolves the saved connection and checks its
 // current protections immediately before dispatching SQL. The service's
 // earlier display snapshot is not trusted for this authorization boundary.
-func (b *AppBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
-	return b.executeAuthorizedSQLFromMCP(ctx, strings.TrimSpace(config.ID), config, dbName, query, true)
+// maxRowsPerResult 限制每个结果集的物化行数（0 表示不限制）。
+func (b *AppBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string, maxRowsPerResult int) connection.QueryResult {
+	return b.executeAuthorizedSQLFromMCP(ctx, strings.TrimSpace(config.ID), config, dbName, query, true, maxRowsPerResult)
 }
 
 // ExecuteAuthorizedSQLFromMCP is the explicit authorization-bound entry point
 // used by Service. It re-reads the saved connection immediately before SQL is
 // dispatched, closing the stale-view TOCTOU window.
-func (b *AppBackend) ExecuteAuthorizedSQLFromMCP(ctx context.Context, connectionID string, config connection.ConnectionConfig, dbName string, query string, allowMutating bool) connection.QueryResult {
-	return b.executeAuthorizedSQLFromMCP(ctx, strings.TrimSpace(connectionID), config, dbName, query, allowMutating)
+func (b *AppBackend) ExecuteAuthorizedSQLFromMCP(ctx context.Context, connectionID string, config connection.ConnectionConfig, dbName string, query string, allowMutating bool, maxRowsPerResult int) connection.QueryResult {
+	return b.executeAuthorizedSQLFromMCP(ctx, strings.TrimSpace(connectionID), config, dbName, query, allowMutating, maxRowsPerResult)
 }
 
-func (b *AppBackend) executeAuthorizedSQLFromMCP(ctx context.Context, connectionID string, config connection.ConnectionConfig, dbName string, query string, allowMutating bool) connection.QueryResult {
+func (b *AppBackend) executeAuthorizedSQLFromMCP(ctx context.Context, connectionID string, config connection.ConnectionConfig, dbName string, query string, allowMutating bool, maxRowsPerResult int) connection.QueryResult {
 	if b == nil || b.mcpQueryExecutor == nil {
 		return connection.QueryResult{Success: false, Message: "MCP backend is unavailable"}
 	}
@@ -178,7 +179,7 @@ func (b *AppBackend) executeAuthorizedSQLFromMCP(ctx context.Context, connection
 		return connection.QueryResult{Success: false, Message: "MCP saved connection ID is required"}
 	}
 	config.ID = connectionID
-	return b.mcpQueryExecutor.DBQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating)
+	return b.mcpQueryExecutor.DBQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating, maxRowsPerResult)
 }
 
 func (b *AppBackend) InspectSQL(dbType string, sql string) appcore.SQLInspection {

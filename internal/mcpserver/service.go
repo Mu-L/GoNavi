@@ -622,8 +622,11 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 		return toolError("连接写保护拒绝 SQL 执行: %s", strings.TrimSpace(err.Error())), executeSQLResult{}, nil
 	}
 
+	// 行预算在执行前下传到 db 层：达到上限后停止读取行并释放连接，
+	// 而不是把完整结果物化后再截断。
+	maxRowsPerResult := normalizeMaxRowsPerResult(args.MaxRowsPerResult)
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating)
+	queryResult := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating, maxRowsPerResult)
 	if !queryResult.Success {
 		failure := executeSQLResult{
 			RequestID:         mcpRequestID(ctx),
@@ -648,7 +651,7 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 		return toolError("解析 SQL 执行结果失败: %v", err), executeSQLResult{}, nil
 	}
 
-	normalizedResults, truncated := normalizeResultSets(resultSets, normalizeMaxRowsPerResult(args.MaxRowsPerResult))
+	normalizedResults, truncated := normalizeResultSets(resultSets, maxRowsPerResult)
 	output := executeSQLResult{
 		RequestID:         mcpRequestID(ctx),
 		ConnectionID:      view.ID,
@@ -666,11 +669,11 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	return textResult(formatExecuteSQLResultContent(output)), output, nil
 }
 
-func (s *Service) executeAuthorizedSQL(ctx context.Context, view connection.SavedConnectionView, dbName string, sqlText string, allowMutating bool) connection.QueryResult {
+func (s *Service) executeAuthorizedSQL(ctx context.Context, view connection.SavedConnectionView, dbName string, sqlText string, allowMutating bool, maxRowsPerResult int) connection.QueryResult {
 	if backend, ok := s.backend.(executionAuthorizingBackend); ok {
-		return backend.ExecuteAuthorizedSQLFromMCP(ctx, view.ID, view.Config, dbName, sqlText, allowMutating)
+		return backend.ExecuteAuthorizedSQLFromMCP(ctx, view.ID, view.Config, dbName, sqlText, allowMutating, maxRowsPerResult)
 	}
-	return s.backend.ExecuteSQLFromMCP(ctx, view.Config, dbName, sqlText)
+	return s.backend.ExecuteSQLFromMCP(ctx, view.Config, dbName, sqlText, maxRowsPerResult)
 }
 
 func successResult() *mcp.CallToolResult {
@@ -1017,17 +1020,26 @@ func normalizeResultSets(resultSets []connection.ResultSetData, maxRows int) ([]
 	for _, resultSet := range resultSets {
 		rows := ensureNonNilRows(resultSet.Rows)
 		rowCount := len(rows)
-		truncated := false
+		// Truncated 为 true 表示 db 层达到行预算后停止读取，返回的行是
+		// 服务器端数据的下界；否则只在超出 maxRows 时做响应侧裁剪。
+		truncatedByBudget := resultSet.Truncated
+		truncated := truncatedByBudget
 		if maxRows > 0 && len(rows) > maxRows {
 			rows = append([]map[string]interface{}(nil), rows[:maxRows]...)
 			truncated = true
+		}
+		if truncated {
 			truncatedAny = true
+		}
+		messages := ensureNonNilStrings(append([]string(nil), resultSet.Messages...))
+		if truncatedByBudget {
+			messages = append(messages, fmt.Sprintf("结果集达到每结果集行数上限 %d，剩余行未读取", maxRows))
 		}
 		normalized = append(normalized, sqlResultSet{
 			StatementIndex: resultSet.StatementIndex,
 			Columns:        ensureNonNilStrings(append([]string(nil), resultSet.Columns...)),
 			Rows:           rows,
-			Messages:       ensureNonNilStrings(append([]string(nil), resultSet.Messages...)),
+			Messages:       messages,
 			RowCount:       rowCount,
 			Truncated:      truncated,
 		})
@@ -1068,7 +1080,7 @@ func formatExecuteSQLResultContent(result executeSQLResult) string {
 		}
 		builder.WriteString(fmt.Sprintf("：%d 行", resultSet.RowCount))
 		if resultSet.Truncated {
-			builder.WriteString(fmt.Sprintf("，仅显示前 %d 行", len(resultSet.Rows)))
+			builder.WriteString(fmt.Sprintf("，已达每结果集行数上限（返回前 %d 行），其余行未返回", len(resultSet.Rows)))
 		}
 		if len(resultSet.Messages) > 0 {
 			builder.WriteString("\n消息：")

@@ -191,7 +191,7 @@ func (i *IrisDB) QueryMultiContext(ctx context.Context, query string) ([]connect
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRows(rows)
+	return scanMultiRowsContext(ctx, rows)
 }
 
 func (i *IrisDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
@@ -203,7 +203,7 @@ func (i *IrisDB) QueryContext(ctx context.Context, query string) ([]map[string]i
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (i *IrisDB) Query(query string) ([]map[string]interface{}, []string, error) {

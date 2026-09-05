@@ -55,7 +55,7 @@ func scanSQLServerRowsWithMessages(ctx context.Context, rows *sql.Rows, retmsg *
 				allMessages = append(allMessages, text)
 			}
 		case sqlexp.MsgNext:
-			data, cols, err := scanRows(rows)
+			data, cols, truncated, err := scanRowsForDialectWithPreview(rows, "", true, RowBudgetFromContext(ctx))
 			if err != nil {
 				return resultSets, messages, err
 			}
@@ -66,10 +66,15 @@ func scanSQLServerRowsWithMessages(ctx context.Context, rows *sql.Rows, retmsg *
 				cols = []string{}
 			}
 			resultSets = append(resultSets, connection.ResultSetData{
-				Rows:     data,
-				Columns:  cols,
-				Messages: append([]string(nil), messages...),
+				Rows:      data,
+				Columns:   cols,
+				Messages:  append([]string(nil), messages...),
+				Truncated: truncated,
 			})
+			if truncated {
+				// 达到行预算：停止读取，剩余结果集与消息不再消费。
+				return resultSets, allMessages, nil
+			}
 			messages = nil
 		case sqlexp.MsgRowsAffected:
 			resultSets = append(resultSets, connection.ResultSetData{
