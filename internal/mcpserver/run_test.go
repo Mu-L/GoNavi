@@ -620,6 +620,12 @@ func TestRunStdioServerDrainsInFlightRequestWithinGrace(t *testing.T) {
 		t.Fatalf("connect in-memory client: %v", err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
+	t.Cleanup(func() {
+		select {
+		case backend.release <- struct{}{}:
+		default:
+		}
+	})
 
 	callDone := make(chan error, 1)
 	go func() {
