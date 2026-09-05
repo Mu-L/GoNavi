@@ -43,6 +43,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("读取 %s 失败: %v", name, err)
 		}
+		// 统一行尾为 LF：Windows 上 core.autocrlf 检出的 CRLF 工作区否则会把
+		// CRLF 打进 zip，导致与 CI 的 LF 检出逐字节比较失败。JSON 字符串字面量
+		// 不允许裸控制字符，文件中的 CRLF 只能是行分隔符，替换是安全的。
+		payload = bytes.ReplaceAll(payload, []byte("\r\n"), []byte("\n"))
 		header := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: fixedTime}
 		entry, err := zw.CreateHeader(header)
 		if err != nil {
