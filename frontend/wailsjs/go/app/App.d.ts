@@ -693,6 +693,8 @@ export function SelectSavedQueryDirectory(arg1:string):Promise<connection.QueryR
 
 export function SetApplicationBrandIcon(arg1:string):Promise<connection.QueryResult>;
 
+export function GetBrandIconDataURL(arg1:string):Promise<string>;
+
 export function SetLanguage(arg1:string):Promise<void>;
 
 export function SetMacNativeWindowControls(arg1:boolean):Promise<void>;

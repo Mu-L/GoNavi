@@ -1,5 +1,5 @@
 import React from 'react';
-import { BRAND_ICONS, type BrandIconId } from '../brand/brandIcons';
+import { BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
 
 type BrandIconPickerProps = {
   value: string;
@@ -89,7 +89,7 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
               }}
             >
               <img
-                src={item.iconPath}
+                src={resolveBrandIconSrc(item.id)}
                 alt={item.titleZh}
                 style={{
                   width: '100%',

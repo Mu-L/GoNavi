@@ -1366,6 +1366,10 @@ export function SetApplicationBrandIcon(arg1) {
   return window['go']['app']['App']['SetApplicationBrandIcon'](arg1);
 }
 
+export function GetBrandIconDataURL(arg1) {
+  return window['go']['app']['App']['GetBrandIconDataURL'](arg1);
+}
+
 export function SetLanguage(arg1) {
   return window['go']['app']['App']['SetLanguage'](arg1);
 }

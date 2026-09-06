@@ -798,6 +798,7 @@ if (
                 StartUpdateDownload: async () => ({ success: false, message: 'Browser mock does not provide an update package' }),
                 GetUpdateDownloadTask: async () => ({ success: true, data: { task: null } }),
                 SetLanguage: async () => null,
+                GetBrandIconDataURL: async () => '',
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
                 BootstrapConnectionSidebarLayout: async (input: any) => {
                     if (

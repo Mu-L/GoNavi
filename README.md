@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-logo.png" width="128" alt="GoNavi Logo" />
+  <img src="https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/03-ribbon-graphite-glow.svg" width="128" alt="GoNavi Logo" />
 </p>
 
 <h1 align="center">GoNavi</h1>

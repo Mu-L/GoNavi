@@ -17,6 +17,9 @@ export type BrandIconDefinition = {
 };
 
 export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
+export const BRAND_ICON_FALLBACK_SRC = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjMTYxYzJhIi8+PHBhdGggZD0iTTI0IDM0aDgwYzAgMjAtMTIgMjktMjkgMjktMTcgMC0yOS05LTI5LTI5bDI5IDBjMTcgMCAyOS05IDI5LTI5em0wIDYwYzE3IDAgMjktOSAyOS0yOWgyMmMwIDIwLTEyIDI5LTI5IDI5LTE3IDAtMjktOS0yOS0yOWgyMmMwIDIwIDEyIDI5IDI5IDI5eiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==';
+
+const loadedBrandIconSources = new Map<BrandIconId, string>();
 
 export const BRAND_ICONS: BrandIconDefinition[] = [
   {
@@ -24,49 +27,49 @@ export const BRAND_ICONS: BrandIconDefinition[] = [
     slug: 'ribbon-graphite-air',
     titleZh: '石墨碳白',
     titleEn: 'Graphite air',
-    iconPath: '/brand-icons/01-ribbon-graphite-air.svg',
-    aboutPath: '/brand-icons/01-ribbon-graphite-air-about.png',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '02',
     slug: 'ribbon-graphite',
     titleZh: '石墨商务',
     titleEn: 'Graphite business',
-    iconPath: '/brand-icons/02-ribbon-graphite.svg',
-    aboutPath: '/brand-icons/02-ribbon-graphite-about.png',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '03',
     slug: 'ribbon-graphite-glow',
     titleZh: '石墨冷蓝',
     titleEn: 'Graphite glow',
-    iconPath: '/brand-icons/03-ribbon-graphite-glow.svg',
-    aboutPath: '/brand-icons/03-ribbon-graphite-glow-about.png',
-    titlebarPath: '/brand-icons/03-ribbon-graphite-glow.svg',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
+    titlebarPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '04',
     slug: 'ribbon-indigo-light',
     titleZh: '浅底深紫',
     titleEn: 'Indigo light',
-    iconPath: '/brand-icons/04-ribbon-indigo-light.svg',
-    aboutPath: '/brand-icons/04-ribbon-indigo-light-about.png',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '05',
     slug: 'ribbon-graphite-light',
     titleZh: '浅底石墨',
     titleEn: 'Graphite on light',
-    iconPath: '/brand-icons/05-ribbon-graphite-light.svg',
-    aboutPath: '/brand-icons/05-ribbon-graphite-light-about.png',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '06',
     slug: 'ribbon-lilac-dark',
     titleZh: '石墨浅紫',
     titleEn: 'Lilac on graphite',
-    iconPath: '/brand-icons/06-ribbon-lilac-dark.svg',
-    aboutPath: '/brand-icons/06-ribbon-lilac-dark-about.png',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
 ];
 
@@ -85,7 +88,8 @@ export function resolveBrandIcon(id?: unknown): BrandIconDefinition {
 }
 
 export function resolveBrandIconSrc(id?: unknown): string {
-  return resolveBrandIcon(id).iconPath;
+  const definition = resolveBrandIcon(id);
+  return loadedBrandIconSources.get(definition.id) || definition.iconPath;
 }
 
 export function resolveBrandFullSrc(id?: unknown): string {
@@ -93,15 +97,21 @@ export function resolveBrandFullSrc(id?: unknown): string {
 }
 
 export function resolveBrandAboutSrc(id?: unknown): string {
-  return resolveBrandIcon(id).aboutPath;
+  return resolveBrandIconSrc(id);
 }
 
 export function resolveBrandTitlebarSrc(id?: unknown): string {
-  const icon = resolveBrandIcon(id);
-  return icon.titlebarPath || icon.iconPath;
+  return resolveBrandIconSrc(id);
 }
 
 /** Dock / runtime surfaces use the same SVG lockup as BrandIconPicker. */
 export function resolveBrandDockSrc(id?: unknown): string {
   return resolveBrandIconSrc(id);
+}
+
+export function setLoadedBrandIconSources(sources: Partial<Record<BrandIconId, string>>): void {
+  for (const icon of BRAND_ICONS) {
+    const source = String(sources[icon.id] || '').trim();
+    if (source) loadedBrandIconSources.set(icon.id, source);
+  }
 }

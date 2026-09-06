@@ -49,6 +49,8 @@ import {
   resolveBrandAboutSrc,
   resolveBrandDockSrc,
   resolveBrandIconSrc,
+  setLoadedBrandIconSources,
+  BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
 import { composeMacOSDockIconBase64, shouldSyncMacOSDockIcon } from './brand/macDockIcon';
@@ -299,6 +301,7 @@ import {
   SelectLogDirectory,
   SelectSavedQueryDirectory,
   SetApplicationBrandIcon,
+  GetBrandIconDataURL,
   SetWindowTranslucency,
 } from '../wailsjs/go/app/App';
 import { getAntdLocale } from './i18n/frameworkLocale';
@@ -827,6 +830,7 @@ function App() {
   // snapshot while the panel is hidden, detached, or being remounted.
   useAIWorkspaceSnapshot({ enabled: true });
   const [notificationApi, notificationContextHolder] = notification.useNotification();
+  const [brandAssetRevision, setBrandAssetRevision] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConnectionModalMounted, setIsConnectionModalMounted] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
@@ -1014,7 +1018,7 @@ function App() {
           link.setAttribute('data-brand-icon', 'true');
           document.head.appendChild(link);
       }
-      link.type = 'image/webp';
+      link.type = 'image/svg+xml';
       link.href = href;
 
       let cancelled = false;
@@ -1043,7 +1047,29 @@ function App() {
       return () => {
           cancelled = true;
       };
-  }, [brandIconId, t]);
+  }, [brandIconId, t, brandAssetRevision]);
+
+  useEffect(() => {
+      let cancelled = false;
+      const loadBrandAssets = async () => {
+          const loaded: Partial<Record<BrandIconId, string>> = {};
+          await Promise.all(BRAND_ICONS.map(async (icon) => {
+              try {
+                  const source = await GetBrandIconDataURL(icon.id);
+                  if (source) loaded[icon.id] = source;
+              } catch {
+                  // The compact in-memory fallback keeps the UI usable offline.
+              }
+          }));
+          if (!cancelled && Object.keys(loaded).length > 0) {
+              setLoadedBrandIconSources(loaded);
+              setBrandAssetRevision((revision) => revision + 1);
+              window.dispatchEvent(new Event('gonavi-brand-assets-ready'));
+          }
+      };
+      void loadBrandAssets();
+      return () => { cancelled = true; };
+  }, []);
 
   const selectPresetTheme = useCallback((preference: ThemePreference) => {
       // Custom CSS is an independent skin layer. Selecting a built-in preset
