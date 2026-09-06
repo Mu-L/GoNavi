@@ -44,6 +44,22 @@ AGENT_FILENAME_RE = re.compile(
 )
 GEN_MAP_ENTRY_RE = re.compile(r'"([A-Za-z0-9_]+)":\s*"(src-[0-9a-f]{16})"')
 
+# 与客户端 normalizeRuntimeDriverType 的别名归一保持一致：资产文件名/清单里的
+# 驱动名可能是别名，revision map 的键是规范化名。
+DRIVER_ALIASES = {
+    "doris": "diros",
+    "open_gauss": "opengauss",
+    "open-gauss": "opengauss",
+    "gauss_db": "gaussdb",
+    "gauss-db": "gaussdb",
+    "elastic": "elasticsearch",
+}
+
+
+def normalize_driver(name):
+    name = (name or "").strip().lower()
+    return DRIVER_ALIASES.get(name, name)
+
 
 def parse_revision_maps(pairs):
     maps = {}
@@ -152,7 +168,7 @@ def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_
         if platform in skip_platforms:
             continue
         for label, groups, payload in entries:
-            driver = groups["driver"]
+            driver = normalize_driver(groups["driver"])
             variant = groups["variant"]
             expected = revision_map.get(driver)
             label = f"{platform} {label}"
@@ -211,7 +227,7 @@ def verify_published(manifest_path, revision_maps):
         if not isinstance(asset, dict):
             continue
         platform = str(asset.get("platform") or "")
-        driver = str(asset.get("driverType") or asset.get("driver") or "")
+        driver = normalize_driver(str(asset.get("driverType") or asset.get("driver") or ""))
         revision = str(asset.get("revision") or "")
         if platform and driver:
             grouped.setdefault((platform, driver), {"revisions": set(), "names": []})

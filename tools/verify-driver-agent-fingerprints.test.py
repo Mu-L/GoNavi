@@ -240,6 +240,25 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
             self.assertEqual(1, len(skipped))
             self.assertIn("linux/arm64", skipped[0])
 
+    def test_doris_filename_normalizes_to_diros_map_key(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            write_agent(assets_dir / "MacOS" / "doris-driver-agent-darwin-amd64", SPHINX_REVISION)
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir, {"darwin/amd64": {"diros": SPHINX_REVISION}}
+            )
+            self.assertEqual(1, checked)
+            self.assertEqual([], failures)
+
+            # 指纹不一致时也应按 diros 键比对出来
+            write_agent(assets_dir / "MacOS" / "doris-driver-agent-darwin-amd64", STALE_REVISION)
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir, {"darwin/amd64": {"diros": SPHINX_REVISION}}
+            )
+            self.assertEqual(1, checked)
+            self.assertEqual(1, len(failures))
+
 
 class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):
     def build_manifest(self, entries):
