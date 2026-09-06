@@ -16,10 +16,13 @@ const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
 
 describe('TitleBarWindowControlIcons', () => {
   it('renders thin-line minimize / maximize / restore / close glyphs', () => {
-    const min = create(<TitleBarMinimizeIcon />).toJSON();
-    const max = create(<TitleBarMaximizeIcon />).toJSON();
-    const restore = create(<TitleBarRestoreIcon />).toJSON();
-    const close = create(<TitleBarCloseIcon />).toJSON();
+    const asNode = (node: ReturnType<ReturnType<typeof create>['toJSON']>) => (
+      Array.isArray(node) ? node[0] : node
+    );
+    const min = asNode(create(<TitleBarMinimizeIcon />).toJSON());
+    const max = asNode(create(<TitleBarMaximizeIcon />).toJSON());
+    const restore = asNode(create(<TitleBarRestoreIcon />).toJSON());
+    const close = asNode(create(<TitleBarCloseIcon />).toJSON());
 
     expect(min?.type).toBe('svg');
     expect(max?.props?.viewBox).toBe('0 0 12 12');

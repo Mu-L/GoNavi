@@ -995,7 +995,7 @@ export const estimateV2TreeHorizontalScrollWidth = (
   nodes: SidebarTreeNode[],
   viewportWidth: number,
   sidebarTableMetadataFields: SidebarTableMetadataField[] = [],
-  expandedKeys: ReadonlyArray<string | number> = [],
+  expandedKeys: ReadonlyArray<Key> = [],
 ): number | undefined => {
   const safeViewportWidth = Math.max(0, Math.ceil(viewportWidth || 0));
   let estimatedContentWidth = safeViewportWidth;
