@@ -2985,6 +2985,45 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
+/* About：镜像源条按内容收窄，不拉满整行 */
+.gonavi-about-download-source {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: 100%;
+    margin-top: 10px;
+    padding: 6px 10px 6px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+}
+
+.gonavi-about-download-source-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.gonavi-about-download-source-label,
+.gonavi-about-download-source-value {
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.gonavi-about-download-source-value {
+    font-weight: 600;
+}
+
+.gonavi-about-download-source-switch.ant-btn {
+    padding: 0;
+    height: auto;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
 /* 弹窗内的镜像源条：无描边的浅底色条，仅保留左侧来源色条。 */
 .driver-manager-mirror-chip {
     display: flex;

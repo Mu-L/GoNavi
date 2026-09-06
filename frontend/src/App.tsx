@@ -2,7 +2,7 @@ import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from './utils/aiSettingsLeaveGuard';
 import { Layout, Button, ConfigProvider, theme, message, notification, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, PoweroffOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, PoweroffOutlined, UserOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -6437,9 +6437,6 @@ function App() {
 
       const hasUpdate = Boolean(lastUpdateInfo?.hasUpdate);
       const latestVersionText = lastUpdateInfo?.latestVersion || t('common.unknown');
-      const updateStatusText = hasUpdate
-          ? t('app.about.hero.update_available_version', { version: latestVersionText })
-          : (lastUpdateInfo ? t('app.about.hero.no_update') : t('app.about.update_status.not_checked'));
       const currentVersionText = lastUpdateInfo?.currentVersion || aboutDisplayVersion;
       const releaseTimeText = formatAboutReleaseTime(lastUpdateInfo?.releasePublishedAt);
       const canOpenReleaseNotes = Boolean(lastUpdateInfo);
@@ -6495,15 +6492,7 @@ function App() {
           <div className="gonavi-about-pane">
               <section className="gonavi-about-identity" aria-label="GoNavi">
                   <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                          <div style={{ fontSize: 18, lineHeight: 1.15, fontWeight: 800, color: overlayTheme.titleText }}>GoNavi</div>
-                          {hasUpdate ? (
-                              <span style={{ color: darkMode ? '#86efac' : '#16a34a', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}>
-                                  <UpCircleOutlined />
-                                  {updateStatusText}
-                              </span>
-                          ) : null}
-                      </div>
+                      <div style={{ fontSize: 18, lineHeight: 1.15, fontWeight: 800, color: overlayTheme.titleText }}>GoNavi</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap', color: mutedText, fontWeight: 600, fontSize: 12 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               <UserOutlined />
@@ -6585,40 +6574,26 @@ function App() {
                     className="gonavi-about-download-source"
                     data-download-source={downloadSource}
                     style={{
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        border: `1px solid ${dividerColor}`,
+                        borderColor: dividerColor,
                         background: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        flexWrap: 'wrap',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                        <span
-                          aria-hidden="true"
-                          style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 999,
-                              background: aboutDownloadSourceDot,
-                              flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ color: mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
-                            {t('driver_manager.mirror_source.label')}
-                        </span>
-                        <span style={{ color: overlayTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {t(`app.download_source.option.${downloadSource}`)}
-                        </span>
-                    </div>
+                    <span
+                      aria-hidden="true"
+                      className="gonavi-about-download-source-dot"
+                      style={{ background: aboutDownloadSourceDot }}
+                    />
+                    <span className="gonavi-about-download-source-label" style={{ color: mutedText }}>
+                        {t('driver_manager.mirror_source.label')}
+                    </span>
+                    <span className="gonavi-about-download-source-value" style={{ color: overlayTheme.titleText }}>
+                        {t(`app.download_source.option.${downloadSource}`)}
+                    </span>
                     <Button
                       type="link"
                       size="small"
                       onClick={handleOpenDownloadSourceSettings}
-                      style={{ padding: 0, height: 'auto', fontWeight: 600 }}
+                      className="gonavi-about-download-source-switch"
                     >
                         {t('driver_manager.mirror_source.switch')}
                     </Button>
