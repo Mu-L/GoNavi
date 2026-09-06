@@ -1097,16 +1097,6 @@ const DriverManagerModal: React.FC<{
         status: nextStatus,
         cachedAt: Date.now(),
       };
-      if (toastOnError) {
-        const summary = formatDriverNetworkSummary(nextStatus);
-        if (nextStatus.reachable === false) {
-          message.error(summary);
-        } else if (nextStatus.usingFallback) {
-          message.warning(summary);
-        } else {
-          message.success(summary);
-        }
-      }
     } catch (err: any) {
       if (requestGeneration === networkRequestGenerationRef.current && toastOnError) {
         message.error(t('driver.modal.error.networkCheckWithDetail', { detail: err?.message || String(err) }));
@@ -2448,6 +2438,7 @@ const DriverManagerModal: React.FC<{
       : networkStatus
         ? networkSummaryText
         : t('driver_manager.network.not_checked');
+  const networkTooltipTitle = networkPillText;
 
   const driverManagerContent = (
     <>
@@ -2554,7 +2545,7 @@ const DriverManagerModal: React.FC<{
           )
         ) : null}
 
-        {!embedded && onOpenDownloadSourceSettings ? (
+        {onOpenDownloadSourceSettings ? (
           <div
             className="driver-manager-mirror-chip"
             data-download-source={downloadSource}
@@ -2698,15 +2689,17 @@ const DriverManagerModal: React.FC<{
                 >
                   {t('driver.modal.footer.refresh')}
                 </Button>
-                <Button
-                  size="middle"
-                  className="driver-manager-network-check-btn"
-                  icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
-                  onClick={() => checkNetworkStatus(true)}
-                  loading={networkChecking}
-                >
-                  {t('driver.modal.footer.networkCheck')}
-                </Button>
+                <Tooltip title={networkTooltipTitle} placement="bottomRight">
+                  <Button
+                    size="middle"
+                    className="driver-manager-network-check-btn"
+                    icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
+                    onClick={() => checkNetworkStatus(true)}
+                    loading={networkChecking}
+                  >
+                    {t('driver.modal.footer.networkCheck')}
+                  </Button>
+                </Tooltip>
               </>
             ) : null}
           </span>
@@ -2861,15 +2854,17 @@ const DriverManagerModal: React.FC<{
             <Button key="refresh" icon={<ReloadOutlined />} onClick={() => refreshStatus(true)} loading={loading}>
               {t('driver.modal.footer.refresh')}
             </Button>
-            <Button
-              key="network"
-              className="driver-manager-network-check-btn"
-              icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
-              onClick={() => checkNetworkStatus(true)}
-              loading={networkChecking}
-            >
-              {t('driver.modal.footer.networkCheck')}
-            </Button>
+            <Tooltip title={networkTooltipTitle} placement="topRight">
+              <Button
+                key="network"
+                className="driver-manager-network-check-btn"
+                icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
+                onClick={() => checkNetworkStatus(true)}
+                loading={networkChecking}
+              >
+                {t('driver.modal.footer.networkCheck')}
+              </Button>
+            </Tooltip>
             <Button key="close" type="primary" onClick={onClose}>
               {canRunDriverDownloadInBackground ? t('driver.modal.footer.background') : t('driver.modal.footer.close')}
             </Button>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -312,6 +313,9 @@ describe('DriverManagerModal toolbar actions', () => {
     const networkButton = findButton(embeddedRenderer!, t('driver.modal.footer.networkCheck'));
     expect(networkButton.props.className).toContain('driver-manager-network-check-btn');
     expect(String(networkButton.props.icon?.props?.className || '')).toContain('driver-manager-net-dot');
+    const modalSource = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
+    expect(modalSource).toContain('<Tooltip title={networkTooltipTitle}');
+    expect(modalSource).not.toContain('message.success(summary)');
     // DuckDB is auto-selected; its controls render inside the detail pane.
     const detail = embeddedShell.findByProps({ className: 'driver-manager-detail' });
     expect(detail.findByProps({ className: 'driver-manager-title-row' })).toBeTruthy();
@@ -1107,7 +1111,7 @@ describe('DriverManagerModal embedded workbench chrome', () => {
     backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true });
   });
 
-  it('keeps the mirror chip and directory panel out of the embedded workbench', async () => {
+  it('keeps the mirror chip in the embedded workbench but hides the directory panel', async () => {
     let embeddedRenderer: ReactTestRenderer;
     await act(async () => {
       embeddedRenderer = create(
@@ -1116,7 +1120,7 @@ describe('DriverManagerModal embedded workbench chrome', () => {
     });
     await flushPromises();
 
-    expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-mirror-chip' })).toHaveLength(0);
+    expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-mirror-chip' })).toHaveLength(1);
     expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-directory-panel' })).toHaveLength(0);
 
     let modalRenderer: ReactTestRenderer;
