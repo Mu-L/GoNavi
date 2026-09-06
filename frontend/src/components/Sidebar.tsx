@@ -650,7 +650,11 @@ export const buildAllSavedQueriesTreeNode = (
   return {
       title: t('sidebar.tree.all_saved_queries'),
       key: 'all-saved-queries',
-      icon: <FolderOpenOutlined />,
+      icon: (
+        <span className="gn-v2-tree-folder-icon" data-sidebar-tree-folder-icon="true">
+          <FolderOpenOutlined />
+        </span>
+      ),
       type: 'all-saved-queries',
       isLeaf: false,
       selectable: false,
@@ -1845,7 +1849,11 @@ const Sidebar: React.FC<{
     const icon = (() => {
       switch (node.type) {
         case 'external-sql-root':
-          return <FolderOpenOutlined />;
+          return (
+            <span className="gn-v2-tree-folder-icon" data-sidebar-tree-folder-icon="true">
+              <FolderOpenOutlined />
+            </span>
+          );
         case 'external-sql-directory':
           return node.dataRef.directoryStatus === 'missing' ? <WarningOutlined /> : <HddOutlined />;
         case 'external-sql-folder':

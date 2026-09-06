@@ -1560,7 +1560,7 @@ describe('Sidebar locate toolbar', () => {
     expect(treeLabelCss).toContain('text-overflow: clip;');
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \{[^}]*width: max-content;[^}]*min-width: 100%;[^}]*flex: 0 0 auto;/s);
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \.gn-v2-tree-label \{[^}]*flex: 0 0 auto;[^}]*overflow: visible;[^}]*text-overflow: clip;/s);
-    expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 16px;[^}]*height: 16px;[^}]*flex: 0 0 16px;/s);
+    expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 20px;[^}]*height: 20px;[^}]*flex: 0 0 20px;/s);
     expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title:not\(\.is-mono\)\) \{[^}]*width: 100%;/s);
     expect(css).toMatch(/\.gn-v2-tree-title\.is-connection \.gn-v2-tree-label,[^}]*text-overflow: ellipsis;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.gn-v2-tree-status \{[^}]*position: absolute;[^}]*right: 6px;[^}]*transform: translateY\(-50%\);/s);

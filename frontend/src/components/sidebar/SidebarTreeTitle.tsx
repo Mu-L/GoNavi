@@ -225,10 +225,10 @@ export const renderSidebarV2TreeTitle = ({
         data-sidebar-node-key={String(node.key || '')}
         data-sidebar-node-type={String(node.type || '')}
       >
-        {statusBadge}
         <span className="gn-v2-tree-connection-copy">
           <span className="gn-v2-tree-label">{displayTitle}</span>
         </span>
+        {statusBadge}
       </span>
     );
   }
@@ -267,7 +267,6 @@ export const renderSidebarV2TreeTitle = ({
         setIsTreeDragging(false);
       } : undefined}
     >
-      {statusBadge}
       <span className="gn-v2-tree-label">
         {redisDbAlias ? (
           <>
@@ -281,6 +280,7 @@ export const renderSidebarV2TreeTitle = ({
       ))}
       {objectCompileStatusBadge}
       {metaText && <span className="gn-v2-tree-count">{metaText}</span>}
+      {statusBadge}
     </span>
   );
 

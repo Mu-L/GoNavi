@@ -53,9 +53,12 @@ export const useSidebarTitleRender = ({
   }
   const legacyBadgeStatus = status === 'loading' ? 'processing' : status;
 
+  const showV2Status = status === 'success' || status === 'loading' || status === 'error';
   const statusBadge = node.type === 'connection' || node.type === 'database' ? (
     isV2Ui
-      ? <span className={`gn-v2-tree-status is-${status}`} aria-hidden="true" />
+      ? (showV2Status
+        ? <span className={`gn-v2-tree-status is-${status}`} aria-hidden="true" />
+        : null)
       : <Badge status={legacyBadgeStatus} style={{ marginLeft: 4, marginRight: 8 }} />
   ) : null;
 
