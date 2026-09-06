@@ -114,8 +114,30 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
                     "windows/amd64": {"sphinx": SPHINX_REVISION, "duckdb": SPHINX_REVISION},
                 },
             )
-            self.assertEqual(0, checked)
+            # duckdb 完成了比对（期望值不在内嵌集合）；sphinx 无指纹未计入
+            self.assertEqual(1, checked)
             self.assertEqual(2, len(failures))
+
+    def test_passes_when_expected_revision_among_multiple_embedded(self):
+        # agent 内嵌整张 revision map：只要包含本驱动的 canonical 指纹即通过
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            assets_dir = Path(tmp) / "release-assets"
+            exe = assets_dir / "drivers" / "Windows" / "duckdb-driver-agent-windows-amd64.exe"
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            exe.write_bytes(
+                b"map:"
+                + ("src-" + "a" * 16).encode("ascii")
+                + b","
+                + SPHINX_REVISION.encode("ascii")
+                + b","
+                + ("src-" + "b" * 16).encode("ascii")
+            )
+            checked, failures, skipped = module.verify_binaries(
+                assets_dir, {"windows/amd64": {"duckdb": SPHINX_REVISION}}
+            )
+            self.assertEqual(1, checked)
+            self.assertEqual([], failures)
 
     def test_mongodb_v1_variant_requires_fingerprint_but_skips_value(self):
         module = load_module()

@@ -172,7 +172,14 @@ def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_
                 except Exception as exc:  # noqa: BLE001 - 探测失败必须显式暴露
                     failures.append(f"{label}: 运行时探测失败: {exc}")
                     continue
+                checked += 1
+                if actual != expected:
+                    failures.append(
+                        f"{label}: 指纹不一致（发布资产={actual}，canonical map 要求={expected}）"
+                    )
             else:
+                # agent 内嵌整张 revision map（运行时查自己那项），静态校验的语义是：
+                # 内嵌指纹集合必须包含本驱动的 canonical 指纹。
                 found = sorted({match.decode("ascii") for match in REVISION_RE.findall(payload)})
                 if not found:
                     failures.append(
@@ -180,15 +187,13 @@ def verify_binaries(assets_dir, revision_maps, dynamic_probe_platforms=(), skip_
                         "应改用 --dynamic-probe 运行时探测）"
                     )
                     continue
-                if len(found) > 1:
-                    failures.append(f"{label}: 内嵌了多个不同指纹 {found}，无法判定")
-                    continue
-                actual = found[0]
-            checked += 1
-            if actual != expected:
-                failures.append(
-                    f"{label}: 指纹不一致（发布资产={actual}，canonical map 要求={expected}）"
-                )
+                checked += 1
+                if expected not in found:
+                    preview = ", ".join(found[:3]) + (f" 等 {len(found)} 个" if len(found) > 3 else "")
+                    failures.append(
+                        f"{label}: 发布资产未内嵌 canonical 指纹"
+                        f"（期望 {expected}；实际内嵌 {preview}）"
+                    )
 
     for platform in sorted(set(platform_files) - set(revision_maps)):
         failures.append(f"{platform}: 发布产物里有该平台的 agent，但未提供对应的 --revision-map")
