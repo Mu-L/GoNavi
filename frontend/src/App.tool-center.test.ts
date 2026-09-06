@@ -140,6 +140,9 @@ describe('settings center tool entries', () => {
 
   it('uses a persistent settings tree instead of a back-to-list drill-in', () => {
     expect(appSource).toContain('<SettingsCenterTreeNav');
+    expect(appSource).toContain('buildSettingsCenterWorkbenchTab');
+    expect(appSource).toContain('SettingsCenterWorkbenchRegistrar');
+    expect(appSource).not.toMatch(/rootClassName=\{`gonavi-settings-center-modal/);
     expect(appSource).toContain("return { key: 'language', group }");
     expect(appSource).toContain("return { key: 'proxy', group }");
     expect(appSource).toContain("return { key: 'data-root', group }");
@@ -153,6 +156,9 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("key: 'ai-providers-connected'");
     expect(appSource).toContain('onProvidersViewChange={setAiSettingsProviderView}');
     expect(appSource).toContain('onCloseHost={handleCancelSettingsCenterPane}');
+    expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'drivers'");
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenDriverManagerWorkbench\(\);/);
     expect(appSource).toContain('hideSidebar');
     expect(appSource).toContain('section={aiSettingsSection}');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");

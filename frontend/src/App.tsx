@@ -20,6 +20,7 @@ import NativeDetachedWindowController from './components/NativeDetachedWindowCon
 import ConnectionModal from './components/ConnectionModal';
 import ConnectionHealthModal from './components/ConnectionHealthModal';
 import SnippetSettingsModal from './components/SnippetSettingsModal';
+import DriverManagerModal from './components/DriverManagerModal';
 import ConnectionPackagePasswordModal from './components/ConnectionPackagePasswordModal';
 import UpdateReleaseNotesModal from './components/UpdateReleaseNotesModal';
 import {
@@ -127,6 +128,11 @@ import {
   OPEN_DOWNLOAD_SOURCE_SETTINGS_EVENT,
   OPEN_GLOBAL_PROXY_SETTINGS_EVENT,
 } from './utils/driverManagerTab';
+import {
+  buildSettingsCenterWorkbenchTab,
+  SETTINGS_CENTER_WORKBENCH_TAB_ID,
+} from './utils/settingsCenterTab';
+import { SettingsCenterWorkbenchRegistrar } from './components/settings/SettingsCenterWorkbenchBridge';
 import { buildSqlAuditWorkbenchTab } from './utils/sqlAuditTab';
 import { buildRequestDiagnosticsWorkbenchTab } from './utils/requestDiagnosticsTab';
 import {
@@ -602,6 +608,7 @@ type ToolCenterPaneKey =
   | 'connection-package'
   | 'data-root'
   | 'security-update'
+  | 'drivers'
   | 'snippet-settings'
   | 'shortcut-settings';
 
@@ -1162,7 +1169,16 @@ function App() {
   const [isSecurityUpdateProgressOpen, setIsSecurityUpdateProgressOpen] = useState(false);
   const [securityUpdateProgressStage, setSecurityUpdateProgressStage] = useState(() => t('app.security_update.stage.checking_saved_config'));
   const [securityUpdateRepairSource, setSecurityUpdateRepairSource] = useState<SecurityUpdateRepairSource | null>(null);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const isSettingsModalOpen = useStore((state) => state.tabs.some((tab) => tab.id === SETTINGS_CENTER_WORKBENCH_TAB_ID));
+  const openSettingsCenterWorkbenchTab = useCallback(() => {
+      useStore.getState().addTab(buildSettingsCenterWorkbenchTab());
+  }, []);
+  const closeSettingsCenterWorkbenchTab = useCallback(() => {
+      const { tabs, closeTab } = useStore.getState();
+      if (tabs.some((tab) => tab.id === SETTINGS_CENTER_WORKBENCH_TAB_ID)) {
+          closeTab(SETTINGS_CENTER_WORKBENCH_TAB_ID);
+      }
+  }, []);
   const [isConnectionGroupManagementOpen, setIsConnectionGroupManagementOpen] = useState(false);
   const [activeSettingsCenterGroupKey, setActiveSettingsCenterGroupKey] = useState<SettingsCenterGroupKey>('preferences');
   const [activeSettingsCenterPane, setActiveSettingsCenterPane] = useState<SettingsCenterPaneState | null>(null);
@@ -1483,7 +1499,7 @@ function App() {
               setToolCenterBackGroupKey('config');
               setActiveSettingsCenterGroupKey('config');
               setActiveSettingsCenterPane({ key: 'security-update', group: 'config' });
-              setIsSettingsModalOpen(true);
+              openSettingsCenterWorkbenchTab();
           });
       }
       return nextStatus;
@@ -2590,7 +2606,7 @@ function App() {
       overlayTheme, renderUtilityModalTitle,
       sidebarHorizontalPadding,
       toolCenterContentPanelStyle, toolCenterDetailBodyStyle, toolCenterDetailPanelStyle,
-      toolCenterModalContentStyle, toolCenterModalSplitStyle, toolCenterModalWorkspaceStyle,
+      toolCenterModalSplitStyle, toolCenterModalWorkspaceStyle,
       toolCenterNavPanelStyle, utilityButtonStyle,
       utilityModalShellStyle, utilityMutedTextStyle, utilityPanelStyle,
   } = useAppUtilityStyles({
@@ -2681,7 +2697,7 @@ function App() {
       setToolCenterBackGroupKey('config');
       setActiveSettingsCenterGroupKey('config');
       setActiveSettingsCenterPane({ key: 'security-update', group: 'config' });
-      setIsSettingsModalOpen(true);
+      openSettingsCenterWorkbenchTab();
   }), []);
   const handleOpenSecurityUpdateSettings = useCallback((focusTarget: SecurityUpdateSettingsFocusTarget | null = null) => {
       openSecurityUpdateSettings(focusTarget);
@@ -2881,14 +2897,14 @@ function App() {
           return;
       }
       if (repairEntry.type === 'connection') {
-          setIsSettingsModalOpen(false);
+          closeSettingsCenterWorkbenchTab();
           setSecurityUpdateRepairSource(repairEntry.repairSource);
           setEditingConnection(repairEntry.connection);
           setIsModalOpen(true);
           return;
       }
       if (repairEntry.type === 'proxy') {
-          setIsSettingsModalOpen(false);
+          closeSettingsCenterWorkbenchTab();
           setSecurityUpdateRepairSource(repairEntry.repairSource);
           setIsProxyModalOpen(true);
           return;
@@ -2900,7 +2916,7 @@ function App() {
           setAiSettingsProviderView('workspace');
           setActiveSettingsCenterGroupKey('services');
           setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
-          setIsSettingsModalOpen(true);
+          openSettingsCenterWorkbenchTab();
           return;
       }
       if (repairEntry.type === 'retry') {
@@ -4122,20 +4138,20 @@ function App() {
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterGroupKey(group);
       setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(group));
-      setIsSettingsModalOpen(true);
-  }), [clearSettingsCenterTransientPaneState]);
+      openSettingsCenterWorkbenchTab();
+  }), [clearSettingsCenterTransientPaneState, openSettingsCenterWorkbenchTab]);
   const handleOpenSettingsModal = useCallback((group: SettingsCenterGroupKey = 'preferences') => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       clearSettingsCenterTransientPaneState();
       setActiveSettingsCenterGroupKey(group);
       setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(group));
-      setIsSettingsModalOpen(true);
-  }), [clearSettingsCenterTransientPaneState]);
+      openSettingsCenterWorkbenchTab();
+  }), [clearSettingsCenterTransientPaneState, openSettingsCenterWorkbenchTab]);
   const handleOpenSettingsCenterPane = useCallback((group: SettingsCenterGroupKey, key: SettingsCenterPaneKey) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       clearSettingsCenterTransientPaneState();
       setActiveSettingsCenterGroupKey(group);
       setActiveSettingsCenterPane({ key, group });
-      setIsSettingsModalOpen(true);
-  }), [clearSettingsCenterTransientPaneState]);
+      openSettingsCenterWorkbenchTab();
+  }), [clearSettingsCenterTransientPaneState, openSettingsCenterWorkbenchTab]);
   const finalizeSecurityRepairReturnFromAISettings = useCallback(() => {
       const reopenSecurityUpdateDetails = shouldReopenSecurityUpdateDetails(securityUpdateRepairSource);
       setFocusedAIProviderId(undefined);
@@ -4152,16 +4168,35 @@ function App() {
       setCapturingShortcutAction(null);
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterPane(null);
-      setIsSettingsModalOpen(false);
+      closeSettingsCenterWorkbenchTab();
       if (leavingAI) {
           finalizeSecurityRepairReturnFromAISettings();
       }
-  }), [activeSettingsCenterPane?.key, closeConnectionPackageDialog, finalizeSecurityRepairReturnFromAISettings]);
+  }), [activeSettingsCenterPane?.key, closeConnectionPackageDialog, closeSettingsCenterWorkbenchTab, finalizeSecurityRepairReturnFromAISettings]);
   const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryMode) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       handleCancelSettingsCenterPane();
       addTab(buildDataSyncWorkbenchTab({ entryMode }));
   }), [addTab, handleCancelSettingsCenterPane]);
   const isSettingsAboutPaneOpen = isSettingsModalOpen && activeSettingsCenterPane?.key === 'about-go-navi';
+  const wasSettingsCenterTabOpenRef = useRef(false);
+  useEffect(() => {
+      const wasOpen = wasSettingsCenterTabOpenRef.current;
+      wasSettingsCenterTabOpenRef.current = isSettingsModalOpen;
+      if (!wasOpen || isSettingsModalOpen) {
+          return;
+      }
+      // Tab closed via workbench chrome (X) — mirror cancel cleanup without re-entering leave guard.
+      if (activeSettingsCenterPaneRef.current?.key === 'connection-package') {
+          closeConnectionPackageDialog();
+      }
+      const leavingAI = activeSettingsCenterPaneRef.current?.key === 'ai';
+      setCapturingShortcutAction(null);
+      setToolCenterBackGroupKey(null);
+      setActiveSettingsCenterPane(null);
+      if (leavingAI) {
+          finalizeSecurityRepairReturnFromAISettings();
+      }
+  }, [closeConnectionPackageDialog, finalizeSecurityRepairReturnFromAISettings, isSettingsModalOpen]);
   const isSettingsAboutPaneOpenRef = useRef(false);
   useEffect(() => {
       isSettingsAboutPaneOpenRef.current = isSettingsAboutPaneOpen;
@@ -4199,7 +4234,7 @@ function App() {
       setToolCenterBackGroupKey(group);
       setActiveSettingsCenterGroupKey(group);
       setActiveSettingsCenterPane({ key, group });
-      setIsSettingsModalOpen(true);
+      openSettingsCenterWorkbenchTab();
   }), [clearSettingsCenterTransientPaneState]);
   /** Title-bar / explorer settings entries → settings center navigation. */
   const handleTitleBarSettingsNavigation = useCallback((spec: {
@@ -4228,8 +4263,7 @@ function App() {
           return;
       }
       if (spec.action === 'drivers') {
-          handleCancelSettingsCenterPane();
-          handleOpenDriverManagerWorkbench();
+          handleOpenToolCenterPane('workspace', 'drivers');
           return;
       }
       if (spec.action === 'sql-audit') {
@@ -4269,7 +4303,6 @@ function App() {
       handleExportConnections,
       handleImportConnections,
       handleOpenDataSyncWorkbench,
-      handleOpenDriverManagerWorkbench,
       handleOpenSettingsCenterPane,
       handleOpenSettingsModal,
       handleOpenToolCenterPane,
@@ -4281,7 +4314,7 @@ function App() {
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterGroupKey(returnGroup);
       setActiveSettingsCenterPane(resolveSettingsCenterGroupInitialPane(returnGroup));
-      setIsSettingsModalOpen(true);
+      openSettingsCenterWorkbenchTab();
   }), [toolCenterBackGroupKey]);
   const handleFocusSidebarSearch = useCallback(() => {
       setIsSidebarCollapsed(false);
@@ -4866,7 +4899,7 @@ function App() {
       setAiSettingsProviderView('workspace');
       setActiveSettingsCenterGroupKey('services');
       setActiveSettingsCenterPane({ key: 'ai', group: 'services' });
-      setIsSettingsModalOpen(true);
+      openSettingsCenterWorkbenchTab();
   }), []);
 
   const handleAIPanelRenderError = useCallback((error: Error, errorInfo: React.ErrorInfo) => {
@@ -5085,7 +5118,7 @@ function App() {
 
   useEffect(() => {
       const handleOpenTabDisplaySettingsEvent = () => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
-          setIsSettingsModalOpen(false);
+          closeSettingsCenterWorkbenchTab();
           setThemeModalSection('workspace');
           setIsThemeModalOpen(true);
           setTabDisplaySettingsFocusRequest((current) => current + 1);
@@ -5535,55 +5568,80 @@ function App() {
   }, [setQueryOptions, sidebarMetadataFieldItems, sidebarTableMetadataFields]);
   const renderProxySettingsContent = useCallback(() => {
       const fieldLabelStyle: React.CSSProperties = {
-          marginBottom: 6,
+          marginBottom: 4,
           fontSize: 12,
           color: darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(16,24,40,0.58)',
       };
-      const proxyGridColumns = viewportWidth < 760 ? '1fr' : '1fr 1fr';
-      const proxyCardAccent = proxyDraft.enabled
-          ? (darkMode ? '#4ade80' : '#16a34a')
-          : (darkMode ? 'rgba(148,163,184,0.45)' : 'rgba(71,85,105,0.38)');
+      const narrow = viewportWidth < 760;
+      const proxyStatusColor = proxyDraft.enabled
+          ? (proxyDraftValid ? (darkMode ? '#4ade80' : '#16a34a') : (darkMode ? '#fbbf24' : '#d97706'))
+          : (darkMode ? 'rgba(148,163,184,0.85)' : 'rgba(71,85,105,0.72)');
       const proxyTestAlertType = proxyTestResult
           ? (!proxyTestResult.success ? 'error' : ((proxyTestResult.statusCode || 0) >= 400 ? 'warning' : 'success'))
           : 'info';
 
+
       return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0' }}>
-              <div style={{ ...utilityPanelStyle, borderLeft: `3px solid ${proxyCardAccent}`, paddingLeft: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: overlayTheme.titleText }}>
-                          {t(proxyDraft.enabled ? 'app.proxy.switch.enabled' : 'app.proxy.switch.disabled')}
-                      </span>
+          <div className="gonavi-proxy-settings" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0 4px', minHeight: 0 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: `1px solid ${darkMode ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)'}`,
+                  background: darkMode ? 'rgba(15,23,42,0.35)' : 'rgba(248,250,252,0.9)',
+                }}
+              >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
                       <Switch
                           aria-label={t('app.proxy.section_title')}
                           checked={proxyDraft.enabled}
                           onChange={(checked) => setProxyDraft((current) => ({ ...current, enabled: checked }))}
                       />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: overlayTheme.titleText }}>
+                          {t(proxyDraft.enabled ? 'app.proxy.switch.enabled' : 'app.proxy.switch.disabled')}
+                      </span>
+                      <span
+                        title={proxyStatusDescription}
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: proxyStatusColor,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          border: `1px solid ${proxyStatusColor}33`,
+                          background: `${proxyStatusColor}14`,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                          {proxyStatusTitle}
+                      </span>
+                      {proxyDraftDirty ? (
+                          <span style={{ ...utilityMutedTextStyle, fontSize: 12 }}>{t('app.proxy.unsaved_hint')}</span>
+                      ) : null}
                   </div>
-                  <Alert
-                      showIcon
-                      type={proxyStatusTone}
-                      message={proxyStatusTitle}
-                      description={proxyStatusDescription}
-                      style={{ marginTop: 14 }}
-                  />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {proxyPresetItems.map((preset) => (
                           <Button key={preset.key} size="small" onClick={() => applyProxyPreset(preset)}>
                               {preset.label}
                           </Button>
                       ))}
                   </div>
-                  {proxyDraftDirty && (
-                      <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                          {t('app.proxy.unsaved_hint')}
-                      </div>
-                  )}
               </div>
 
-              <div style={utilityPanelStyle}>
-                  <div style={{ fontWeight: 600, marginBottom: 12 }}>{t('app.proxy.connection_title')}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: proxyGridColumns, gap: 12 }}>
+              <div style={{ ...utilityPanelStyle, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: narrow ? '1fr' : 'minmax(160px, 0.9fr) minmax(180px, 1.6fr) 110px',
+                      gap: 10,
+                      alignItems: 'end',
+                    }}
+                  >
                       <div>
                           <div style={fieldLabelStyle}>{t('app.proxy.type')}</div>
                           <Segmented
@@ -5594,6 +5652,15 @@ function App() {
                                   { label: t('app.proxy.type_http'), value: 'http' },
                               ]}
                               onChange={(value) => updateProxyDraftType(value as GlobalProxyConfig['type'])}
+                          />
+                      </div>
+                      <div>
+                          <div style={fieldLabelStyle}>{t('app.proxy.host')}</div>
+                          <Input
+                              placeholder={t('app.proxy.host_placeholder')}
+                              status={proxyDraft.enabled && proxyDraftHost === '' ? 'error' : undefined}
+                              value={proxyDraft.host}
+                              onChange={(e) => setProxyDraft((current) => ({ ...current, host: e.target.value }))}
                           />
                       </div>
                       <div>
@@ -5610,24 +5677,16 @@ function App() {
                               }))}
                           />
                       </div>
-                      <div style={{ gridColumn: viewportWidth < 760 ? 'auto' : '1 / span 2' }}>
-                          <div style={fieldLabelStyle}>{t('app.proxy.host')}</div>
-                          <Input
-                              placeholder={t('app.proxy.host_placeholder')}
-                              status={proxyDraft.enabled && proxyDraftHost === '' ? 'error' : undefined}
-                              value={proxyDraft.host}
-                              onChange={(e) => setProxyDraft((current) => ({ ...current, host: e.target.value }))}
-                          />
-                      </div>
                   </div>
-                  <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                      {proxyDraft.enabled ? t('app.proxy.enabled_edit_hint') : t('app.proxy.disabled_hint')}
-                  </div>
-              </div>
 
-              <div style={utilityPanelStyle}>
-                  <div style={{ fontWeight: 600, marginBottom: 12 }}>{t('app.proxy.auth_title')}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: proxyGridColumns, gap: 12 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: narrow ? '1fr' : '1fr 1fr',
+                      gap: 10,
+                      alignItems: 'end',
+                    }}
+                  >
                       <div>
                           <div style={fieldLabelStyle}>{t('app.proxy.username_optional')}</div>
                           <Input
@@ -5653,15 +5712,11 @@ function App() {
                           />
                       </div>
                   </div>
+
                   {proxyDraftClearPassword ? (
-                      <Alert
-                          showIcon
-                          type="warning"
-                          message={t('app.proxy.clear_saved_password_pending')}
-                          style={{ marginTop: 12 }}
-                      />
+                      <Alert showIcon type="warning" message={t('app.proxy.clear_saved_password_pending')} />
                   ) : proxyDraft.hasPassword && proxyDraft.password === '' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                           <span style={utilityMutedTextStyle}>{t('app.proxy.password_saved_hint')}</span>
                           <Button
                               size="small"
@@ -5673,69 +5728,78 @@ function App() {
                               {t('app.proxy.clear_saved_password')}
                           </Button>
                       </div>
-                  ) : (
-                      <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>{t('app.proxy.no_auth_hint')}</div>
-                  )}
+                  ) : null}
               </div>
 
-              <div style={utilityPanelStyle}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+              <div style={{ ...utilityPanelStyle, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: narrow ? '1fr' : 'minmax(140px, 0.9fr) minmax(200px, 1.6fr) auto',
+                      gap: 10,
+                      alignItems: 'end',
+                    }}
+                  >
                       <div>
-                          <div style={{ fontWeight: 600 }}>{t('app.proxy.test.title')}</div>
-                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.proxy.test.description')}</div>
+                          <div style={fieldLabelStyle}>{t('app.proxy.test.target_label')}</div>
+                          <Select
+                              value={proxyTestPresetItems.some((item) => item.url === proxyTestUrlTrimmed) ? proxyTestUrlTrimmed : undefined}
+                              placeholder={t('app.proxy.test.target_label')}
+                              style={{ width: '100%' }}
+                              allowClear
+                              options={proxyTestPresetItems.map((item) => ({
+                                  value: item.url,
+                                  label: item.label,
+                              }))}
+                              onChange={(value) => {
+                                  if (typeof value === 'string' && value) {
+                                      setProxyTestUrl(value);
+                                  }
+                              }}
+                          />
+                      </div>
+                      <div>
+                          <div style={fieldLabelStyle}>{t('app.proxy.test.title')}</div>
+                          <Input
+                              value={proxyTestUrl}
+                              placeholder={t('app.proxy.test.target_placeholder')}
+                              onChange={(event) => setProxyTestUrl(event.target.value)}
+                              onPressEnter={() => {
+                                  if (proxyCanTest) {
+                                      void handleTestGlobalProxyDraft();
+                                  }
+                              }}
+                          />
                       </div>
                       <Button
                           type="primary"
                           loading={proxyTesting}
                           disabled={!proxyCanTest}
                           onClick={handleTestGlobalProxyDraft}
+                          style={{ minWidth: 96 }}
                       >
                           {t('app.proxy.test.action')}
                       </Button>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div>
-                          <div style={fieldLabelStyle}>{t('app.proxy.test.target_label')}</div>
-                          <Select
-                              value={proxyTestUrlTrimmed}
-                              style={{ width: '100%' }}
-                              options={proxyTestPresetItems.map((item) => ({
-                                  value: item.url,
-                                  label: `${item.label} - ${item.url}`,
-                              }))}
-                              onChange={(value) => setProxyTestUrl(value)}
-                          />
-                      </div>
-                      <Input
-                          value={proxyTestUrl}
-                          placeholder={t('app.proxy.test.target_placeholder')}
-                          onChange={(event) => setProxyTestUrl(event.target.value)}
-                          onPressEnter={() => {
-                              if (proxyCanTest) {
-                                  void handleTestGlobalProxyDraft();
-                              }
-                          }}
+                  {!proxyDraft.enabled ? (
+                      <div style={utilityMutedTextStyle}>{t('app.proxy.test.disabled_hint')}</div>
+                  ) : null}
+                  {proxyTestResult ? (
+                      <Alert
+                          showIcon
+                          type={proxyTestAlertType}
+                          message={proxyTestResult.message}
+                          description={[
+                              proxyTestResult.statusCode ? t('app.proxy.test.result.status', { status: proxyTestResult.statusCode }) : '',
+                              typeof proxyTestResult.durationMs === 'number' ? t('app.proxy.test.result.duration', { duration: proxyTestResult.durationMs }) : '',
+                              proxyTestResult.finalUrl && proxyTestResult.finalUrl !== proxyTestResult.url ? t('app.proxy.test.result.final_url', { url: proxyTestResult.finalUrl }) : '',
+                          ].filter(Boolean).join('  ')}
                       />
-                      {!proxyDraft.enabled && (
-                          <div style={utilityMutedTextStyle}>{t('app.proxy.test.disabled_hint')}</div>
-                      )}
-                      {proxyTestResult && (
-                          <Alert
-                              showIcon
-                              type={proxyTestAlertType}
-                              message={proxyTestResult.message}
-                              description={[
-                                  proxyTestResult.statusCode ? t('app.proxy.test.result.status', { status: proxyTestResult.statusCode }) : '',
-                                  typeof proxyTestResult.durationMs === 'number' ? t('app.proxy.test.result.duration', { duration: proxyTestResult.durationMs }) : '',
-                                  proxyTestResult.finalUrl && proxyTestResult.finalUrl !== proxyTestResult.url ? t('app.proxy.test.result.final_url', { url: proxyTestResult.finalUrl }) : '',
-                              ].filter(Boolean).join('  ')}
-                          />
-                      )}
-                  </div>
+                  ) : null}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ ...utilityMutedTextStyle, flex: '1 1 260px' }}>{t('app.proxy.scope_hint')}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 2 }}>
+                  <div style={{ ...utilityMutedTextStyle, flex: '1 1 240px', fontSize: 12 }}>{t('app.proxy.scope_hint')}</div>
                   <div style={{ display: 'flex', gap: 8 }}>
                       <Button onClick={resetProxyDraftToCurrent} disabled={!proxyDraftDirty || proxyApplying}>
                           {t('app.proxy.reset')}
@@ -5752,9 +5816,11 @@ function App() {
               </div>
           </div>
       );
+
   }, [
       applyProxyPreset,
       darkMode,
+      overlayTheme.titleText,
       handleApplyGlobalProxyDraft,
       proxyApplying,
       proxyCanTest,
@@ -5769,6 +5835,7 @@ function App() {
       proxyDraftDirty,
       proxyDraftHost,
       proxyDraftPortValid,
+      proxyDraftValid,
       proxyTestPresetItems,
       proxyTestResult,
       proxyTesting,
@@ -5777,7 +5844,6 @@ function App() {
       proxyPresetItems,
       proxyStatusDescription,
       proxyStatusTitle,
-      proxyStatusTone,
       resetProxyDraftToCurrent,
       t,
       handleTestGlobalProxyDraft,
@@ -6616,7 +6682,7 @@ function App() {
 
   const renderThemeSettingsSection = (title: React.ReactNode, children: React.ReactNode, hint?: React.ReactNode) => (
       <section className="gonavi-settings-section">
-          <div className="gonavi-settings-section-title">{title}</div>
+          {title ? <div className="gonavi-settings-section-title">{title}</div> : null}
           {hint ? <div className="gonavi-settings-section-hint">{hint}</div> : null}
           <div>{children}</div>
       </section>
@@ -6686,8 +6752,8 @@ function App() {
                   overflow: 'hidden',
                   boxSizing: 'border-box',
               }}>
+                  {options?.hideSectionTabs ? null : (
                   <div style={{ flexShrink: 0, display: 'grid', gap: 4 }}>
-                      {options?.hideSectionTabs ? null : (
                       <div className="gonavi-settings-tabs" role="tablist" aria-label={t('app.settings.entry.theme.title')}>
                           {themeSettingsSections.map((item, itemIndex) => {
                               const active = themeModalSection === item.value;
@@ -6725,16 +6791,14 @@ function App() {
                               );
                           })}
                       </div>
-                      )}
-                      <div className="gonavi-settings-inline-meta" style={{ marginTop: 2 }}>
-                          {t('app.theme.instant_apply_hint')}
-                      </div>
                   </div>
+                  )}
                   <div
                     key={themeModalSection}
                     id={`gonavi-theme-settings-panel-${themeModalSection}`}
                     role={options?.hideSectionTabs ? undefined : 'tabpanel'}
                     aria-labelledby={options?.hideSectionTabs ? undefined : `gonavi-theme-settings-tab-${themeModalSection}`}
+                    className="gonavi-settings-center-pane-scroll"
                     style={{
                         minWidth: 0,
                         minHeight: 0,
@@ -6743,9 +6807,10 @@ function App() {
                         /* visible：避免 Slider 两端手柄被横向裁切 */
                         overflowX: 'visible',
                         overscrollBehavior: 'contain',
-                        paddingRight: 8,
+                        paddingRight: 4,
                         paddingLeft: 2,
                         paddingBottom: 20,
+                        scrollbarGutter: 'auto',
                     }}
                   >
                       {themeModalSection === 'theme' ? (
@@ -6831,7 +6896,8 @@ function App() {
                       ) : themeModalSection === 'appearance' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                               {renderThemeSettingsSection(
-                                  t('app.theme.nav.appearance.title'),
+                                  // 设置中心侧栏已显示「显示与字体」，内容区不再重复分区标题
+                                  options?.hideSectionTabs ? null : t('app.theme.nav.appearance.title'),
                                   <>
                                       {renderThemeSettingsRow({
                                           label: t('app.theme.appearance.ui_scale_title'),
@@ -7674,10 +7740,14 @@ function App() {
           overflowY: 'hidden',
           // v2 主题设置页含 Slider 手柄横向伸出，hidden 会裁切贴边圆点
           overflowX: isV2ThemeSettingsPane ? 'visible' : 'hidden',
-          paddingRight: isV2ThemeSettingsPane ? 8 : 0,
+          // 右侧只留给内层滚动容器，避免 padding + 滚动条叠出大块空白
+          paddingRight: 0,
           paddingLeft: isV2ThemeSettingsPane ? 4 : undefined,
       }
-      : toolCenterDetailBodyStyle;
+      : {
+          ...toolCenterDetailBodyStyle,
+          paddingRight: 0,
+      };
   const renderSettingsCenterPane = () => {
       if (!activeSettingsCenterPane) {
           return null;
@@ -8394,8 +8464,7 @@ function App() {
                     title: t('app.tools.entry.drivers.title'),
                     description: t('app.tools.entry.drivers.description'),
                     onClick: () => {
-                      handleCancelSettingsCenterPane();
-                      handleOpenDriverManagerWorkbench();
+                      handleOpenToolCenterPane('workspace', 'drivers');
                     },
                   },
                   {
@@ -8688,6 +8757,21 @@ function App() {
                 );
               }
 
+              if (activeSettingsCenterPane.key === 'drivers') {
+                return (
+                  <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                    <DriverManagerModal
+                      embedded
+                      open
+                      onClose={handleCancelSettingsCenterPane}
+                      onOpenGlobalProxySettings={() => handleOpenSettingsCenterPane('services', 'proxy')}
+                      onOpenDownloadSourceSettings={() => handleOpenSettingsCenterPane('services', 'download-source')}
+                      downloadSource={downloadSource}
+                    />
+                  </div>
+                );
+              }
+
               if (activeSettingsCenterPane.key === 'snippet-settings') {
                 return (
                   <SnippetSettingsModal
@@ -8742,7 +8826,7 @@ function App() {
                       footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 },
                     }}
                   >
-                    <div data-gonavi-shortcut-modal-scroll="true" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8, paddingRight: 8 }}>
+                    <div data-gonavi-shortcut-modal-scroll="true" className="gonavi-settings-center-pane-scroll" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8, paddingRight: 4 }}>
                       <div style={utilityPanelStyle}>
                         <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)' }}>
                              {t('app.shortcuts.capture_hint')}
@@ -8812,23 +8896,19 @@ function App() {
             };
 
             return (
-              <Modal
-                rootClassName={`gonavi-settings-center-modal${activeSettingsCenterPane?.key === 'ai' ? ' gonavi-provider-settings-host' : ''}`}
-                title={renderUtilityModalTitle(<SettingOutlined />, t('app.settings.title'), t('app.settings.description'))}
-                open={isSettingsModalOpen}
-                onCancel={handleCancelSettingsCenterPane}
-                footer={null}
-                centered
-                width={1080}
-                zIndex={settingsCenterModalZIndex}
-                styles={{
-                  content: toolCenterModalContentStyle,
-                  header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 },
-                  body: { paddingTop: 8, paddingBottom: 8, overflow: 'hidden', flex: 1, minHeight: 0 },
-                  footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 },
-                }}
-              >
-                <div style={toolCenterModalWorkspaceStyle}>
+              <SettingsCenterWorkbenchRegistrar>
+                <div
+                  className={`gonavi-settings-center-modal gonavi-settings-center-workbench${activeSettingsCenterPane?.key === 'ai' ? ' gonavi-provider-settings-host' : ''}`}
+                  style={{
+                    height: '100%',
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    background: 'transparent',
+                  }}
+                >
+                <div style={{ ...toolCenterModalWorkspaceStyle, flex: 1, minHeight: 0, padding: '4px 0 8px 8px' }}>
                     <div className="gonavi-settings-center-layout" style={toolCenterModalSplitStyle}>
                     <div className="gonavi-settings-center-groups" style={toolCenterNavPanelStyle}>
                       <SettingsCenterTreeNav
@@ -8852,29 +8932,14 @@ function App() {
                     >
                       {activeSettingsCenterPane ? (
                         <div style={activeSettingsCenterDetailPanelStyle}>
-                          {activeSettingsCenterPane.key === 'about-go-navi' ? null : (
-                          <div className="gonavi-settings-center-pane-heading" style={{ paddingBottom: 10 }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 'calc(var(--gn-font-size, 14px) * 1.14)', fontWeight: 700, color: overlayTheme.titleText }}>
-                                {activeSettingsCenterPaneItem?.title ?? activeSettingsCenterGroup.title}
-                              </div>
-                              <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>
-                                {activeSettingsCenterPaneItem?.description ?? activeSettingsCenterGroup.description}
-                              </div>
-                            </div>
-                          </div>
-                          )}
+                          {/* 侧栏树已显示当前项，内容区不再重复标题/说明 */}
                           <div
                             key={activeSettingsCenterPane.key}
                             style={isActiveToolCenterPane ? toolCenterDetailBodyStyle : settingsCenterDetailBodyStyle}
                           >
                             {isActiveToolCenterPane ? renderToolCenterPane() : renderSettingsCenterPane()}
                           </div>
-                          {!isActiveToolCenterPane && !(
-                            activeSettingsCenterPane.key === 'ai'
-                            && aiSettingsSection === 'providers'
-                            && aiSettingsProviderView === 'workspace'
-                          ) && (
+                          {!isActiveToolCenterPane && activeSettingsCenterPane.key === 'about-go-navi' && (
                             <div
                               style={{
                                 display: 'flex',
@@ -8886,13 +8951,7 @@ function App() {
                                 flexShrink: 0,
                               }}
                             >
-                              {activeSettingsCenterPane.key === 'about-go-navi' ? (
-                                renderSettingsCenterAboutFooter()
-                              ) : (
-                                <Button type="primary" onClick={handleCancelSettingsCenterPane}>
-                                  {t('common.close')}
-                                </Button>
-                              )}
+                              {renderSettingsCenterAboutFooter()}
                             </div>
                           )}
                         </div>
@@ -8903,17 +8962,13 @@ function App() {
                             <div style={utilityMutedTextStyle}>{activeSettingsCenterGroup.description}</div>
                           </div>
                           <div style={{ flex: 1 }} />
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 10, marginTop: 10, flexShrink: 0 }}>
-                            <Button type="primary" onClick={handleCancelSettingsCenterPane}>
-                              {t('common.close')}
-                            </Button>
-                          </div>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
-              </Modal>
+                </div>
+              </SettingsCenterWorkbenchRegistrar>
             );
           })()}
           {isDataRootModalOpen && (

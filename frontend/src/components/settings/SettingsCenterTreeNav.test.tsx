@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create } from 'react-test-renderer';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 
@@ -9,9 +9,29 @@ vi.mock('@ant-design/icons', () => ({
 }));
 
 import SettingsCenterTreeNav, {
+  SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
   flattenVisibleSettingsCenterTree,
   settingsCenterTreeNodeId,
 } from './SettingsCenterTreeNav';
+
+const ensureLocalStorage = () => {
+  if (typeof globalThis.localStorage !== 'undefined' && typeof globalThis.localStorage.clear === 'function') {
+    return;
+  }
+  const store = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+  });
+};
 
 const overlayTheme = buildOverlayWorkbenchTheme(false);
 
@@ -56,6 +76,15 @@ const createGroups = (onLanguageClick = vi.fn(), onProxyClick = vi.fn()) => ([
 ]);
 
 describe('SettingsCenterTreeNav', () => {
+  beforeEach(() => {
+    ensureLocalStorage();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
   it('flattens expanded groups and hides collapsed children', () => {
     const groups = createGroups();
     const expanded = flattenVisibleSettingsCenterTree(groups, new Set());
@@ -78,7 +107,7 @@ describe('SettingsCenterTreeNav', () => {
       .toBe('item:preferences:language');
   });
 
-  it('renders a persistent tree so leaves are reachable without a back-to-list hop', () => {
+  it('starts with expandable groups collapsed on first visit', () => {
     const onLanguageClick = vi.fn();
     const onSelectGroup = vi.fn();
     const renderer = create(
@@ -95,8 +124,18 @@ describe('SettingsCenterTreeNav', () => {
 
     const tree = renderer.root.findByProps({ role: 'tree' });
     expect(tree.props['aria-label']).toBe('设置中心');
-    expect(renderer.root.findAllByProps({ role: 'treeitem' })).toHaveLength(5);
+    expect(renderer.root.findAllByProps({ role: 'treeitem' })).toHaveLength(2);
+    expect(renderer.root.findAllByProps({ 'data-settings-pane-key': 'language' })).toHaveLength(0);
 
+    const preferencesGroup = renderer.root.findByProps({ 'data-settings-tree-node': 'group:preferences' });
+    expect(preferencesGroup.props['aria-expanded']).toBe(false);
+
+    const caret = renderer.root.findByProps({ 'data-settings-tree-toggle': 'group:preferences' });
+    act(() => {
+      caret.props.onClick({ stopPropagation() { /* caret should not bubble to the group */ } });
+    });
+
+    expect(renderer.root.findAllByProps({ role: 'treeitem' })).toHaveLength(4);
     const languageNode = renderer.root.findByProps({ 'data-settings-pane-key': 'language' });
     expect(languageNode.props['aria-selected']).toBe(true);
     expect(languageNode.props.className).toContain('is-active');
@@ -124,8 +163,14 @@ describe('SettingsCenterTreeNav', () => {
     );
 
     const preferencesGroup = renderer.root.findByProps({ 'data-settings-tree-node': 'group:preferences' });
-    expect(preferencesGroup.props['aria-expanded']).toBe(true);
+    expect(preferencesGroup.props['aria-expanded']).toBe(false);
     const caret = renderer.root.findByProps({ 'data-settings-tree-toggle': 'group:preferences' });
+
+    act(() => {
+      caret.props.onClick({ stopPropagation() { /* caret should not bubble to the group */ } });
+    });
+    expect(renderer.root.findByProps({ 'data-settings-tree-node': 'group:preferences' }).props['aria-expanded']).toBe(true);
+    expect(renderer.root.findAllByProps({ 'data-settings-pane-key': 'language' })).toHaveLength(1);
 
     act(() => {
       caret.props.onClick({ stopPropagation() { /* caret should not bubble to the group */ } });
@@ -135,6 +180,55 @@ describe('SettingsCenterTreeNav', () => {
     expect(collapsedGroup.props['aria-expanded']).toBe(false);
     expect(renderer.root.findAllByProps({ 'data-settings-pane-key': 'language' })).toHaveLength(0);
     expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('remembers expanded groups across remounts via localStorage', () => {
+    const groups = createGroups();
+    const first = create(
+      <SettingsCenterTreeNav
+        groups={groups}
+        activeGroupKey="preferences"
+        activeItemKey="language"
+        darkMode={false}
+        overlayTheme={overlayTheme}
+        ariaLabel="设置中心"
+        onSelectGroup={vi.fn()}
+      />,
+    );
+
+    expect(first.root.findByProps({ 'data-settings-tree-node': 'group:preferences' }).props['aria-expanded']).toBe(false);
+    expect(first.root.findByProps({ 'data-settings-tree-node': 'group:services' }).props['aria-expanded']).toBe(false);
+
+    act(() => {
+      first.root.findByProps({ 'data-settings-tree-toggle': 'group:preferences' }).props.onClick({
+        stopPropagation() { /* caret */ },
+      });
+    });
+    expect(first.root.findByProps({ 'data-settings-tree-node': 'group:preferences' }).props['aria-expanded']).toBe(true);
+    expect(JSON.parse(localStorage.getItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY) ?? 'null')).toEqual([
+      'group:preferences',
+    ]);
+
+    act(() => {
+      first.unmount();
+    });
+
+    const second = create(
+      <SettingsCenterTreeNav
+        groups={groups}
+        activeGroupKey="preferences"
+        activeItemKey="language"
+        darkMode={false}
+        overlayTheme={overlayTheme}
+        ariaLabel="设置中心"
+        onSelectGroup={vi.fn()}
+      />,
+    );
+
+    expect(second.root.findByProps({ 'data-settings-tree-node': 'group:preferences' }).props['aria-expanded']).toBe(true);
+    expect(second.root.findByProps({ 'data-settings-tree-node': 'group:services' }).props['aria-expanded']).toBe(false);
+    expect(second.root.findAllByProps({ 'data-settings-pane-key': 'language' })).toHaveLength(1);
+    expect(second.root.findAllByProps({ 'data-settings-pane-key': 'proxy' })).toHaveLength(0);
   });
 
   it('activates another group from the tree instead of requiring a settings list', () => {
@@ -210,6 +304,11 @@ describe('SettingsCenterTreeNav', () => {
       'item:preferences:theme',
     ]);
 
+    localStorage.setItem(
+      SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
+      JSON.stringify(['group:preferences', 'item:preferences:theme']),
+    );
+
     const renderer = create(
       <SettingsCenterTreeNav
         groups={groups}
@@ -272,6 +371,11 @@ describe('SettingsCenterTreeNav', () => {
       'item:services:ai-providers',
       'item:services:ai-providers-connected',
     ]);
+
+    localStorage.setItem(
+      SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
+      JSON.stringify(['group:services', 'item:services:ai', 'item:services:ai-providers']),
+    );
 
     const renderer = create(
       <SettingsCenterTreeNav

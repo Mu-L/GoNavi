@@ -35,6 +35,69 @@ export const settingsCenterTreeNodeId = (node: SettingsCenterTreeNodeId): string
   node.type === 'group' ? `group:${node.groupKey}` : `item:${node.groupKey}:${node.itemKey}`
 );
 
+
+export const SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY = 'gonavi.settings-center.expanded-keys';
+
+export const collectExpandableSettingsCenterTreeIds = (
+  groups: ReadonlyArray<SettingsCenterTreeGroup>,
+): string[] => {
+  const ids: string[] = [];
+  const walkItems = (groupKey: string, items: ReadonlyArray<SettingsCenterTreeItem>) => {
+    items.forEach((item) => {
+      if (item.children && item.children.length > 0) {
+        ids.push(settingsCenterTreeNodeId({ type: 'item', groupKey, itemKey: item.key }));
+        walkItems(groupKey, item.children);
+      }
+    });
+  };
+  groups.forEach((group) => {
+    if (group.items.length > 0) {
+      ids.push(settingsCenterTreeNodeId({ type: 'group', groupKey: group.key }));
+      walkItems(group.key, group.items);
+    }
+  });
+  return ids;
+};
+
+export const loadCollapsedKeys = (expandableIds: string[]): Set<string> => {
+  if (typeof localStorage === 'undefined') {
+    return new Set(expandableIds);
+  }
+  try {
+    const raw = localStorage.getItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY);
+    if (raw == null) {
+      return new Set(expandableIds);
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set(expandableIds);
+    }
+    const expandableSet = new Set(expandableIds);
+    const expanded = new Set(
+      parsed.filter((id): id is string => typeof id === 'string' && expandableSet.has(id)),
+    );
+    return new Set(expandableIds.filter((id) => !expanded.has(id)));
+  } catch {
+    return new Set(expandableIds);
+  }
+};
+
+export const saveExpandedKeysFromCollapsed = (
+  collapsed: ReadonlySet<string>,
+  expandableIds: string[],
+): void => {
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
+  try {
+    const expanded = expandableIds.filter((id) => !collapsed.has(id));
+    localStorage.setItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY, JSON.stringify(expanded));
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+};
+
+
 const walkSettingsCenterTreeItems = (
   items: ReadonlyArray<SettingsCenterTreeItem>,
   itemKey: string,
@@ -149,40 +212,46 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   ariaLabel,
   onSelectGroup,
 }) => {
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => new Set());
-  const suppressAutoExpandRef = useRef(false);
+  const expandableIds = useMemo(
+    () => collectExpandableSettingsCenterTreeIds(groups),
+    [groups],
+  );
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(() => (
+    loadCollapsedKeys(collectExpandableSettingsCenterTreeIds(groups))
+  ));
+  const previousExpandableIdsRef = useRef<string[] | null>(null);
   const selectedNodeId = activeItemKey
     ? settingsCenterTreeNodeId({ type: 'item', groupKey: activeGroupKey, itemKey: activeItemKey })
     : settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey });
   const [focusedNodeId, setFocusedNodeId] = useState(selectedNodeId);
 
-  const ancestorItemKeys = useMemo(
-    () => findSettingsCenterTreeAncestors(groups, activeGroupKey, activeItemKey),
-    [activeGroupKey, activeItemKey, groups],
-  );
-
   useEffect(() => {
-    if (suppressAutoExpandRef.current) {
-      suppressAutoExpandRef.current = false;
+    const previous = previousExpandableIdsRef.current;
+    previousExpandableIdsRef.current = expandableIds;
+    if (previous === null) {
       return;
     }
+    const previousSet = new Set(previous);
     setCollapsedKeys((current) => {
-      const required = [
-        settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey }),
-        ...ancestorItemKeys.map((itemKey) => settingsCenterTreeNodeId({
-          type: 'item',
-          groupKey: activeGroupKey,
-          itemKey,
-        })),
-      ];
-      if (required.every((id) => !current.has(id))) {
-        return current;
-      }
-      const next = new Set(current);
-      required.forEach((id) => next.delete(id));
-      return next;
+      const next = new Set<string>();
+      expandableIds.forEach((id) => {
+        // Keep prior collapse state for known ids; new expandable nodes start collapsed.
+        if (current.has(id) || !previousSet.has(id)) {
+          next.add(id);
+        }
+      });
+      const unchanged = (
+        next.size === current.size
+        && [...next].every((id) => current.has(id))
+        && [...current].every((id) => next.has(id))
+      );
+      return unchanged ? current : next;
     });
-  }, [activeGroupKey, ancestorItemKeys]);
+  }, [expandableIds]);
+
+  useEffect(() => {
+    saveExpandedKeysFromCollapsed(collapsedKeys, expandableIds);
+  }, [collapsedKeys, expandableIds]);
 
   useEffect(() => {
     setFocusedNodeId(selectedNodeId);
@@ -203,11 +272,6 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       }
       return next;
     });
-  };
-
-  const toggleCollapsedFromUser = (nodeId: string) => {
-    suppressAutoExpandRef.current = true;
-    toggleCollapsed(nodeId);
   };
 
   const expandNode = (nodeId: string) => {
@@ -292,7 +356,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     if (event.key === 'ArrowRight' && node.expandable) {
       event.preventDefault();
       if (collapsedKeys.has(node.id)) {
-        toggleCollapsedFromUser(node.id);
+        toggleCollapsed(node.id);
         return;
       }
       moveFocus(node.id, 1);
@@ -301,7 +365,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
       if (node.expandable && !collapsedKeys.has(node.id)) {
-        toggleCollapsedFromUser(node.id);
+        toggleCollapsed(node.id);
         return;
       }
       if (node.type === 'item' && node.parentItemKey) {
@@ -395,7 +459,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       data-settings-tree-toggle={nodeId}
       onClick={(event) => {
         event.stopPropagation();
-        toggleCollapsedFromUser(nodeId);
+        toggleCollapsed(nodeId);
       }}
     >
       <CaretRightOutlined

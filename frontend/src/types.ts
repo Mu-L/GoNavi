@@ -518,6 +518,7 @@ export interface TabData {
     | "sql-analysis"
     | "sql-audit"
     | "driver-manager"
+    | "settings-center"
     | "request-diagnostics"
     | "message-queue"
     | "redis-keys"

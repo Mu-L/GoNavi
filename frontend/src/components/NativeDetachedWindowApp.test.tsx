@@ -66,6 +66,7 @@ const workbenchTabTypes: TabData['type'][] = [
   'sql-analysis',
   'sql-audit',
   'driver-manager',
+  'settings-center',
   'redis-keys',
   'redis-command',
   'redis-monitor',

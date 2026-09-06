@@ -37,6 +37,7 @@ const getTabKindLabel = (type: string): string => {
   if (type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
   if (type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
   if (type === 'driver-manager') return t('tab_manager.kind_badge.driver_manager');
+  if (type === 'settings-center') return t('tab_manager.kind_badge.settings_center');
   if (type.startsWith('redis')) return t('tab_manager.kind_badge.redis');
   if (type.startsWith('jvm')) return t('tab_manager.kind_badge.jvm');
   if (type === 'trigger') return t('tab_manager.kind_badge.trigger');
