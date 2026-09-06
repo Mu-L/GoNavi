@@ -29,6 +29,7 @@ import {
   resolveAvailableCustomTheme,
   resolveBuiltinCustomThemePreset,
 } from '../../utils/customThemePresets';
+import { useStore } from '../../store';
 import './CustomThemeManager.css';
 
 type FileAction =
@@ -117,6 +118,11 @@ export default function CustomThemeManager({ legacyMode = false }: CustomThemeMa
   const activeThemeDisplayName = activePreset
     ? t(activePreset.nameKey)
     : activeTheme?.name ?? '';
+  const themeMode = useStore((state) => state.theme);
+  const visibleBuiltinPresets = useMemo(
+    () => BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === themeMode),
+    [themeMode],
+  );
   const numberFormatter = useMemo(() => new Intl.NumberFormat(language), [language]);
   const recoveryShortcut = useMemo(
     () => isMacLikePlatform() ? 'Cmd+Shift+D' : 'Ctrl+Shift+D',
@@ -279,10 +285,10 @@ export default function CustomThemeManager({ legacyMode = false }: CustomThemeMa
               <strong id={builtinThemeTitleId}>{t('app.theme.custom.preset.title')}</strong>
               <span>{t('app.theme.custom.preset.description')}</span>
             </div>
-            <Tag>{t('app.theme.custom.preset.count', { count: BUILTIN_CUSTOM_THEME_PRESETS.length })}</Tag>
+            <Tag>{t('app.theme.custom.preset.count', { count: visibleBuiltinPresets.length })}</Tag>
           </div>
           <div className="gonavi-custom-theme-preset-grid">
-            {BUILTIN_CUSTOM_THEME_PRESETS.map((preset) => {
+            {visibleBuiltinPresets.map((preset) => {
               const displayName = t(preset.nameKey);
               const active = preset === activePreset;
               const descriptionId = `${builtinThemeTitleId}-${preset.id}-description`;

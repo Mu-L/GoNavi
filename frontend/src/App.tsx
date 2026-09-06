@@ -6799,14 +6799,14 @@ function App() {
                                           { key: 'dark' as const, label: t('app.theme.mode.dark.label'), preview: 'dark' as const },
                                           { key: 'system' as const, label: t('app.theme.mode.system.label'), preview: 'system' as const },
                                       ]).map((item, itemIndex, themeItems) => {
-                                          const active = !activeCustomTheme && themePreference === item.key;
+                                          const active = effectiveThemePreference === item.key;
                                           return (
                                               <button
                                                   key={item.key}
                                                   type="button"
                                                   role="radio"
                                                   aria-checked={active}
-                                                  tabIndex={themePreference === item.key ? 0 : -1}
+                                                  tabIndex={effectiveThemePreference === item.key ? 0 : -1}
                                                   className={`gonavi-settings-mode-tile${active ? ' is-active' : ''}`}
                                                   onClick={() => selectPresetTheme(item.key)}
                                                   onKeyDown={(event) => {
