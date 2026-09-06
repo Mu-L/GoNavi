@@ -44,10 +44,10 @@ AGENT_FILENAME_RE = re.compile(
 )
 GEN_MAP_ENTRY_RE = re.compile(r'"([A-Za-z0-9_]+)":\s*"(src-[0-9a-f]{16})"')
 
-# 与客户端 normalizeRuntimeDriverType 的别名归一保持一致：资产文件名/清单里的
-# 驱动名可能是别名，revision map 的键是规范化名。
+# `diros` 是历史拼写；指纹校验器对外统一使用 Doris 的规范键 `doris`。
+# 已发布资产和旧 revision map 中仍可能出现 `diros`，读取时兼容归一。
 DRIVER_ALIASES = {
-    "doris": "diros",
+    "diros": "doris",
     "open_gauss": "opengauss",
     "open-gauss": "opengauss",
     "gauss_db": "gaussdb",
@@ -71,7 +71,15 @@ def parse_revision_maps(pairs):
         if platform not in maps and "/" not in platform:
             raise SystemExit(f"invalid platform in --revision-map: {item}")
         text = Path(path).read_text(encoding="utf-8")
-        entries = {driver: revision for driver, revision in GEN_MAP_ENTRY_RE.findall(text)}
+        entries = {}
+        for driver, revision in GEN_MAP_ENTRY_RE.findall(text):
+            canonical_driver = normalize_driver(driver)
+            previous_revision = entries.get(canonical_driver)
+            if previous_revision and previous_revision != revision:
+                raise SystemExit(
+                    f"revision map has conflicting aliases for {canonical_driver}: {path}"
+                )
+            entries[canonical_driver] = revision
         if not entries:
             raise SystemExit(f"revision map has no entries: {path}")
         maps[platform] = entries

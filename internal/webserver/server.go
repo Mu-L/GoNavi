@@ -680,9 +680,9 @@ func NewSharedRuntime(assetFS fs.FS, app *appcore.App, ai *aiservice.Service, op
 	if app == nil || ai == nil {
 		return nil, fmt.Errorf("shared App and AI service are required")
 	}
-	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	frontendFS, err := resolveFrontendAssets(assetFS)
 	if err != nil {
-		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+		return nil, err
 	}
 
 	bridgePath := strings.TrimSpace(options.RuntimeBridgePath)
@@ -830,9 +830,9 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 	if assetFS == nil {
 		return nil, fmt.Errorf("web assets are unavailable")
 	}
-	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	frontendFS, err := resolveFrontendAssets(assetFS)
 	if err != nil {
-		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+		return nil, err
 	}
 
 	events := newEventHub()
@@ -861,6 +861,25 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 		invoker:       invoker,
 		auditHeavySem: make(chan struct{}, 1),
 	}, nil
+}
+
+// resolveFrontendAssets accepts both the production ZIP layout, where Vite's
+// output is stored at the FS root, and the development layout, where the
+// project root contains frontend/dist.
+func resolveFrontendAssets(assetFS fs.FS) (fs.FS, error) {
+	if info, err := fs.Stat(assetFS, "index.html"); err == nil {
+		if !info.IsDir() {
+			return assetFS, nil
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("resolve frontend index asset failed: %w", err)
+	}
+
+	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	if err != nil {
+		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+	}
+	return frontendFS, nil
 }
 
 func (s *Server) Run(ctx context.Context) error {

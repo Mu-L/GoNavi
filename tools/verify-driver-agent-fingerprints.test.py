@@ -240,24 +240,46 @@ class VerifyDriverAgentFingerprintsBinariesTest(unittest.TestCase):
             self.assertEqual(1, len(skipped))
             self.assertIn("linux/arm64", skipped[0])
 
-    def test_doris_filename_normalizes_to_diros_map_key(self):
+    def test_doris_is_canonical_and_diros_is_a_legacy_filename_alias(self):
         module = load_module()
         with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
             assets_dir = Path(tmp) / "release-assets"
             write_agent(assets_dir / "MacOS" / "doris-driver-agent-darwin-amd64", SPHINX_REVISION)
             checked, failures, skipped = module.verify_binaries(
-                assets_dir, {"darwin/amd64": {"diros": SPHINX_REVISION}}
+                assets_dir, {"darwin/amd64": {"doris": SPHINX_REVISION}}
             )
             self.assertEqual(1, checked)
             self.assertEqual([], failures)
 
-            # 指纹不一致时也应按 diros 键比对出来
-            write_agent(assets_dir / "MacOS" / "doris-driver-agent-darwin-amd64", STALE_REVISION)
+            # 已发布的历史资产仍使用 diros 文件名，也必须匹配 Doris canonical key。
+            write_agent(assets_dir / "MacOS" / "diros-driver-agent-darwin-amd64", SPHINX_REVISION)
             checked, failures, skipped = module.verify_binaries(
-                assets_dir, {"darwin/amd64": {"diros": SPHINX_REVISION}}
+                assets_dir, {"darwin/amd64": {"doris": SPHINX_REVISION}}
             )
-            self.assertEqual(1, checked)
-            self.assertEqual(1, len(failures))
+            self.assertEqual(2, checked)
+            self.assertEqual([], failures)
+
+    def test_parse_revision_maps_normalizes_legacy_diros_key_to_doris(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            revision_map = Path(tmp) / "driver_agent_revisions_gen.go"
+            write_revision_map(revision_map, {"diros": SPHINX_REVISION})
+
+            maps = module.parse_revision_maps([f"darwin/amd64={revision_map}"])
+
+            self.assertEqual({"doris": SPHINX_REVISION}, maps["darwin/amd64"])
+
+    def test_parse_revision_maps_rejects_conflicting_doris_aliases(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            revision_map = Path(tmp) / "driver_agent_revisions_gen.go"
+            write_revision_map(
+                revision_map,
+                {"doris": SPHINX_REVISION, "diros": STALE_REVISION},
+            )
+
+            with self.assertRaisesRegex(SystemExit, "conflicting aliases for doris"):
+                module.parse_revision_maps([f"darwin/amd64={revision_map}"])
 
 
 class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):
@@ -288,6 +310,31 @@ class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):
             checked, failures = module.verify_published(
                 manifest, {"windows/amd64": {"sphinx": SPHINX_REVISION}}
             )
+            self.assertEqual(1, checked)
+            self.assertEqual([], failures)
+
+    def test_legacy_diros_manifest_entry_matches_doris_revision_map(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text(
+                json.dumps(self.build_manifest(
+                    {
+                        "diros-driver-agent-darwin-amd64": {
+                            "driver": "diros",
+                            "driverType": "diros",
+                            "platform": "darwin/amd64",
+                            "revision": SPHINX_REVISION,
+                        }
+                    }
+                )),
+                encoding="utf-8",
+            )
+
+            checked, failures = module.verify_published(
+                manifest, {"darwin/amd64": {"doris": SPHINX_REVISION}}
+            )
+
             self.assertEqual(1, checked)
             self.assertEqual([], failures)
 
