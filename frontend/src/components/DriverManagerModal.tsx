@@ -2700,6 +2700,8 @@ const DriverManagerModal: React.FC<{
                 </Button>
                 <Button
                   size="middle"
+                  className="driver-manager-network-check-btn"
+                  icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
                   onClick={() => checkNetworkStatus(true)}
                   loading={networkChecking}
                 >
@@ -2859,7 +2861,13 @@ const DriverManagerModal: React.FC<{
             <Button key="refresh" icon={<ReloadOutlined />} onClick={() => refreshStatus(true)} loading={loading}>
               {t('driver.modal.footer.refresh')}
             </Button>
-            <Button key="network" onClick={() => checkNetworkStatus(true)} loading={networkChecking}>
+            <Button
+              key="network"
+              className="driver-manager-network-check-btn"
+              icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
+              onClick={() => checkNetworkStatus(true)}
+              loading={networkChecking}
+            >
               {t('driver.modal.footer.networkCheck')}
             </Button>
             <Button key="close" type="primary" onClick={onClose}>

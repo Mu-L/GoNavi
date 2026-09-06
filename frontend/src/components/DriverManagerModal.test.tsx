@@ -309,6 +309,9 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(embeddedLayout.children[0]).toBe(embeddedShell);
     expect(embeddedLayout.findAllByProps({ className: 'driver-manager-footer-actions is-status-only' })).toHaveLength(0);
     expect(embeddedLayout.findAllByProps({ className: 'driver-manager-net-status' })).toHaveLength(0);
+    const networkButton = findButton(embeddedRenderer!, t('driver.modal.footer.networkCheck'));
+    expect(networkButton.props.className).toContain('driver-manager-network-check-btn');
+    expect(String(networkButton.props.icon?.props?.className || '')).toContain('driver-manager-net-dot');
     // DuckDB is auto-selected; its controls render inside the detail pane.
     const detail = embeddedShell.findByProps({ className: 'driver-manager-detail' });
     expect(detail.findByProps({ className: 'driver-manager-title-row' })).toBeTruthy();

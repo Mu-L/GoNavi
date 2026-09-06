@@ -3203,6 +3203,17 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     animation: driver-net-pulse 1.1s ease-in-out infinite;
 }
 
+
+.driver-manager-network-check-btn .ant-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.driver-manager-network-check-btn .driver-manager-net-dot {
+    margin: 0;
+}
+
 .driver-manager-net-dot-idle {
     background: #bfbfbf;
 }
