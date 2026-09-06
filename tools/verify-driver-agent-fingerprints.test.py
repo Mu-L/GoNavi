@@ -379,6 +379,23 @@ class VerifyDriverAgentFingerprintsPublishedTest(unittest.TestCase):
             self.assertEqual(1, len(failures))
             self.assertIn("缺少该驱动资产", failures[0])
 
+    def test_skips_duckdb_on_windows_arm64(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text(
+                json.dumps(self.build_manifest({})),
+                encoding="utf-8",
+            )
+
+            checked, failures = module.verify_published(
+                manifest,
+                {"windows/arm64": {"duckdb": SPHINX_REVISION}},
+            )
+
+            self.assertEqual(0, checked)
+            self.assertEqual([], failures)
+
     def test_cli_reports_mismatch_with_nonzero_exit(self):
         with tempfile.TemporaryDirectory(prefix="gonavi-fingerprint-test-") as tmp:
             tmpdir = Path(tmp)

@@ -61,6 +61,11 @@ def normalize_driver(name):
     return DRIVER_ALIASES.get(name, name)
 
 
+def is_driver_supported_on_platform(driver, platform):
+    """Return whether the platform is expected to ship this driver agent."""
+    return not (driver == "duckdb" and platform == "windows/arm64")
+
+
 def parse_revision_maps(pairs):
     maps = {}
     for item in pairs:
@@ -244,6 +249,8 @@ def verify_published(manifest_path, revision_maps):
 
     for platform, revision_map in sorted(revision_maps.items()):
         for driver, expected in sorted(revision_map.items()):
+            if not is_driver_supported_on_platform(driver, platform):
+                continue
             if not expected:
                 continue
             group = grouped.get((platform, driver))
