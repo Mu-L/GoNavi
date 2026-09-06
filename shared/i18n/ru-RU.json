@@ -10248,5 +10248,7 @@
   "ai_settings.provider.keep_editing": "Продолжить редактирование",
   "ai_settings.provider.wait_for_save": "Идёт сохранение; дождитесь завершения",
   "ai_settings.provider.draft_changed": "Конфигурация изменилась до сохранения. Проверьте и сохраните снова.",
-  "ai_service.backend.error.required_model_disabled": "Модель {{model}} используется по умолчанию или для автодополнения SQL. Сначала измените выбор."
+  "ai_service.backend.error.required_model_disabled": "Модель {{model}} используется по умолчанию или для автодополнения SQL. Сначала измените выбор.",
+  "driver_manager.backend.error.agent_file_busy": "Не удалось заменить файлы драйвера: они заняты (обычно всё ещё работает процесс driver-agent). Закройте все окна GoNavi, при необходимости завершите процесс driver-agent в диспетчере задач и повторите попытку.",
+  "driver_manager.backend.error.activate_agent_failed": "Не удалось активировать агент драйвера {{name}}: {{detail}}"
 }

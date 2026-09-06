@@ -10248,5 +10248,7 @@
   "ai_settings.provider.keep_editing": "Weiter bearbeiten",
   "ai_settings.provider.wait_for_save": "Speicherung läuft; bitte vor dem Verlassen warten",
   "ai_settings.provider.draft_changed": "Entwurf vor dem Speichern geändert. Bitte prüfen und erneut speichern.",
-  "ai_service.backend.error.required_model_disabled": "Modell {{model}} wird als Standard oder zur SQL-Vervollständigung verwendet. Auswahl zuerst ändern."
+  "ai_service.backend.error.required_model_disabled": "Modell {{model}} wird als Standard oder zur SQL-Vervollständigung verwendet. Auswahl zuerst ändern.",
+  "driver_manager.backend.error.agent_file_busy": "Treiberdateien können nicht ersetzt werden, weil sie belegt sind (meist läuft der driver-agent-Prozess noch). Schließen Sie alle GoNavi-Fenster, beenden Sie bei Bedarf den zugehörigen driver-agent-Prozess und versuchen Sie es erneut.",
+  "driver_manager.backend.error.activate_agent_failed": "Aktivierung des {{name}}-Treiber-Agenten fehlgeschlagen: {{detail}}"
 }

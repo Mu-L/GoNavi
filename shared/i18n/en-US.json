@@ -10248,5 +10248,7 @@
   "ai_settings.provider.keep_editing": "Keep editing",
   "ai_settings.provider.wait_for_save": "Saving; please wait before leaving",
   "ai_settings.provider.draft_changed": "The draft changed before saving. Review it and save again.",
-  "ai_service.backend.error.required_model_disabled": "Model {{model}} is used as the default or for SQL completion. Change that selection before disabling it."
+  "ai_service.backend.error.required_model_disabled": "Model {{model}} is used as the default or for SQL completion. Change that selection before disabling it.",
+  "driver_manager.backend.error.agent_file_busy": "Cannot replace driver files because they are in use (usually the driver-agent process is still running). Close all GoNavi windows, end the related driver-agent process if needed, then retry.",
+  "driver_manager.backend.error.activate_agent_failed": "Failed to activate {{name}} driver agent: {{detail}}"
 }

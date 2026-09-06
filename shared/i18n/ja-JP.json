@@ -10248,5 +10248,7 @@
   "ai_settings.provider.keep_editing": "編集を続ける",
   "ai_settings.provider.wait_for_save": "保存中です。完了までお待ちください",
   "ai_settings.provider.draft_changed": "保存前に設定が変更されました。確認して再度保存してください。",
-  "ai_service.backend.error.required_model_disabled": "モデル {{model}} は既定または SQL 補完に使用されています。先に選択を変更してください。"
+  "ai_service.backend.error.required_model_disabled": "モデル {{model}} は既定または SQL 補完に使用されています。先に選択を変更してください。",
+  "driver_manager.backend.error.agent_file_busy": "ドライバーファイルを置き換えできません。ファイルが使用中です（多くの場合、driver-agent プロセスが実行中です）。すべての GoNavi ウィンドウを閉じ、必要ならタスクマネージャーで該当の driver-agent を終了してから再試行してください。",
+  "driver_manager.backend.error.activate_agent_failed": "{{name}} ドライバーエージェントの有効化に失敗しました：{{detail}}"
 }

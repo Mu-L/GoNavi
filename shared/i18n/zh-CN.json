@@ -10248,5 +10248,7 @@
   "ai_settings.provider.keep_editing": "继续编辑",
   "ai_settings.provider.wait_for_save": "正在保存，请稍候再离开",
   "ai_settings.provider.draft_changed": "配置在保存前发生变化，请确认后重新保存",
-  "ai_service.backend.error.required_model_disabled": "模型 {{model}} 用于默认或 SQL 补全，请先更换模型再停用。"
+  "ai_service.backend.error.required_model_disabled": "模型 {{model}} 用于默认或 SQL 补全，请先更换模型再停用。",
+  "driver_manager.backend.error.agent_file_busy": "无法替换驱动文件：文件正被占用（常见原因是驱动代理进程仍在运行）。请先关闭所有 GoNavi 窗口，必要时在任务管理器结束对应的 driver-agent 进程后再重试。",
+  "driver_manager.backend.error.activate_agent_failed": "激活 {{name}} 驱动代理失败：{{detail}}"
 }
