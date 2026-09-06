@@ -2940,45 +2940,6 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     gap: 8px;
 }
 
-
-/* 覆盖已安装：模式开关，开态用警示色而非主色绿，避免和「安装所有」抢视线 */
-.driver-manager-overwrite-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-right: 4px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid transparent;
-    background: transparent;
-    cursor: pointer;
-    user-select: none;
-    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
-    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
-}
-
-.driver-manager-overwrite-toggle-label {
-    font-size: 13px;
-    line-height: 1.2;
-    white-space: nowrap;
-}
-
-.driver-manager-overwrite-toggle.is-on {
-    border-color: color-mix(in srgb, #d97706 35%, transparent);
-    background: color-mix(in srgb, #d97706 10%, transparent);
-    color: #b45309;
-}
-
-.driver-manager-overwrite-toggle.is-on .driver-manager-overwrite-toggle-label {
-    font-weight: 600;
-}
-
-.driver-manager-shell[data-driver-theme='dark'] .driver-manager-overwrite-toggle.is-on {
-    border-color: color-mix(in srgb, #fbbf24 40%, transparent);
-    background: color-mix(in srgb, #fbbf24 12%, transparent);
-    color: #fbbf24;
-}
-
 .driver-manager-bulkbar-primary {
     display: flex;
     flex-wrap: wrap;
@@ -2997,15 +2958,27 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
 
 /* 设置中心内嵌：浅底工具条，不加描边，避免与设置内容区边框套边框 */
 .driver-manager-bulkbar.is-embedded-toolbar {
-    gap: 10px;
+    gap: 8px;
     padding: 8px 4px;
     border-radius: 0;
     border: none;
     background: transparent;
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-primary,
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-dir {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
 }
 
 .driver-manager-bulkbar.is-embedded-toolbar .ant-btn {
     font-weight: 500;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-import-directory-dropdown {
+    flex-shrink: 0;
 }
 
 /* Mirror-source chip (Driver Manager + About) — accent bar + hover */
@@ -3115,10 +3088,80 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     justify-content: flex-start;
     flex-wrap: nowrap;
     width: max-content;
-    max-width: min(100%, 360px);
+    min-width: 0;
+    max-width: 100%;
     gap: 8px;
-    padding: 4px 10px 4px 12px;
-    margin-left: 0;
+    height: 32px;
+    padding: 0 12px 0 14px;
+    margin-left: auto;
+    margin-right: 0;
+    flex: 0 0 auto;
+    overflow: hidden;
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.driver-manager-mirror-chip.is-compact::before {
+    border-radius: 8px 0 0 8px;
+}
+
+.driver-manager-list-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.driver-manager-list-search.is-in-head {
+    flex: 1 1 auto;
+    min-width: 140px;
+    max-width: none;
+    width: auto !important;
+}
+
+.driver-manager-list-search.is-in-head.ant-input-search {
+    flex: 1 1 auto !important;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+.driver-manager-list-head-right {
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-search-row.is-embedded {
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.driver-manager-list-search-row.is-embedded .ant-btn,
+.driver-manager-list-search-row-left .ant-btn {
+    height: 32px;
+}
+
+.driver-manager-list-search-row-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
 }
 
 .driver-manager-list-search-row {
@@ -3133,10 +3176,8 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     min-width: 0;
 }
 
-.driver-manager-list-search-row.is-embedded .driver-manager-list-search {
-    flex: 1 1 0;
-    max-width: 200px;
-}
+/* embedded search moved to list head */
+
 
 .driver-manager-list-search-row > .ant-btn,
 .driver-manager-list-search-row > .ant-tooltip-disabled-compatible-wrapper {
