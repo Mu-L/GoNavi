@@ -398,6 +398,47 @@ describe('SettingsCenterTreeNav', () => {
     expect(onConnectedClick).toHaveBeenCalledTimes(1);
   });
 
+
+  it('auto-expands ancestors when an active nested item is selected programmatically', () => {
+    const groups = [{
+      key: 'services',
+      title: '服务配置',
+      description: '服务',
+      items: [{
+        key: 'ai',
+        title: 'AI 设置',
+        description: 'AI',
+        onClick: vi.fn(),
+        children: [{
+          key: 'ai-providers',
+          title: '模型供应商',
+          description: '供应商',
+          onClick: vi.fn(),
+        }],
+      }],
+    }];
+
+    // First visit: everything starts collapsed in storage default.
+    localStorage.removeItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY);
+
+    const renderer = create(
+      <SettingsCenterTreeNav
+        groups={groups}
+        activeGroupKey="services"
+        activeItemKey="ai-providers"
+        darkMode={false}
+        overlayTheme={overlayTheme}
+        ariaLabel="设置中心"
+        onSelectGroup={() => undefined}
+      />,
+    );
+
+    expect(renderer.root.findByProps({ 'data-settings-tree-node': 'group:services' }).props['aria-expanded']).toBe(true);
+    expect(renderer.root.findByProps({ 'data-settings-tree-node': 'item:services:ai' }).props['aria-expanded']).toBe(true);
+    const providersNode = renderer.root.findByProps({ 'data-settings-pane-key': 'ai-providers' });
+    expect(providersNode.props['aria-selected']).toBe(true);
+  });
+
   it('renders a leaf group as a first-level node without a nested child', () => {
     const onSelectGroup = vi.fn();
     const groups = [{

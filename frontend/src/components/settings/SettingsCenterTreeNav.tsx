@@ -257,6 +257,35 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     setFocusedNodeId(selectedNodeId);
   }, [selectedNodeId]);
 
+
+  // Programmatic navigation (e.g. AI panel → settings) must reveal the active leaf.
+  useEffect(() => {
+    const idsToExpand: string[] = [
+      settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey }),
+    ];
+    if (activeItemKey) {
+      const ancestors = findSettingsCenterTreeAncestors(groups, activeGroupKey, activeItemKey);
+      ancestors.forEach((ancestorKey) => {
+        idsToExpand.push(settingsCenterTreeNodeId({
+          type: 'item',
+          groupKey: activeGroupKey,
+          itemKey: ancestorKey,
+        }));
+      });
+    }
+    setCollapsedKeys((current) => {
+      let changed = false;
+      const next = new Set(current);
+      idsToExpand.forEach((id) => {
+        if (next.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [activeGroupKey, activeItemKey, groups]);
+
   const visibleNodes = useMemo(
     () => flattenVisibleSettingsCenterTree(groups, collapsedKeys),
     [collapsedKeys, groups],

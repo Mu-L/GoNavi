@@ -183,7 +183,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   onSaveProviderAsCopy,
   treeHostedView,
   onOpenWorkspaceView,
-  onCloseHost,
+  onCloseHost: _onCloseHost,
   saveMode = 'save',
   dirty = false,
 }) => {
@@ -675,13 +675,6 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       <div className="gonavi-ai-provider-editor">
         {!editorReady ? <>
           <div className="gonavi-ai-provider-editor-empty">{copy('ai_settings.provider.choose_configuration')}</div>
-          {treeHostedView === 'workspace' && onCloseHost ? (
-            <div className="gonavi-ai-provider-actions">
-              <div className="gonavi-ai-provider-save-actions">
-                <Button size="middle" onClick={onCloseHost}>{copy('common.close')}</Button>
-              </div>
-            </div>
-          ) : null}
         </> : <Form form={form}
           layout="vertical" size="small" onValuesChange={onValuesChange} className="gonavi-ai-provider-form">
           <div ref={editorScrollRef} className="gonavi-ai-provider-editor-scroll">
@@ -816,9 +809,6 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 {saveActionLabel}</Dropdown.Button>
               : <Button size="middle" type="primary" onClick={handleSaveProvider}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}>{saveActionLabel}</Button>}
-              {treeHostedView === 'workspace' && onCloseHost ? (
-                <Button size="middle" onClick={onCloseHost}>{copy('common.close')}</Button>
-              ) : null}
             </div>
           </div>
         </Form>}
