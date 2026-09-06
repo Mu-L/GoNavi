@@ -1120,7 +1120,8 @@ describe('DriverManagerModal embedded workbench chrome', () => {
     });
     await flushPromises();
 
-    expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-mirror-chip' })).toHaveLength(1);
+    expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-mirror-chip is-compact' })).toHaveLength(1);
+    expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-list-search-row is-embedded' })).toHaveLength(1);
     expect(embeddedRenderer!.root.findAllByProps({ className: 'driver-manager-directory-panel' })).toHaveLength(0);
 
     let modalRenderer: ReactTestRenderer;

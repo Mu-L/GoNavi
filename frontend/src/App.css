@@ -3108,6 +3108,42 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     color: var(--ant-color-primary, #1677ff);
 }
 
+/* 工具栏内嵌镜像源：按内容收窄，不拉满整行 */
+.driver-manager-mirror-chip.is-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    width: max-content;
+    max-width: min(100%, 360px);
+    gap: 8px;
+    padding: 4px 10px 4px 12px;
+    margin-left: 0;
+}
+
+.driver-manager-list-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-search-row .driver-manager-list-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.driver-manager-list-search-row.is-embedded .driver-manager-list-search {
+    flex: 1 1 0;
+    max-width: 200px;
+}
+
+.driver-manager-list-search-row > .ant-btn,
+.driver-manager-list-search-row > .ant-tooltip-disabled-compatible-wrapper {
+    flex: 0 0 auto;
+}
+
+
 .driver-manager-directory-panel {
     min-width: 0;
 }

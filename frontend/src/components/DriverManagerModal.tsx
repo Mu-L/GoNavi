@@ -2545,12 +2545,12 @@ const DriverManagerModal: React.FC<{
           )
         ) : null}
 
-        {onOpenDownloadSourceSettings ? (
+        {!embedded && onOpenDownloadSourceSettings ? (
           <div
             className="driver-manager-mirror-chip"
             data-download-source={downloadSource}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <span
                 aria-hidden="true"
                 style={{
@@ -2679,28 +2679,38 @@ const DriverManagerModal: React.FC<{
             >
               {t('driver.modal.toolbar.importDirectory')}
             </Button>
-            {embedded ? (
-              <>
+            {embedded && onOpenDownloadSourceSettings ? (
+              <div
+                className="driver-manager-mirror-chip is-compact"
+                data-download-source={downloadSource}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 999,
+                      background: darkMode ? downloadSourceMeta.darkDot : downloadSourceMeta.lightDot,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ color: driverManagerTheme.mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
+                    {t('driver_manager.mirror_source.label')}
+                  </span>
+                  <span style={{ color: driverManagerTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {t(downloadSourceMeta.labelKey)}
+                  </span>
+                </div>
                 <Button
-                  size="middle"
-                  icon={<ReloadOutlined />}
-                  onClick={() => refreshStatus(true)}
-                  loading={loading}
+                  type="link"
+                  size="small"
+                  onClick={onOpenDownloadSourceSettings}
+                  style={{ padding: 0, height: 'auto', fontWeight: 600 }}
                 >
-                  {t('driver.modal.footer.refresh')}
+                  {t('driver_manager.mirror_source.switch')}
                 </Button>
-                <Tooltip title={networkTooltipTitle} placement="bottomRight">
-                  <Button
-                    size="middle"
-                    className="driver-manager-network-check-btn"
-                    icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
-                    onClick={() => checkNetworkStatus(true)}
-                    loading={networkChecking}
-                  >
-                    {t('driver.modal.footer.networkCheck')}
-                  </Button>
-                </Tooltip>
-              </>
+              </div>
             ) : null}
           </span>
         </div>
@@ -2749,13 +2759,38 @@ const DriverManagerModal: React.FC<{
         ) : null}
         <div className="driver-manager-columns">
           <aside className="driver-manager-list-pane">
-            <Input.Search
-              allowClear
-              placeholder={t('driver.modal.toolbar.searchPlaceholder')}
-              value={searchKeyword}
-              onChange={(event) => setSearchKeyword(event.target.value)}
-              className="driver-manager-list-search"
-            />
+            <div className={`driver-manager-list-search-row${embedded ? ' is-embedded' : ''}`}>
+              <Input.Search
+                allowClear
+                placeholder={t('driver.modal.toolbar.searchPlaceholder')}
+                value={searchKeyword}
+                onChange={(event) => setSearchKeyword(event.target.value)}
+                className="driver-manager-list-search"
+              />
+              {embedded ? (
+                <>
+                  <Button
+                    size="middle"
+                    icon={<ReloadOutlined />}
+                    onClick={() => refreshStatus(true)}
+                    loading={loading}
+                  >
+                    {t('driver.modal.footer.refresh')}
+                  </Button>
+                  <Tooltip title={networkTooltipTitle} placement="bottomRight">
+                    <Button
+                      size="middle"
+                      className="driver-manager-network-check-btn"
+                      icon={<span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />}
+                      onClick={() => checkNetworkStatus(true)}
+                      loading={networkChecking}
+                    >
+                      {t('driver.modal.footer.networkCheck')}
+                    </Button>
+                  </Tooltip>
+                </>
+              ) : null}
+            </div>
             <div className="driver-manager-filterbar">
               {([
                 { key: 'all', label: t('driver.modal.stats.total'), count: statusSummary.total },
