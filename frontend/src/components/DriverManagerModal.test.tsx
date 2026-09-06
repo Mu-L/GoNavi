@@ -89,14 +89,16 @@ vi.mock('antd', () => {
     <input value={value} onChange={onChange} placeholder={placeholder} />
   );
 
-  const Select = ({ value, options, disabled, loading, placeholder, onOpenChange, onChange }: any) => (
+  const Select = ({ value, options, disabled, loading, placeholder, onOpenChange, onChange, className, ...rest }: any) => (
     <select
       value={value}
       disabled={disabled}
+      className={className}
       data-select-loading={String(loading)}
       data-select-placeholder={placeholder}
       onFocus={() => onOpenChange?.(true)}
       onChange={(event) => onChange?.(event.target.value)}
+      {...rest}
     >
       <option value="">{placeholder || ''}</option>
       {(options || []).flatMap((item: any) => {
@@ -117,11 +119,20 @@ vi.mock('antd', () => {
   );
   const Progress = (props: any) => <div data-progress="true" {...props} />;
   const Tag = ({ children }: any) => <span>{children}</span>;
-  const Switch = ({ checked, onChange, disabled }: any) => (
-    <button type="button" disabled={disabled} data-switch-checked={String(checked)} onClick={() => onChange?.(!checked)}>
+  const Switch = ({ checked, onChange, disabled, ...rest }: any) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      data-switch-checked={String(checked)}
+      onClick={() => onChange?.(!checked)}
+      {...rest}
+    >
       switch
     </button>
   );
+  const Tooltip = ({ children }: any) => <>{children}</>;
   const Space = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
   const Text = ({ children, className, id }: any) => <span className={className} id={id}>{children}</span>;
   const Paragraph = ({ children }: any) => <div>{children}</div>;
@@ -154,6 +165,7 @@ vi.mock('antd', () => {
     Space,
     Switch,
     Tag,
+    Tooltip,
     Typography,
     message: messageApi,
   };
@@ -173,6 +185,16 @@ const textContent = (node: any): string =>
 
 const findButton = (renderer: ReactTestRenderer, text: string) =>
   renderer.root.findAll((node) => node.type === 'button' && textContent(node).includes(text))[0];
+
+const findVersionSelect = (renderer: ReactTestRenderer) => {
+  const selects = renderer.root.findAllByType('select');
+  const versionSelect = selects.find((node) => !String(node.props.className || '').includes('driver-manager-list-head-sort'));
+  if (!versionSelect) {
+    throw new Error('version select not found');
+  }
+  return versionSelect;
+};
+
 
 const emitDriverDownloadProgress = async (event: Record<string, unknown>) => {
   const listener = runtimeApi.listeners.get('driver:download-progress');
@@ -285,7 +307,7 @@ describe('DriverManagerModal toolbar actions', () => {
     const embeddedShell = embeddedRenderer!.root.findByProps({ className: 'driver-manager-shell is-embedded' });
     const embeddedLayout = embeddedRenderer!.root.findByProps({ className: 'driver-manager-embedded-layout' });
     expect(embeddedLayout.children[0]).toBe(embeddedShell);
-    expect(embeddedLayout.findByProps({ className: 'driver-manager-footer-actions' })).toBeTruthy();
+    expect(embeddedLayout.findByProps({ className: 'driver-manager-footer-actions is-status-only' })).toBeTruthy();
     // DuckDB is auto-selected; its controls render inside the detail pane.
     const detail = embeddedShell.findByProps({ className: 'driver-manager-detail' });
     expect(detail.findByProps({ className: 'driver-manager-title-row' })).toBeTruthy();
@@ -337,7 +359,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     await flushPromises();
 
-    const versionSelect = renderer!.root.findByType('select');
+    const versionSelect = findVersionSelect(renderer!);
     expect(textContent(versionSelect)).toContain('2.5.6');
 
     await act(async () => {
@@ -347,7 +369,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
 
     expect(backendApp.GetDriverVersionList).toHaveBeenCalledTimes(1);
-    const loadingVersionSelect = renderer!.root.findByType('select');
+    const loadingVersionSelect = findVersionSelect(renderer!);
     expect(loadingVersionSelect.props['data-select-loading']).toBe('true');
     expect(textContent(loadingVersionSelect)).toContain('2.5.6');
 
@@ -849,7 +871,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     await flushPromises();
 
-    expect(textContent(renderer!.root.findByType('select'))).toContain('3.3.1');
+    expect(textContent(findVersionSelect(renderer!))).toContain('3.3.1');
     const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
     await act(async () => {
       await installButton.props.onClick();
@@ -899,7 +921,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     await flushPromises();
 
-    expect(textContent(renderer!.root.findByType('select'))).toContain('3.3.1');
+    expect(textContent(findVersionSelect(renderer!))).toContain('3.3.1');
     const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
     await act(async () => {
       await installButton.props.onClick();
@@ -963,7 +985,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     expect(textContent(unloadedVersionSummary)).toBe(t('driver_manager.version.installed', { suffix: '' }));
 
-    const versionSelect = renderer!.root.findByType('select');
+    const versionSelect = findVersionSelect(renderer!);
     await act(async () => {
       versionSelect.props.onFocus();
     });
@@ -976,7 +998,7 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(textContent(installedVersionSummary)).toBe(t('driver_manager.version.installed', { suffix: '' }));
     expect(textContent(installedVersionSummary)).not.toContain('3.7.8');
 
-    const loadedVersionSelect = renderer!.root.findByType('select');
+    const loadedVersionSelect = findVersionSelect(renderer!);
     await act(async () => {
       loadedVersionSelect.props.onChange({ target: { value: '@@builtin://activate/tdengine?channel=default' } });
     });
@@ -987,7 +1009,7 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     expect(textContent(defaultVersionSummary)).toContain('3.7.8');
 
-    const reloadedVersionSelect = renderer!.root.findByType('select');
+    const reloadedVersionSelect = findVersionSelect(renderer!);
     await act(async () => {
       reloadedVersionSelect.props.onChange({ target: { value: '3.3.1@@builtin://activate/tdengine?channel=history&version=3.3.1' } });
     });
@@ -1014,27 +1036,27 @@ describe('DriverManagerModal toolbar actions', () => {
     );
   });
 
-  it('toggles the overwrite-installed control as an aria-pressed button', async () => {
+  it('toggles the overwrite-installed control as a switch mode option', async () => {
     let renderer: ReactTestRenderer;
     await act(async () => {
       renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
     });
     await flushPromises();
 
-    const toggleButton = findButton(renderer!, t('driver.modal.toolbar.forceOverwrite'));
-    expect(toggleButton.props['aria-pressed']).toBe(false);
-    expect(toggleButton.props.className).toBe('driver-manager-overwrite-toggle');
+    const toggleHost = renderer!.root.findByProps({ className: 'driver-manager-overwrite-toggle' });
+    const switchNode = toggleHost.findByProps({ role: 'switch' });
+    expect(switchNode.props['aria-checked']).toBe(false);
+    expect(switchNode.props['aria-label']).toBe(t('driver.modal.toolbar.forceOverwrite'));
 
     await act(async () => {
-      toggleButton.props.onClick();
+      switchNode.props.onClick();
       await Promise.resolve();
     });
 
-    const toggledButton = findButton(renderer!, t('driver.modal.toolbar.forceOverwrite'));
-    expect(toggledButton.props['aria-pressed']).toBe(true);
-
-    // The same control must stay interactive (not disabled) while no directory import runs.
-    expect(toggledButton.props.disabled).toBeFalsy();
+    const toggledHost = renderer!.root.findByProps({ className: 'driver-manager-overwrite-toggle is-on' });
+    const toggledSwitch = toggledHost.findByProps({ role: 'switch' });
+    expect(toggledSwitch.props['aria-checked']).toBe(true);
+    expect(toggledSwitch.props.disabled).toBeFalsy();
   });
 });
 

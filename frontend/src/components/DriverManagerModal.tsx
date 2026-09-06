@@ -1,6 +1,6 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Collapse, Empty, Input, Popover, Progress, Select, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Collapse, Empty, Input, Popover, Progress, Select, Space, Switch, Tag, Tooltip, Typography, message } from 'antd';
 import { DeleteOutlined, DownloadOutlined, FileSearchOutlined, FolderOpenOutlined, InfoCircleFilled, ReloadOutlined } from '@ant-design/icons';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { messages } from '../../../shared/i18n/messages';
@@ -40,6 +40,51 @@ import {
 } from '../../wailsjs/go/app/App';
 
 const { Paragraph, Text } = Typography;
+
+
+type DriverListSortKey = 'name' | 'status' | 'size' | 'version';
+
+const parseDriverPackageSizeBytes = (value?: string): number => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '-') return -1;
+  const matched = raw.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!matched) return -1;
+  const amount = Number(matched[1]);
+  if (!Number.isFinite(amount)) return -1;
+  const unit = String(matched[2] || 'B').toUpperCase();
+  const factor = unit === 'KB' ? 1024
+    : unit === 'MB' ? 1024 ** 2
+      : unit === 'GB' ? 1024 ** 3
+        : unit === 'TB' ? 1024 ** 4
+          : 1;
+  return amount * factor;
+};
+
+const driverStatusSortRank = (row: DriverStatusRow): number => {
+  // 与列表圆点 / 详情 Tag 一致：需重装优先于仍可连接，避免橙色混进绿色里
+  if (row.needsUpdate) return 0;
+  if (row.builtIn || row.connectable) return 1;
+  if (row.packageInstalled) return 2;
+  return 3;
+};
+
+const compareDriverRows = (left: DriverStatusRow, right: DriverStatusRow, sortKey: DriverListSortKey): number => {
+  if (sortKey === 'status') {
+    const byStatus = driverStatusSortRank(left) - driverStatusSortRank(right);
+    if (byStatus !== 0) return byStatus;
+  } else if (sortKey === 'size') {
+    const bySize = parseDriverPackageSizeBytes(right.packageSizeText) - parseDriverPackageSizeBytes(left.packageSizeText);
+    if (bySize !== 0) return bySize;
+  } else if (sortKey === 'version') {
+    const leftVersion = String(left.installedVersion || left.pinnedVersion || '');
+    const rightVersion = String(right.installedVersion || right.pinnedVersion || '');
+    const byVersion = leftVersion.localeCompare(rightVersion, undefined, { numeric: true, sensitivity: 'base' });
+    if (byVersion !== 0) return byVersion;
+  }
+  const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+  if (byName !== 0) return byName;
+  return left.type.localeCompare(right.type, undefined, { sensitivity: 'base' });
+};
 
 type DriverStatusRow = {
   type: string;
@@ -682,6 +727,7 @@ const DriverManagerModal: React.FC<{
   const [versionLoadingMap, setVersionLoadingMap] = useState<Record<string, boolean>>({});
   const [versionSizeLoadingMap, setVersionSizeLoadingMap] = useState<Record<string, boolean>>({});
   const [driverFilter, setDriverFilter] = useState<'all' | 'needsUpdate' | 'enabled' | 'notEnabled'>('all');
+  const [driverSortKey, setDriverSortKey] = useState<DriverListSortKey>('name');
   const [selectedDriverType, setSelectedDriverType] = useState('');
   const downloadDirRef = useRef(downloadDir);
   const progressMapRef = useRef<Record<string, DriverProgressState>>({});
@@ -1900,17 +1946,23 @@ const DriverManagerModal: React.FC<{
     });
   }, [normalizedSearchKeyword, rows]);
   const visibleRows = useMemo(() => {
+    let nextRows: DriverStatusRow[];
     switch (driverFilter) {
       case 'needsUpdate':
-        return filteredRows.filter((row) => !row.builtIn && row.needsUpdate);
+        nextRows = filteredRows.filter((row) => !row.builtIn && row.needsUpdate);
+        break;
       case 'enabled':
-        return filteredRows.filter((row) => !row.builtIn && row.connectable);
+        nextRows = filteredRows.filter((row) => !row.builtIn && row.connectable);
+        break;
       case 'notEnabled':
-        return filteredRows.filter((row) => !row.builtIn && !row.connectable && !row.packageInstalled);
+        nextRows = filteredRows.filter((row) => !row.builtIn && !row.connectable && !row.packageInstalled);
+        break;
       default:
-        return filteredRows;
+        nextRows = filteredRows;
+        break;
     }
-  }, [driverFilter, filteredRows]);
+    return [...nextRows].sort((left, right) => compareDriverRows(left, right, driverSortKey));
+  }, [driverFilter, driverSortKey, filteredRows]);
   const selectedRow = useMemo(() => (
     visibleRows.find((row) => row.type === selectedDriverType) || visibleRows[0]
   ), [selectedDriverType, visibleRows]);
@@ -2556,58 +2608,69 @@ const DriverManagerModal: React.FC<{
         </div>
         ) : null}
 
-        <div className="driver-manager-bulkbar">
-          <Button
-            size="small"
-            type={forceOverwriteInstalled ? 'primary' : 'default'}
-            ghost={!forceOverwriteInstalled}
-            disabled={batchDirectoryImporting}
-            onClick={() => setForceOverwriteInstalled(!forceOverwriteInstalled)}
-            className="driver-manager-overwrite-toggle"
-            aria-pressed={forceOverwriteInstalled}
-          >
-            {t('driver.modal.toolbar.forceOverwrite')}
-          </Button>
-          <Button
-            size="small"
-            type="primary"
-            icon={<DownloadOutlined />}
-            disabled={driverMutationBusy || installableRows.length === 0}
-            loading={batchAction === 'install-all'}
-            onClick={() => void installAllDrivers()}
-          >
-            {t('driver.modal.toolbar.installAll')}
-          </Button>
-          <Button
-            size="small"
-            type={embedded ? 'default' : 'primary'}
-            icon={<DownloadOutlined />}
-            disabled={driverMutationBusy || reinstallableRows.length === 0}
-            loading={batchAction === 'reinstall-updates'}
-            onClick={() => void reinstallNeededDrivers()}
-          >
-            {t('driver.modal.toolbar.reinstallUpdates')}
-          </Button>
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            disabled={driverMutationBusy || removableRows.length === 0}
-            loading={batchAction === 'remove-all'}
-            onClick={() => void removeAllDrivers()}
-          >
-            {t('driver.modal.toolbar.removeAll')}
-          </Button>
+        <div className={`driver-manager-bulkbar${embedded ? ' is-embedded-toolbar' : ''}`}>
+          <div className="driver-manager-bulkbar-primary">
+            <Tooltip
+              title={forceOverwriteInstalled
+                ? t('driver.modal.batch.forceOverwriteTip')
+                : t('driver.modal.toolbar.forceOverwrite')}
+            >
+              <label
+                className={`driver-manager-overwrite-toggle${forceOverwriteInstalled ? ' is-on' : ''}`}
+              >
+                <Switch
+                  size="small"
+                  checked={forceOverwriteInstalled}
+                  disabled={batchDirectoryImporting}
+                  onChange={(checked) => setForceOverwriteInstalled(checked)}
+                  aria-label={t('driver.modal.toolbar.forceOverwrite')}
+                />
+                <span className="driver-manager-overwrite-toggle-label">
+                  {t('driver.modal.toolbar.forceOverwrite')}
+                </span>
+              </label>
+            </Tooltip>
+            <Button
+              size={embedded ? 'middle' : 'small'}
+              type="primary"
+              icon={<DownloadOutlined />}
+              disabled={driverMutationBusy || installableRows.length === 0}
+              loading={batchAction === 'install-all'}
+              onClick={() => void installAllDrivers()}
+            >
+              {t('driver.modal.toolbar.installAll')}
+            </Button>
+            <Button
+              size={embedded ? 'middle' : 'small'}
+              type={embedded ? 'default' : 'primary'}
+              icon={<DownloadOutlined />}
+              disabled={driverMutationBusy || reinstallableRows.length === 0}
+              loading={batchAction === 'reinstall-updates'}
+              onClick={() => void reinstallNeededDrivers()}
+            >
+              {t('driver.modal.toolbar.reinstallUpdates')}
+            </Button>
+            <Button
+              size={embedded ? 'middle' : 'small'}
+              danger
+              icon={<DeleteOutlined />}
+              disabled={driverMutationBusy || removableRows.length === 0}
+              loading={batchAction === 'remove-all'}
+              onClick={() => void removeAllDrivers()}
+            >
+              {t('driver.modal.toolbar.removeAll')}
+            </Button>
+          </div>
           <span className="driver-manager-bulkbar-dir">
             <Button
-              size="small"
+              size={embedded ? 'middle' : 'small'}
               icon={<FolderOpenOutlined />}
               onClick={() => void openDriverDirectory()}
             >
               {t('driver.modal.toolbar.openDirectory')}
             </Button>
             <Button
-              size="small"
+              size={embedded ? 'middle' : 'small'}
               icon={<FolderOpenOutlined />}
               loading={batchDirectoryImporting}
               disabled={batchDirectoryImporting}
@@ -2615,6 +2678,25 @@ const DriverManagerModal: React.FC<{
             >
               {t('driver.modal.toolbar.importDirectory')}
             </Button>
+            {embedded ? (
+              <>
+                <Button
+                  size="middle"
+                  icon={<ReloadOutlined />}
+                  onClick={() => refreshStatus(true)}
+                  loading={loading}
+                >
+                  {t('driver.modal.footer.refresh')}
+                </Button>
+                <Button
+                  size="middle"
+                  onClick={() => checkNetworkStatus(true)}
+                  loading={networkChecking}
+                >
+                  {t('driver.modal.footer.networkCheck')}
+                </Button>
+              </>
+            ) : null}
           </span>
         </div>
         {batchProgress ? (
@@ -2694,9 +2776,21 @@ const DriverManagerModal: React.FC<{
                 {loading ? <Text type="secondary">{t('driver.modal.status.refreshing')}</Text> : null}
               </div>
               <div className="driver-manager-list-head-right">
-                <Text type="secondary" className="driver-manager-list-head-sort">
-                  {t('driver.modal.list.sortByName')}
-                </Text>
+                <Select
+                  size="small"
+                  className="driver-manager-list-head-sort"
+                  value={driverSortKey}
+                  popupMatchSelectWidth={false}
+                  variant="borderless"
+                  aria-label={t('driver.modal.list.sortLabel')}
+                  options={[
+                    { value: 'name', label: t('driver.modal.list.sortByName') },
+                    { value: 'status', label: t('driver.modal.list.sortByStatus') },
+                    { value: 'size', label: t('driver.modal.list.sortBySize') },
+                    { value: 'version', label: t('driver.modal.list.sortByVersion') },
+                  ]}
+                  onChange={(value) => setDriverSortKey(value as DriverListSortKey)}
+                />
               </div>
             </div>
             <div className="driver-manager-list" aria-busy={initialStatusLoading}>
@@ -2719,27 +2813,16 @@ const DriverManagerModal: React.FC<{
         </div>
         </div>
         {embedded ? (
-          <div className="driver-manager-footer-actions">
+          <div className="driver-manager-footer-actions is-status-only">
             <span className="driver-manager-net-status">
               <span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />
               <span className="driver-manager-net-text">{networkPillText}</span>
             </span>
-            <span className="driver-manager-footer-buttons">
-              {onBack ? (
-                <Button key="back" onClick={onBack}>
-                  {t('common.back_to_settings')}
-                </Button>
-              ) : null}
-              <Button key="refresh" icon={<ReloadOutlined />} onClick={() => refreshStatus(true)} loading={loading}>
-                {t('driver.modal.footer.refresh')}
+            {onBack ? (
+              <Button key="back" onClick={onBack}>
+                {t('common.back_to_settings')}
               </Button>
-              <Button key="network" onClick={() => checkNetworkStatus(true)} loading={networkChecking}>
-                {t('driver.modal.footer.networkCheck')}
-              </Button>
-              <Button key="close" type="primary" onClick={onClose}>
-                {canRunDriverDownloadInBackground ? t('driver.modal.footer.background') : t('driver.modal.footer.close')}
-              </Button>
-            </span>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -183,6 +183,8 @@ vi.mock('antd', () => {
     success: vi.fn(),
     info: vi.fn(),
   };
+  const Tooltip = ({ children }: any) => <>{children}</>;
+  const Popover = ({ children }: any) => <>{children}</>;
 
   return {
     Alert,
@@ -191,11 +193,13 @@ vi.mock('antd', () => {
     Empty,
     Input,
     Modal,
+    Popover,
     Progress,
     Select,
     Space,
     Switch,
     Tag,
+    Tooltip,
     Typography,
     message,
   };

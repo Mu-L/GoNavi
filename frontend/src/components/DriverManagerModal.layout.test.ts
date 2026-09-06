@@ -78,7 +78,7 @@ describe('DriverManagerModal embedded layout', () => {
   it('keeps the two-pane master-detail driver workbench layout', () => {
     // Two-pane body: fixed-width driver list pane + fluid detail pane.
     expect(appCss).toMatch(
-      /\.driver-manager-columns\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(280px, 360px\) minmax\(0, 1fr\)/s,
+      /\.driver-manager-columns\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(300px, 400px\) minmax\(0, 1fr\)/s,
     );
     expect(appCss).toMatch(
       /\.driver-manager-list-pane\s*\{[^}]*padding-right:\s*16px[^}]*border-right:\s*1px solid/s,
@@ -101,6 +101,10 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toMatch(
       /\.driver-manager-footer-actions\s*\{[^}]*justify-content:\s*space-between/s,
     );
+    expect(appCss).toContain('.driver-manager-footer-actions.is-status-only');
+    expect(appCss).toContain('.driver-manager-bulkbar.is-embedded-toolbar');
+    expect(appCss).toMatch(/\.driver-manager-filterbar\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s);
+    expect(appCss).toMatch(/\.driver-manager-filter-chip\s*\{[^}]*padding:\s*6px 8px/s);
     // The old single-column card list chrome is gone.
     expect(appCss).not.toMatch(/\.driver-manager-card\s[{,]/);
     expect(appCss).not.toMatch(/@container driver-card/);
