@@ -3654,6 +3654,7 @@ const Sidebar: React.FC<{
       treeData: visibleSidebarTreeData,
       treeViewportWidth,
       treeHeight,
+      expandedKeys,
       isV2Ui,
       isV2CommandSearchOpen,
       connections,
@@ -3673,6 +3674,19 @@ const Sidebar: React.FC<{
       setAIPanelVisible,
       extractObjectName,
   });
+
+  // 侧栏改宽时复位虚拟列表横滚（offsetLeft / marginLeft），避免左侧被拉空。
+  // rc-virtual-list 不用 DOM scrollLeft，必须走 Tree.scrollTo({ left })。
+  useEffect(() => {
+      if (!isV2Ui) return;
+      const resetHorizontalScroll = () => {
+          treeRef.current?.scrollTo?.({ left: 0 });
+      };
+      resetHorizontalScroll();
+      const raf = window.requestAnimationFrame(resetHorizontalScroll);
+      return () => window.cancelAnimationFrame(raf);
+  }, [isV2Ui, treeViewportWidth, v2TreeHorizontalScrollWidth]);
+
   useSidebarLayoutEffect(() => {
       if (!sidebarTreeScrollRequest) return;
 

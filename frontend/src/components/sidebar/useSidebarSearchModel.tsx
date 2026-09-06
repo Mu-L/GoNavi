@@ -78,6 +78,7 @@ type SidebarSearchModelArgs = {
   treeData: TreeNode[];
   treeViewportWidth: number;
   treeHeight: number;
+  expandedKeys: React.Key[];
   isV2Ui: boolean;
   isV2CommandSearchOpen: boolean;
   connections: SavedConnection[];
@@ -117,6 +118,7 @@ export const useSidebarSearchModel = ({
   treeData,
   treeViewportWidth,
   treeHeight,
+  expandedKeys,
   isV2Ui,
   isV2CommandSearchOpen,
   connections,
@@ -640,8 +642,9 @@ export const useSidebarSearchModel = ({
       v2VisibleTreeData,
       treeViewportWidth,
       sidebarTableMetadataFields,
+      expandedKeys,
     ),
-    [sidebarTableMetadataFields, treeViewportWidth, v2VisibleTreeData],
+    [expandedKeys, sidebarTableMetadataFields, treeViewportWidth, v2VisibleTreeData],
   );
   const effectiveTreeHeight = resolveSidebarTreeVirtualHeight(treeHeight, isV2Ui);
   const v2TreeMetrics = useMemo(() => {

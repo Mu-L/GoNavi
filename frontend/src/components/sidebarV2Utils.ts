@@ -986,13 +986,20 @@ const V2_TREE_HORIZONTAL_SCROLL_COMMENT_MAX_CHARS = 32;
 const V2_TREE_HORIZONTAL_SCROLL_VIEWPORT_BUFFER = 48;
 export const V2_TREE_HORIZONTAL_SCROLL_BOTTOM_RESERVE = 32;
 
+/**
+ * 层层（可见层）估算横滚宽度：
+ * - 只统计当前展开路径上可见的节点（含超长连接名/分组名）
+ * - 不统计折叠子树里的长表名
+ */
 export const estimateV2TreeHorizontalScrollWidth = (
   nodes: SidebarTreeNode[],
   viewportWidth: number,
   sidebarTableMetadataFields: SidebarTableMetadataField[] = [],
+  expandedKeys: ReadonlyArray<string | number> = [],
 ): number | undefined => {
   const safeViewportWidth = Math.max(0, Math.ceil(viewportWidth || 0));
   let estimatedContentWidth = safeViewportWidth;
+  const expandedKeySet = new Set(expandedKeys.map((key) => String(key)));
 
   const visit = (items: SidebarTreeNode[], depth: number) => {
     items.forEach((node) => {
@@ -1022,7 +1029,8 @@ export const estimateV2TreeHorizontalScrollWidth = (
         + ((title.length + metaText.length) * V2_TREE_HORIZONTAL_SCROLL_AVG_CHAR_WIDTH)
         + (metaItemCount * V2_TREE_HORIZONTAL_SCROLL_ITEM_GAP_WIDTH);
       estimatedContentWidth = Math.max(estimatedContentWidth, nodeWidth);
-      if (node.children?.length) {
+      // 仅进入已展开节点的子层
+      if (node.children?.length && expandedKeySet.has(String(node.key))) {
         visit(node.children, depth + 1);
       }
     });
@@ -1032,9 +1040,10 @@ export const estimateV2TreeHorizontalScrollWidth = (
   if (estimatedContentWidth <= safeViewportWidth + 8) {
     return undefined;
   }
+  // 只按内容宽度给 scrollWidth，避免 viewport+buffer 造出“假空白”可滚区间
   const scrollWidth = Math.min(
     V2_TREE_HORIZONTAL_SCROLL_MAX_WIDTH,
-    Math.max(safeViewportWidth + V2_TREE_HORIZONTAL_SCROLL_VIEWPORT_BUFFER, Math.ceil(estimatedContentWidth)),
+    Math.ceil(estimatedContentWidth),
   );
   return scrollWidth;
 };

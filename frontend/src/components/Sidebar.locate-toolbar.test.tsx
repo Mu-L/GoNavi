@@ -1515,8 +1515,8 @@ describe('Sidebar locate toolbar', () => {
   it('keeps v2 tree status dots circular while using virtual horizontal scroll for long labels', () => {
     const css = readV2ThemeCss();
     const source = readSidebarSource();
-    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \{[^}]*--gn-v2-tree-horizontal-scroll-reserve: 32px;[^}]*overflow: hidden !important;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 6px 4px 8px;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \{[^}]*--gn-v2-tree-horizontal-scroll-reserve: 32px;[^}]*--gn-v2-tree-trailing-inset: 12px;[^}]*overflow: hidden !important;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 6px 8px 8px;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree \{[^}]*flex: 1 1 auto;[^}]*width: 100%;[^}]*min-width: 0;[^}]*height: 100%;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list \{[^}]*position: relative;[^}]*height: 100%;[^}]*min-height: 0;[^}]*box-sizing: border-box;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list-holder-inner \{[^}]*width: 100%;[^}]*min-width: 100%;/s);
@@ -1534,7 +1534,7 @@ describe('Sidebar locate toolbar', () => {
     expect(horizontalScrollbarCss).toContain('box-shadow: none !important;');
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list-scrollbar-horizontal \.ant-tree-list-scrollbar-thumb \{[^}]*height: 8px !important;/s);
     const treeContentWrapperCss = readCssRuleBlock(css, 'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper');
-    expect(treeContentWrapperCss).toContain('min-width: 100%;');
+    expect(treeContentWrapperCss).toContain('min-width: 0;');
     expect(treeContentWrapperCss).toContain('width: max-content !important;');
     expect(treeContentWrapperCss).toContain('display: flex !important;');
     expect(treeContentWrapperCss).toContain('padding: 0 6px 0 6px !important;');
@@ -1549,7 +1549,7 @@ describe('Sidebar locate toolbar', () => {
     expect(antTreeTitleSpanCss).toContain('text-overflow: clip;');
     const v2TreeTitleCss = readCssRuleBlock(css, 'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title > .gn-v2-tree-title');
     expect(v2TreeTitleCss).toContain('width: max-content;');
-    expect(v2TreeTitleCss).toContain('min-width: 100%;');
+    expect(v2TreeTitleCss).toContain('min-width: 0;');
     expect(v2TreeTitleCss).toContain('overflow: visible;');
     expect(css).toMatch(/\.gn-v2-tree-status \{[^}]*width: 14px;[^}]*height: 14px;[^}]*flex: 0 0 14px;[^}]*overflow: visible;/s);
     expect(css).toMatch(/\.gn-v2-tree-status::before \{[^}]*width: 6px;[^}]*height: 6px;[^}]*border: 0;[^}]*border-radius: 50%;/s);
@@ -1558,12 +1558,14 @@ describe('Sidebar locate toolbar', () => {
     expect(treeLabelCss).toContain('flex: 0 0 auto;');
     expect(treeLabelCss).toContain('overflow: visible;');
     expect(treeLabelCss).toContain('text-overflow: clip;');
-    expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \{[^}]*width: max-content;[^}]*min-width: 100%;[^}]*flex: 0 0 auto;/s);
+    expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \{[^}]*width: max-content;[^}]*min-width: 0;[^}]*flex: 0 0 auto;/s);
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \.gn-v2-tree-label \{[^}]*flex: 0 0 auto;[^}]*overflow: visible;[^}]*text-overflow: clip;/s);
     expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 20px;[^}]*height: 20px;[^}]*flex: 0 0 20px;/s);
-    expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title:not\(\.is-mono\)\) \{[^}]*width: 100%;/s);
-    expect(css).toMatch(/\.gn-v2-tree-title\.is-connection \.gn-v2-tree-label,[^}]*text-overflow: ellipsis;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.gn-v2-tree-status \{[^}]*position: absolute;[^}]*right: 6px;[^}]*transform: translateY\(-50%\);/s);
+    expect(css).toMatch(/\.gn-v2-tree-title:not\(\.is-mono\) \{[^}]*width: max-content;[^}]*min-width: 0;/s);
+    expect(css).toMatch(/\.gn-v2-tree-title\.is-connection \.gn-v2-tree-label,[^}]*text-overflow: clip;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.gn-v2-tree-status \{[^}]*position: absolute;[^}]*right: var\(--gn-v2-tree-trailing-inset, 12px\);[^}]*transform: translateY\(-50%\);/s);
+    expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title\.is-connection-group\) \.gn-v2-tree-count,[\s\S]*?\.ant-tree-treenode:has\(\.gn-v2-tree-title\.is-group\) \.gn-v2-tree-count \{[^}]*position: absolute;[^}]*right: var\(--gn-v2-tree-trailing-inset, 12px\);/s);
+    expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-status\) \.gn-v2-tree-count \{[^}]*position: absolute;[^}]*right: calc\(var\(--gn-v2-tree-trailing-inset, 12px\) \+ var\(--gn-v2-tree-trailing-status-slot, 16px\)\);/s);
     expect(css).toMatch(/\.ant-tree-switcher \{[^}]*flex: 0 0 16px !important;[^}]*width: 16px !important;[^}]*justify-content: center;/s);
     expect(css).toMatch(/\.ant-tree-switcher-noop \.ant-tree-switcher-icon \{[^}]*visibility: hidden;/s);
     expect(css).toMatch(/\.ant-tree-indent-unit \{[^}]*width: 16px !important;/s);
@@ -1574,6 +1576,8 @@ describe('Sidebar locate toolbar', () => {
     expect(css).toMatch(/\.ant-tree-node-content-wrapper:focus-visible \{[^}]*outline: 2px solid var\(--gn-accent\);/s);
     expect(css).not.toMatch(/\.gn-v2-object-explorer \.ant-tree \.ant-tree-node-content-wrapper\.ant-tree-node-selected::before/);
     expect(source).toContain('getDbIcon(iconType, iconColor, 20)');
+    expect(source).toContain("scrollTo?.({ left: 0 })");
+    expect(source).toContain('treeViewportWidth, v2TreeHorizontalScrollWidth');
     expect(source).not.toContain('getDbIcon(iconType, iconColor, 16)');
     expect(source).not.toContain('getDbIcon(iconType, iconColor, 22)');
     expect(css).toMatch(/\.ant-tree-treenode:has\(\.gn-v2-tree-title\.is-connection\) \.ant-tree-iconEle,[\s\S]*?\{[^}]*width: 20px !important;[^}]*height: 20px !important;/s);
@@ -1614,7 +1618,7 @@ describe('Sidebar locate toolbar', () => {
   });
 
   it('estimates a v2 tree scroll width only when content is wider than the viewport', () => {
-    const narrowWidth = estimateV2TreeHorizontalScrollWidth([
+    const collapsedLongChildWidth = estimateV2TreeHorizontalScrollWidth([
       {
         title: 'front_end_sys',
         key: 'db-front-end',
@@ -1625,7 +1629,31 @@ describe('Sidebar locate toolbar', () => {
           type: 'table',
         }],
       },
-    ] as any, 260);
+    ] as any, 260, [], []);
+    const expandedLongChildWidth = estimateV2TreeHorizontalScrollWidth([
+      {
+        title: 'front_end_sys',
+        key: 'db-front-end',
+        type: 'database',
+        children: [{
+          title: 'com_vod_error_file_tmp_with_a_very_long_table_name',
+          key: 'table-long',
+          type: 'table',
+        }],
+      },
+    ] as any, 260, [], ['db-front-end']);
+    const hostOnlyWidth = estimateV2TreeHorizontalScrollWidth([
+      {
+        title: 'BeroHost-测试环境-with-a-fairly-long-connection-label',
+        key: 'conn-bero',
+        type: 'connection',
+        children: [{
+          title: 'com_vod_error_file_tmp_with_a_very_long_table_name',
+          key: 'table-long',
+          type: 'table',
+        }],
+      },
+    ] as any, 280, [], []);
     const wideWidth = estimateV2TreeHorizontalScrollWidth([
       {
         title: 'users',
@@ -1640,6 +1668,10 @@ describe('Sidebar locate toolbar', () => {
         type: 'table',
       },
     ] as any, 320);
+    expect(collapsedLongChildWidth).toBeUndefined();
+    expect(expandedLongChildWidth).toBeGreaterThan(260);
+    // 本层连接名超长：即使未展开子树也应出横滚
+    expect(hostOnlyWidth).toBeGreaterThan(280);
     expect(veryLongWidth).toBeGreaterThan(960);
     expect(veryLongWidth).toBeLessThanOrEqual(2600);
     expect(wideWidth).toBeUndefined();
