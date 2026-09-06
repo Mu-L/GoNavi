@@ -3737,7 +3737,7 @@ export const useStore = create<AppState>()(
       pinnedConnectionTypes: [],
       theme: "light",
       themePreference: "light",
-      brandIconId: "02",
+      brandIconId: "03",
       languagePreference: DEFAULT_LANGUAGE_PREFERENCE,
       appearance: { ...DEFAULT_APPEARANCE },
       uiScale: DEFAULT_UI_SCALE,

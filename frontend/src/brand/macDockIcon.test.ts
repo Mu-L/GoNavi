@@ -81,7 +81,7 @@ describe('shouldSyncMacOSDockIcon', () => {
     vi.stubGlobal('Image', FakeImage);
     vi.stubGlobal('document', { createElement: vi.fn(() => canvas) });
 
-    await expect(composeMacOSDockIconBase64('/brand-icons/09-terminal-sit.webp')).resolves.toBe('encoded');
+    await expect(composeMacOSDockIconBase64('/brand-icons/03-ribbon-graphite-glow.webp')).resolves.toBe('encoded');
     expect(arcTo.mock.calls.map((args) => args[4])).toEqual([184, 184, 184, 184]);
     expect(calls.indexOf('clip')).toBeGreaterThan(calls.indexOf('beginPath'));
     expect(calls.indexOf('drawImage')).toBeGreaterThan(calls.indexOf('clip'));

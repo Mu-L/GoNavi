@@ -4,11 +4,7 @@ export type BrandIconId =
   | '03'
   | '04'
   | '05'
-  | '06'
-  | '07'
-  | '08'
-  | '09'
-  | '10';
+  | '06';
 
 export type BrandIconDefinition = {
   id: BrandIconId;
@@ -20,89 +16,57 @@ export type BrandIconDefinition = {
   titlebarPath?: string;
 };
 
-export const DEFAULT_BRAND_ICON_ID: BrandIconId = '02';
+export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
 
 export const BRAND_ICONS: BrandIconDefinition[] = [
   {
     id: '01',
-    slug: 'database-hug',
-    titleZh: '抱库小狗',
-    titleEn: 'Database hug',
-    iconPath: '/brand-icons/01-database-hug.webp',
-    aboutPath: '/brand-icons/01-database-hug-about.png',
+    slug: 'ribbon-graphite-air',
+    titleZh: '石墨碳白',
+    titleEn: 'Graphite air',
+    iconPath: '/brand-icons/01-ribbon-graphite-air.svg',
+    aboutPath: '/brand-icons/01-ribbon-graphite-air-about.png',
   },
   {
     id: '02',
-    slug: 'database-search',
-    titleZh: '搜库小狗',
-    titleEn: 'Database search',
-    iconPath: '/brand-icons/02-database-search.webp',
-    aboutPath: '/brand-icons/02-database-search-about.png',
-    titlebarPath: '/brand-marks/02-database-search-transparent.png',
+    slug: 'ribbon-graphite',
+    titleZh: '石墨商务',
+    titleEn: 'Graphite business',
+    iconPath: '/brand-icons/02-ribbon-graphite.svg',
+    aboutPath: '/brand-icons/02-ribbon-graphite-about.png',
   },
   {
     id: '03',
-    slug: 'bandana-badge',
-    titleZh: '头巾徽章',
-    titleEn: 'Bandana badge',
-    iconPath: '/brand-icons/03-bandana-badge.webp',
-    aboutPath: '/brand-icons/03-bandana-badge-about.png',
+    slug: 'ribbon-graphite-glow',
+    titleZh: '石墨冷蓝',
+    titleEn: 'Graphite glow',
+    iconPath: '/brand-icons/03-ribbon-graphite-glow.svg',
+    aboutPath: '/brand-icons/03-ribbon-graphite-glow-about.png',
+    titlebarPath: '/brand-icons/03-ribbon-graphite-glow.svg',
   },
   {
     id: '04',
-    slug: 'magnifier-wink',
-    titleZh: '放大镜眨眼',
-    titleEn: 'Magnifier wink',
-    iconPath: '/brand-icons/04-magnifier-wink.webp',
-    aboutPath: '/brand-icons/04-magnifier-wink-about.png',
+    slug: 'ribbon-indigo-light',
+    titleZh: '浅底深紫',
+    titleEn: 'Indigo light',
+    iconPath: '/brand-icons/04-ribbon-indigo-light.svg',
+    aboutPath: '/brand-icons/04-ribbon-indigo-light-about.png',
   },
   {
     id: '05',
-    slug: 'window-peek',
-    titleZh: '窗口探头',
-    titleEn: 'Window peek',
-    iconPath: '/brand-icons/05-window-peek.webp',
-    aboutPath: '/brand-icons/05-window-peek-about.png',
+    slug: 'ribbon-graphite-light',
+    titleZh: '浅底石墨',
+    titleEn: 'Graphite on light',
+    iconPath: '/brand-icons/05-ribbon-graphite-light.svg',
+    aboutPath: '/brand-icons/05-ribbon-graphite-light-about.png',
   },
   {
     id: '06',
-    slug: 'hex-collar',
-    titleZh: '六边项圈',
-    titleEn: 'Hex collar',
-    iconPath: '/brand-icons/06-hex-collar.webp',
-    aboutPath: '/brand-icons/06-hex-collar-about.png',
-  },
-  {
-    id: '07',
-    slug: 'graph-sit',
-    titleZh: '关系图',
-    titleEn: 'Graph sit',
-    iconPath: '/brand-icons/07-graph-sit.webp',
-    aboutPath: '/brand-icons/07-graph-sit-about.png',
-  },
-  {
-    id: '08',
-    slug: 'cloud-banner',
-    titleZh: '云朵横幅',
-    titleEn: 'Cloud banner',
-    iconPath: '/brand-icons/08-cloud-banner.webp',
-    aboutPath: '/brand-icons/08-cloud-banner-about.png',
-  },
-  {
-    id: '09',
-    slug: 'terminal-sit',
-    titleZh: '终端旁坐',
-    titleEn: 'Terminal sit',
-    iconPath: '/brand-icons/09-terminal-sit.webp',
-    aboutPath: '/brand-icons/09-terminal-sit-about.png',
-  },
-  {
-    id: '10',
-    slug: 'compass-bandana',
-    titleZh: '罗盘头巾',
-    titleEn: 'Compass bandana',
-    iconPath: '/brand-icons/10-compass-bandana.webp',
-    aboutPath: '/brand-icons/10-compass-bandana-about.png',
+    slug: 'ribbon-lilac-dark',
+    titleZh: '石墨浅紫',
+    titleEn: 'Lilac on graphite',
+    iconPath: '/brand-icons/06-ribbon-lilac-dark.svg',
+    aboutPath: '/brand-icons/06-ribbon-lilac-dark-about.png',
   },
 ];
 
@@ -117,7 +81,7 @@ export function sanitizeBrandIconId(value: unknown): BrandIconId {
 }
 
 export function resolveBrandIcon(id?: unknown): BrandIconDefinition {
-  return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[1];
+  return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[2];
 }
 
 export function resolveBrandIconSrc(id?: unknown): string {
@@ -137,7 +101,7 @@ export function resolveBrandTitlebarSrc(id?: unknown): string {
   return icon.titlebarPath || icon.iconPath;
 }
 
-/** Dock uses the exact lossless WebP lockup rendered by BrandIconPicker. */
+/** Dock / runtime surfaces use the same SVG lockup as BrandIconPicker. */
 export function resolveBrandDockSrc(id?: unknown): string {
   return resolveBrandIconSrc(id);
 }
