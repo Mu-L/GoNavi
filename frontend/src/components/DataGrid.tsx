@@ -4015,6 +4015,48 @@ const DataGrid: React.FC<DataGridProps> = ({
   handleCommitRef.current = handleCommit;
 
   useEffect(() => {
+    if (!isActive || !isTableSurfaceActive || !canModifyData || !hasChanges) return undefined;
+
+    const handleDataGridSaveShortcut = (event: KeyboardEvent) => {
+      const saveShortcut = activeShortcutPlatform === 'mac' ? 'Meta+S' : 'Ctrl+S';
+      if (!isShortcutMatch(event, saveShortcut)) return;
+
+      const root = rootRef.current;
+      const eventTarget = event.target;
+      const activeElement = document.activeElement;
+      const eventTargetNode = typeof Node !== 'undefined' && eventTarget instanceof Node
+        ? eventTarget
+        : null;
+      const activeElementNode = typeof Node !== 'undefined' && activeElement instanceof Node
+        ? activeElement
+        : null;
+      const eventTargetElement = eventTarget && typeof (eventTarget as Element).closest === 'function'
+        ? eventTarget as Element
+        : null;
+      const activeElementTarget = activeElement && typeof (activeElement as Element).closest === 'function'
+        ? activeElement as Element
+        : null;
+      const isEventTargetInGrid = root
+        ? !!eventTargetNode && root.contains(eventTargetNode)
+        : !!eventTargetElement?.closest('.data-grid-root');
+      const isActiveElementInGrid = root
+        ? !!activeElementNode && root.contains(activeElementNode)
+        : !!activeElementTarget?.closest('.data-grid-root');
+      if (!isEventTargetInGrid && !isActiveElementInGrid) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      void handleCommitRef.current('manual');
+    };
+
+    window.addEventListener('keydown', handleDataGridSaveShortcut, true);
+    return () => {
+      window.removeEventListener('keydown', handleDataGridSaveShortcut, true);
+    };
+  }, [activeShortcutPlatform, canModifyData, hasChanges, isActive, isTableSurfaceActive]);
+
+  useEffect(() => {
       if (!workbenchTabId) return undefined;
       return registerWorkbenchTabCloseGuard(workbenchTabId, {
           isDirty: () => hasChanges || dataPanelDirtyRef.current,

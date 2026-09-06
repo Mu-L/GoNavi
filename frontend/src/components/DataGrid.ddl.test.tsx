@@ -1582,6 +1582,132 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('commits pending edits with Ctrl+S when the editable grid is focused', async () => {
+    storeState.appearance.uiVersion = 'v2';
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Win32' });
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { deletes: [], updates: [], inserts: [] },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+
+    const saveListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener)
+      .filter(Boolean);
+    expect(saveListeners.length).toBeGreaterThan(0);
+    const eventTarget = { closest: (selector: string) => selector === '.data-grid-root' ? {} : null };
+    const event = {
+      key: 's', code: 'KeyS', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false,
+      isComposing: false, target: eventTarget,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    await act(async () => {
+      saveListeners.forEach((listener) => listener(event));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it('commits pending edits with Meta+S on macOS and ignores save shortcuts outside or in read-only grids', async () => {
+    storeState.appearance.uiVersion = 'v2';
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+    backendApp.ApplyChanges.mockResolvedValue({ success: true, message: 'ok', data: { deletes: [], updates: [], inserts: [] } });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+    const saveListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener)
+      .filter(Boolean);
+    const eventTarget = { closest: (selector: string) => selector === '.data-grid-root' ? {} : null };
+    const metaEvent = {
+      key: 's', code: 'KeyS', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      isComposing: false, target: eventTarget,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    await act(async () => {
+      saveListeners.forEach((listener) => listener(metaEvent));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(metaEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+
+    const readOnlyRenderer = create(
+      <DataGrid
+        data={[{ __gonavi_row_key__: 'row-1', id: 1 }]}
+        columnNames={['id']}
+        loading={false}
+        tableName="users"
+        dbName="main"
+        connectionId="conn-1"
+        readOnly
+      />,
+    );
+    await waitForEffects();
+    const registrationsBefore = vi.mocked(window.addEventListener).mock.calls.length;
+    const outsideEvent = {
+      key: 's', code: 'KeyS', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      isComposing: false, target: document.body,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true);
+    const latestListener = keydownRegistrations[keydownRegistrations.length - 1]?.[1] as EventListener | undefined;
+    latestListener?.(outsideEvent);
+    expect(vi.mocked(window.addEventListener).mock.calls.length).toBe(registrationsBefore);
+    expect(outsideEvent.preventDefault).not.toHaveBeenCalled();
+    readOnlyRenderer.unmount();
+  });
+
   it('does not treat page-find highlighting as a deletable cell selection', async () => {
     messageApi.info.mockResolvedValue(undefined);
     let renderer: ReactTestRenderer;
