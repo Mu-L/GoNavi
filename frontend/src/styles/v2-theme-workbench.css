@@ -193,8 +193,9 @@ body[data-ui-version="v2"] .gn-v2-query-toolbar-schema-select {
 }
 
 body[data-ui-version="v2"] .gn-v2-query-toolbar-max-rows-select {
-  width: 132px !important;
-  flex: 0 0 132px !important;
+  width: 80px !important;
+  flex: 0 0 80px !important;
+  min-width: 80px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-query-toolbar-transaction-mode-select {

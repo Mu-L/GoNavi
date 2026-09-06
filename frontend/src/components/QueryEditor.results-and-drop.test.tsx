@@ -4442,7 +4442,7 @@ describe('QueryEditor external SQL save', () => {
     expect(css).toContain('max-width: 760px;');
     expect(css).toContain('width: 140px !important;');
     expect(css).toContain('width: 166px !important;');
-    expect(css).toContain('width: 132px !important;');
+    expect(css).toContain('width: 80px !important;');
     expect(css).toContain('width: 34px !important;');
     expect(css).toContain('@media (max-width: 900px)');
     expect(css).not.toContain('body[data-ui-version="v2"] .gn-v2-query-toolbar-transaction-row {');

@@ -554,7 +554,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   ? "gn-v2-query-toolbar-select gn-v2-query-toolbar-max-rows-select"
                   : undefined
               }
-              style={isV2Ui ? undefined : { width: 170 }}
+              style={isV2Ui ? undefined : { width: 96 }}
               value={maxRows}
               onChange={(val) => onMaxRowsChange(Number(val))}
               options={[
