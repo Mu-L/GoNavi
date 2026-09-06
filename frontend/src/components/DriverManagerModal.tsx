@@ -1097,6 +1097,16 @@ const DriverManagerModal: React.FC<{
         status: nextStatus,
         cachedAt: Date.now(),
       };
+      if (toastOnError) {
+        const summary = formatDriverNetworkSummary(nextStatus);
+        if (nextStatus.reachable === false) {
+          message.error(summary);
+        } else if (nextStatus.usingFallback) {
+          message.warning(summary);
+        } else {
+          message.success(summary);
+        }
+      }
     } catch (err: any) {
       if (requestGeneration === networkRequestGenerationRef.current && toastOnError) {
         message.error(t('driver.modal.error.networkCheckWithDetail', { detail: err?.message || String(err) }));
@@ -2812,17 +2822,11 @@ const DriverManagerModal: React.FC<{
           </section>
         </div>
         </div>
-        {embedded ? (
-          <div className="driver-manager-footer-actions is-status-only">
-            <span className="driver-manager-net-status">
-              <span className={`driver-manager-net-dot driver-manager-net-dot-${networkDotTone}`} aria-hidden="true" />
-              <span className="driver-manager-net-text">{networkPillText}</span>
-            </span>
-            {onBack ? (
-              <Button key="back" onClick={onBack}>
-                {t('common.back_to_settings')}
-              </Button>
-            ) : null}
+        {embedded && onBack ? (
+          <div className="driver-manager-footer-actions">
+            <Button key="back" onClick={onBack}>
+              {t('common.back_to_settings')}
+            </Button>
           </div>
         ) : null}
       </div>

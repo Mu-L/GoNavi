@@ -307,7 +307,8 @@ describe('DriverManagerModal toolbar actions', () => {
     const embeddedShell = embeddedRenderer!.root.findByProps({ className: 'driver-manager-shell is-embedded' });
     const embeddedLayout = embeddedRenderer!.root.findByProps({ className: 'driver-manager-embedded-layout' });
     expect(embeddedLayout.children[0]).toBe(embeddedShell);
-    expect(embeddedLayout.findByProps({ className: 'driver-manager-footer-actions is-status-only' })).toBeTruthy();
+    expect(embeddedLayout.findAllByProps({ className: 'driver-manager-footer-actions is-status-only' })).toHaveLength(0);
+    expect(embeddedLayout.findAllByProps({ className: 'driver-manager-net-status' })).toHaveLength(0);
     // DuckDB is auto-selected; its controls render inside the detail pane.
     const detail = embeddedShell.findByProps({ className: 'driver-manager-detail' });
     expect(detail.findByProps({ className: 'driver-manager-title-row' })).toBeTruthy();
