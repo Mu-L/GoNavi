@@ -2881,6 +2881,37 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     min-height: 100% !important;
 }
 
+
+.titlebar-window-controls .titlebar-window-control-btn .anticon,
+.titlebar-window-controls .titlebar-window-control-btn svg {
+    width: 12px;
+    height: 12px;
+    font-size: 12px;
+    display: block;
+}
+
+.titlebar-window-controls .titlebar-window-control-restore-front {
+    fill: var(--gn-bg-panel-2, var(--ant-color-bg-container, #ffffff));
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls .titlebar-window-control-restore-front {
+    fill: var(--gn-bg-panel-2, #ffffff);
+}
+
+.titlebar-window-controls > .ant-btn.ant-btn-text:hover .titlebar-window-control-restore-front,
+.titlebar-window-controls > .ant-btn.ant-btn-text:focus-visible .titlebar-window-control-restore-front {
+    fill: color-mix(in srgb, var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06)) 100%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.ant-btn-text:hover .titlebar-window-control-restore-front,
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.ant-btn-text:focus-visible .titlebar-window-control-restore-front {
+    fill: color-mix(in srgb, var(--gn-bg-panel-2, #ffffff) 88%, var(--ant-color-text, #000) 12%);
+}
+
+.titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover .titlebar-window-control-restore-front {
+    fill: #ff4d4f;
+}
+
 .titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover {
     background-color: #ff4d4f !important;
     color: #fff !important;

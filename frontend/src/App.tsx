@@ -2,7 +2,7 @@ import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from './utils/aiSettingsLeaveGuard';
 import { Layout, Button, ConfigProvider, theme, message, notification, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, PoweroffOutlined, UserOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, PoweroffOutlined, UserOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined, ThunderboltOutlined, ApiOutlined, WechatOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -17,6 +17,7 @@ import FloatingWorkbenchWindows from './components/FloatingWorkbenchWindows';
 import FloatingAIChatWindow from './components/FloatingAIChatWindow';
 import FloatingQueryResultWindows from './components/FloatingQueryResultWindows';
 import NativeDetachedWindowController from './components/NativeDetachedWindowController';
+import { TitleBarCloseIcon, TitleBarMaximizeIcon, TitleBarMinimizeIcon, TitleBarRestoreIcon } from './components/TitleBarWindowControlIcons';
 import ConnectionModal from './components/ConnectionModal';
 import ConnectionHealthModal from './components/ConnectionHealthModal';
 import SnippetSettingsModal from './components/SnippetSettingsModal';
@@ -7974,21 +7975,23 @@ function App() {
                       >
                           <Button
                             type="text"
-                            icon={<MinusOutlined />}
+                            icon={<TitleBarMinimizeIcon />}
+                            className="titlebar-window-control-btn"
                             style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }}
                             onClick={WindowMinimise}
                           />
                           <Button
                             type="text"
-                            icon={titleBarToggleIconKey === 'restore' ? <SwitcherOutlined /> : <BorderOutlined />}
+                            icon={titleBarToggleIconKey === 'restore' ? <TitleBarRestoreIcon /> : <TitleBarMaximizeIcon />}
+                            className="titlebar-window-control-btn"
                             style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }}
                             onClick={() => { void handleTitleBarWindowToggle(); }}
                           />
                           <Button
                             type="text"
-                            icon={<CloseOutlined />}
+                            icon={<TitleBarCloseIcon />}
                             danger
-                            className="titlebar-close-btn"
+                            className="titlebar-close-btn titlebar-window-control-btn"
                             style={{ height: '100%', borderRadius: 0, width: titleBarButtonWidth }}
                             onClick={() => { void handleApplicationQuitRequest(); }}
                           />
