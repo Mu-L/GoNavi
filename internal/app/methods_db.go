@@ -2275,7 +2275,7 @@ func applyRowBudgetTruncation(results []connection.ResultSetData, budget *db.Row
 }
 
 func normalizeNativeResultStatementIndexes(dbType string, statements []string, results []connection.ResultSetData) {
-	if !isSQLServerDBType(dbType) || len(results) == 0 {
+	if len(results) == 0 {
 		return
 	}
 	hasExplicitStatementIndex := false
@@ -2286,6 +2286,28 @@ func normalizeNativeResultStatementIndexes(dbType string, statements []string, r
 		}
 	}
 	if hasExplicitStatementIndex {
+		return
+	}
+
+	if supportsSequentialNativeSelectIndexes(dbType) {
+		if len(results) > len(statements) {
+			return
+		}
+		for _, statement := range statements {
+			if sqlDataOperationKeyword(statement, dbType) != "select" {
+				return
+			}
+		}
+		// MySQL-family native batches are used only for read-only statements.
+		// A regular SELECT contributes one result set, and a row budget may stop
+		// scanning at any leading prefix, so prefix indexes remain exact.
+		for idx := range results {
+			results[idx].StatementIndex = idx + 1
+		}
+		return
+	}
+
+	if !isSQLServerDBType(dbType) {
 		return
 	}
 
@@ -2313,6 +2335,15 @@ func normalizeNativeResultStatementIndexes(dbType string, statements []string, r
 			results[resultIdx].StatementIndex = statementIdx + 1
 			results[resultIdx+1].StatementIndex = statementIdx + 1
 		}
+	}
+}
+
+func supportsSequentialNativeSelectIndexes(dbType string) bool {
+	switch normalizeExplainLexicalDBType(dbType) {
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "goldendb", "sphinx", "tidb":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -502,3 +502,48 @@ func TestMCPQueryExecutorPassesRowBudgetThroughQueryContext(t *testing.T) {
 		t.Fatalf("application query context must not carry an MCP row budget: %#v", budget)
 	}
 }
+
+func TestMCPQueryExecutorReportsEffectiveDialectFromResolvedSavedConnection(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	database := &sqlAuditTestDatabase{
+		rows:    []map[string]interface{}{{"mobile": "secret"}},
+		columns: []string{"mobile"},
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	application.activateSQLAudit()
+	t.Cleanup(func() { application.closeSQLAuditStore() })
+	view, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID:   "oceanbase-oracle",
+		Name: "OceanBase Oracle",
+		Config: connection.ConnectionConfig{
+			ID:                "oceanbase-oracle",
+			Type:              "oceanbase",
+			OceanBaseProtocol: "oracle",
+			Host:              "127.0.0.1",
+			Port:              2881,
+			Database:          "app",
+			DSN:               "oracle-secret-dsn",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveConnection returned error: %v", err)
+	}
+	if view.Config.DSN != "" {
+		t.Fatalf("saved connection view exposed DSN: %q", view.Config.DSN)
+	}
+
+	result, dialect := NewMCPQueryExecutor(application).DBQueryMultiAuthorizedContextWithDialect(
+		context.Background(), view.Config, "app", "SELECT phone AS mobile FROM users", true, 50,
+	)
+	if !result.Success {
+		t.Fatalf("MCP query returned failure: %s", result.Message)
+	}
+	if dialect != "oracle" {
+		t.Fatalf("effective dialect = %q, want oracle", dialect)
+	}
+}
