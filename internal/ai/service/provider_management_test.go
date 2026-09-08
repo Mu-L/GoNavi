@@ -254,8 +254,9 @@ func TestProviderManagementCursorCLIAndCloudAPIRemainIndependent(t *testing.T) {
 		return nil, nil
 	}
 	result := service.AIListModels()
-	if result["success"] != true || result["source"] != "static" || !reflect.DeepEqual(result["models"], []string{"saved-model"}) {
-		t.Fatalf("chat model list must preserve the user's saved selection: %v", result)
+	models, ok := result["models"].([]string)
+	if result["success"] != true || result["source"] != "static" || !ok || len(models) != 0 {
+		t.Fatalf("removed favorite models must not survive provider save: %v", result)
 	}
 }
 

@@ -142,6 +142,10 @@ export function AIListModels() {
   return window['go']['aiservice']['Service']['AIListModels']();
 }
 
+export function AIListProviderModels(arg1) {
+  return window['go']['aiservice']['Service']['AIListProviderModels'](arg1);
+}
+
 export function AIMutateAgentSession(arg1) {
   return window['go']['aiservice']['Service']['AIMutateAgentSession'](arg1);
 }

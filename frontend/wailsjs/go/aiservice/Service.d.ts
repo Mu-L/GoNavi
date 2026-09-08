@@ -74,6 +74,8 @@ export function AIListMCPTools():Promise<Array<ai.MCPToolDescriptor>>;
 
 export function AIListModels():Promise<Record<string, any>>;
 
+export function AIListProviderModels(arg1:ai.ProviderConfig):Promise<Record<string, any>>;
+
 export function AIMutateAgentSession(arg1:runharness.SessionMutationRequest):Promise<runharness.SessionProjection>;
 
 export function AIOpenAgentDataDirectory():Promise<void>;

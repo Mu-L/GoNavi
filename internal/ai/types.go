@@ -114,7 +114,7 @@ type ProviderConfig struct {
 	CustomModels   []string          `json:"customModels,omitempty"`
 	APIFormat      string            `json:"apiFormat,omitempty"` // openai | openai-responses | anthropic | gemini | cursor-agent | cursor-cli | codex-cli | claude-cli | codebuddy-cli | grok-cli
 	Headers        map[string]string `json:"headers,omitempty"`
-	MaxTokens      int               `json:"maxTokens"`
+	MaxTokens      int               `json:"maxTokens,omitempty"`
 	ContextWindow  int               `json:"contextWindow,omitempty"`
 	CLIPath        string            `json:"cliPath,omitempty"`
 	CLIEnv         map[string]string `json:"cliEnv,omitempty"`

@@ -224,7 +224,7 @@ export namespace ai {
 	    customModels?: string[];
 	    apiFormat?: string;
 	    headers?: Record<string, string>;
-	    maxTokens: number;
+	    maxTokens?: number;
 	    contextWindow?: number;
 	    cliPath?: string;
 	    cliEnv?: Record<string, string>;
