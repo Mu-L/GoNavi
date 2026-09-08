@@ -7,6 +7,7 @@ import { AIProviderLogo, PRESET_ICON_SLUG } from './AIProviderLogo';
 describe('AIProviderLogo', () => {
   it('maps known presets to brand SVG paths', () => {
     expect(PRESET_ICON_SLUG.openai).toBe('openai');
+    expect(PRESET_ICON_SLUG.codex).toBeUndefined();
     expect(PRESET_ICON_SLUG['claude-subscription']).toBe('claudecode');
     expect(PRESET_ICON_SLUG['qwen-bailian']).toBe('alibabacloud');
     expect(PRESET_ICON_SLUG.atlascloud).toBe('atlascloud');
@@ -24,5 +25,12 @@ describe('AIProviderLogo', () => {
     expect(markup).toContain('is-fallback');
     expect(markup).toContain('K');
     expect(markup).not.toContain('/icons/ai/');
+  });
+
+  it('adapts the monochrome Atlas mark in dark mode without recoloring Kimi', () => {
+    const atlas = renderToStaticMarkup(<AIProviderLogo presetKey="atlascloud" label="Atlas Cloud" dark />);
+    const kimi = renderToStaticMarkup(<AIProviderLogo presetKey="moonshot" label="Kimi" dark />);
+    expect(atlas).toContain('filter:invert(1)');
+    expect(kimi).not.toContain('filter:invert(1)');
   });
 });
