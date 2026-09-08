@@ -729,6 +729,12 @@ export type AIProviderAuthMode = "api-key" | "bearer" | "local-cli";
 export type AISafetyLevel = "readonly" | "readwrite" | "full";
 export type AIContextLevel = "schema_only" | "with_samples" | "with_results";
 
+export interface AIResultMaskingSettings {
+  enabled: boolean;
+  fullMaskFields: string[];
+  partialMaskFields: string[];
+}
+
 export interface AIContextItem {
   dbName: string;
   tableName: string;

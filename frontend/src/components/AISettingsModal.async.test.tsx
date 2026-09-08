@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     AISetActiveProvider: vi.fn(), AISaveProvider: vi.fn(), AIDeleteProvider: vi.fn(), AITestProvider: vi.fn(),
     AIGetMCPClientInstallStatuses: vi.fn(), AIGetMCPServers: vi.fn(), AIListMCPTools: vi.fn(), AIGetMCPHTTPServerStatus: vi.fn(),
     AIGetRunPolicy: vi.fn(), AISaveRunPolicy: vi.fn(), AIGetAgentLedgerStatus: vi.fn(),
+    AIGetSafetyLevel: vi.fn(), AIGetResultMaskingSettings: vi.fn(), AISaveResultMaskingSettings: vi.fn(),
   },
   resolve: vi.fn(),
   messages: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   providerProps: {} as any,
   runPolicyProps: {} as any,
   sidebarProps: {} as any,
+  safetyProps: {} as any,
 }));
 
 vi.mock('antd', async () => {
@@ -47,7 +49,7 @@ vi.mock('./ai/AISettingsProvidersSection', () => ({ default: (props: any) => { m
 vi.mock('./ai/AISettingsSidebar', async (original) => ({ ...await original<object>(), default: (props: any) => { mocks.sidebarProps = props; return null; } }));
 vi.mock('./ai/AIBuiltinToolsCatalog', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsMCPSection', () => ({ default: () => null }));
-vi.mock('./ai/AISettingsSafetySection', () => ({ default: () => null }));
+vi.mock('./ai/AISettingsSafetySection', () => ({ default: (props: any) => { mocks.safetyProps = props; return null; } }));
 vi.mock('./ai/AISettingsContextSection', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsRunPolicySection', () => ({ default: (props: any) => { mocks.runPolicyProps = props; return null; } }));
 vi.mock('./ai/AISettingsPromptsSection', () => ({ default: () => null }));
@@ -97,6 +99,7 @@ describe('AISettingsContent provider async behavior', () => {
     mocks.listeners.clear();
     mocks.runPolicyProps = {};
     mocks.sidebarProps = undefined;
+    mocks.safetyProps = {};
     const publish = () => mocks.listeners.forEach((listener) => listener());
     mocks.form.resetFields.mockImplementation(() => { mocks.values = {}; publish(); });
     mocks.form.setFieldsValue.mockImplementation((patch) => { mocks.values = { ...mocks.values, ...patch }; publish(); });
@@ -131,6 +134,9 @@ describe('AISettingsContent provider async behavior', () => {
         policyWatchInterval: 500_000_000,
       },
     });
+    mocks.service.AIGetSafetyLevel.mockResolvedValue('readonly');
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValue({ enabled: false, fullMaskFields: [], partialMaskFields: [] });
+    mocks.service.AISaveResultMaskingSettings.mockResolvedValue(undefined);
     mocks.service.AIGetAgentLedgerStatus.mockResolvedValue({ state: 'ready' });
     mocks.service.AISaveRunPolicy.mockImplementation(async (request) => ({
       schemaVersion: 1,
@@ -159,6 +165,81 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.providerProps.providers).toHaveLength(4);
     await act(async () => { mocks.sidebarProps.onSelectSection('providers'); });
     expect(mocks.service.AIGetMCPClientInstallStatuses).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads result masking without silently replacing a failed read with empty rules', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockRejectedValueOnce(new Error('invalid ai_config.json'));
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoadError).toBe('invalid ai_config.json');
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); });
+    expect(mocks.service.AISaveResultMaskingSettings).not.toHaveBeenCalled();
+  });
+
+  it('locks result masking while the service bridge resolves and fails closed when it is unavailable', async () => {
+    const bridge = deferred<any>();
+    mocks.resolve
+      .mockResolvedValueOnce(mocks.service)
+      .mockReturnValueOnce(bridge.promise);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+      await Promise.resolve();
+    });
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(true);
+    bridge.resolve(mocks.service);
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+
+    await act(async () => { renderer?.unmount(); });
+    renderer = undefined;
+    mocks.resolve
+      .mockResolvedValueOnce(mocks.service)
+      .mockResolvedValueOnce(null);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoadError).toBe('Failed to load masking rules');
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+  });
+
+  it('keeps the result masking draft after save failure and locks editing while saving', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValueOnce({ enabled: true, fullMaskFields: ['phone'], partialMaskFields: ['email'] });
+    const pending = deferred<void>();
+    mocks.service.AISaveResultMaskingSettings.mockReturnValueOnce(pending.promise);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    const draft = { enabled: true, fullMaskFields: ['phone', 'id_card'], partialMaskFields: ['email'] };
+    await act(async () => { mocks.safetyProps.onResultMaskingChange(draft); });
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); await Promise.resolve(); });
+    expect(mocks.safetyProps.resultMaskingSaving).toBe(true);
+    expect(mocks.service.AISaveResultMaskingSettings).toHaveBeenCalledWith(draft);
+    pending.reject(new Error('disk is read only'));
+    await flush();
+    expect(mocks.safetyProps.resultMaskingSaving).toBe(false);
+    expect(mocks.safetyProps.resultMaskingSaveError).toBe('disk is read only');
+    expect(mocks.safetyProps.resultMaskingSettings).toEqual(draft);
+    await act(async () => { mocks.safetyProps.onReloadResultMasking(); });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingSaveError).toBe('');
+  });
+
+  it('saves disabled result masking while retaining configured rules', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValueOnce({ enabled: true, fullMaskFields: ['phone'], partialMaskFields: ['email'] });
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    const disabledDraft = { enabled: false, fullMaskFields: ['phone'], partialMaskFields: ['email'] };
+    await act(async () => { mocks.safetyProps.onResultMaskingChange(disabledDraft); });
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.service.AISaveResultMaskingSettings).toHaveBeenCalledWith(disabledDraft);
+    expect(mocks.messages.success).toHaveBeenCalled();
   });
 
   it('loads and saves the shared run policy lazily, retaining explicit zero limits', async () => {

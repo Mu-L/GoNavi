@@ -163,6 +163,23 @@ describe('main browser mock', () => {
     });
   });
 
+  it('normalizes result masking with Unicode case-fold and full-mask precedence', async () => {
+    await importMain();
+    const service = (globalThis as any).window.go.aiservice.Service;
+
+    await service.AISaveResultMaskingSettings({
+      enabled: true,
+      fullMaskFields: [' Σ ', 'ς'],
+      partialMaskFields: ['σ', 'email', 'EMAIL'],
+    });
+
+    await expect(service.AIGetResultMaskingSettings()).resolves.toEqual({
+      enabled: true,
+      fullMaskFields: ['Σ'],
+      partialMaskFields: ['email'],
+    });
+  });
+
   it('rejects non-array payloads with the localized browser mock import limitation', async () => {
     const app = await importMain();
     const { t } = await import('./i18n');

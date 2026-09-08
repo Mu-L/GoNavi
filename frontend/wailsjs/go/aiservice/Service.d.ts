@@ -41,6 +41,8 @@ export function AIGetRunPolicy():Promise<runharness.RunPolicySnapshot>;
 
 export function AIGetSafetyLevel():Promise<string>;
 
+export function AIGetResultMaskingSettings():Promise<ai.ResultMaskingSettings>;
+
 export function AIGetSkills():Promise<Array<ai.SkillConfig>>;
 
 export function AIGetUserPromptSettings():Promise<ai.UserPromptSettings>;
@@ -82,6 +84,8 @@ export function AISaveRunPolicy(arg1:runharness.RunPolicyMutationRequest):Promis
 export function AISaveSkill(arg1:ai.SkillConfig):Promise<void>;
 
 export function AISaveUserPromptSettings(arg1:ai.UserPromptSettings):Promise<void>;
+
+export function AISaveResultMaskingSettings(arg1:ai.ResultMaskingSettings):Promise<void>;
 
 export function AISetActiveProvider(arg1:string):Promise<void>;
 

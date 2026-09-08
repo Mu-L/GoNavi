@@ -322,6 +322,22 @@ export namespace ai {
 	        this.jvmDiagnostic = source["jvmDiagnostic"];
 	    }
 	}
+	export class ResultMaskingSettings {
+	    enabled: boolean;
+	    fullMaskFields: string[];
+	    partialMaskFields: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new ResultMaskingSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.fullMaskFields = source["fullMaskFields"];
+	        this.partialMaskFields = source["partialMaskFields"];
+	    }
+	}
 
 }
 

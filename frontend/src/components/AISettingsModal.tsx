@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Form, message as antdMessage } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import { v4 as uuidv4 } from 'uuid';
-import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
+import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIResultMaskingSettings, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
 import type { ai } from '../../wailsjs/go/models';
 import { getCLIConfigPrefill, normalizeProviderModels, parseProviderCheckResult, providerCopyName, providerDraftFingerprint, type ProviderCheckResult } from '../utils/aiProviderManagement';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from '../utils/aiSettingsLeaveGuard';
@@ -101,6 +101,12 @@ const DEFAULT_MCP_HTTP_SERVER_DRAFT: AIMCPHTTPServerDraft = {
     schemaOnly: false,
 };
 
+const DEFAULT_AI_RESULT_MASKING_SETTINGS: AIResultMaskingSettings = {
+    enabled: false,
+    fullMaskFields: [],
+    partialMaskFields: [],
+};
+
 const buildMCPHTTPServerDraftFromStatus = (
     status: AIMCPHTTPServerStatus,
     fallback: AIMCPHTTPServerDraft = DEFAULT_MCP_HTTP_SERVER_DRAFT,
@@ -138,6 +144,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const [providersLoading, setProvidersLoading] = useState(false);
     const [providersLoadError, setProvidersLoadError] = useState('');
     const [safetyLevel, setSafetyLevel] = useState<AISafetyLevel>('readonly');
+    const [resultMaskingSettings, setResultMaskingSettings] = useState<AIResultMaskingSettings>(DEFAULT_AI_RESULT_MASKING_SETTINGS);
+    const [resultMaskingLoading, setResultMaskingLoading] = useState(false);
+    const [resultMaskingSaving, setResultMaskingSaving] = useState(false);
+    const [resultMaskingLoadError, setResultMaskingLoadError] = useState('');
+    const [resultMaskingSaveError, setResultMaskingSaveError] = useState('');
     const [contextLevel, setContextLevel] = useState<AIContextLevel>('schema_only');
     const [runPolicy, setRunPolicy] = useState<AIRunPolicy>(DEFAULT_AI_RUN_POLICY);
     const [runRuntime, setRunRuntime] = useState<AIRunRuntimeConfig>(DEFAULT_AI_RUN_RUNTIME_CONFIG);
@@ -356,9 +367,20 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const loadConfig = useCallback(async () => {
         if (activeSection === 'providers' || activeSection === 'tools') return;
         const sequence = ++sectionLoadSequenceRef.current;
-        const Service = await resolveAIService();
-        if (!Service) return;
         const isCurrent = () => mountedRef.current && sequence === sectionLoadSequenceRef.current;
+        if (activeSection === 'safety' && isCurrent()) {
+            setResultMaskingLoading(true);
+            setResultMaskingLoadError('');
+            setResultMaskingSaveError('');
+        }
+        const Service = await resolveAIService();
+        if (!Service) {
+            if (activeSection === 'safety' && isCurrent()) {
+                setResultMaskingLoadError(t('ai_settings.result_masking.load_failed'));
+                setResultMaskingLoading(false);
+            }
+            return;
+        }
         const callOrFallback = async <T,>(loader: (() => Promise<T> | undefined), fallback: T): Promise<T> => {
             try { return (await loader()) ?? fallback; }
             catch (error) { console.warn('[AI] settings load fallback', error); return fallback; }
@@ -366,7 +388,22 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         switch (activeSection) {
             case 'safety': {
                 const value = await callOrFallback<AISafetyLevel>(() => Service.AIGetSafetyLevel?.(), 'readonly');
-                if (isCurrent()) setSafetyLevel(value);
+                let masking: AIResultMaskingSettings | undefined;
+                let maskingError = '';
+                try {
+                    if (typeof Service.AIGetResultMaskingSettings !== 'function') {
+                        throw new Error(t('ai_settings.result_masking.load_failed'));
+                    }
+                    masking = await Service.AIGetResultMaskingSettings();
+                } catch (error: any) {
+                    maskingError = error?.message || String(error) || t('ai_settings.result_masking.load_failed');
+                }
+                if (isCurrent()) {
+                    setSafetyLevel(value);
+                    if (masking) setResultMaskingSettings({ ...DEFAULT_AI_RESULT_MASKING_SETTINGS, ...masking });
+                    setResultMaskingLoadError(maskingError);
+                    setResultMaskingLoading(false);
+                }
                 break;
             }
             case 'context': {
@@ -829,6 +866,28 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         } catch (e) { /* ignore */ }
     };
 
+    const handleSaveResultMasking = async () => {
+        if (resultMaskingLoadError || resultMaskingSaving) return;
+        setResultMaskingSaving(true);
+        setResultMaskingSaveError('');
+        try {
+            const Service = await resolveAIService();
+            if (typeof Service?.AISaveResultMaskingSettings !== 'function') {
+                throw new Error(t('ai_settings.result_masking.save_failed'));
+            }
+            await Service.AISaveResultMaskingSettings(resultMaskingSettings);
+            if (mountedRef.current) void messageApi.success(t('ai_settings.result_masking.saved'));
+        } catch (error: any) {
+            const detail = error?.message || String(error) || t('ai_settings.result_masking.save_failed');
+            if (mountedRef.current) {
+                setResultMaskingSaveError(detail);
+                void messageApi.error(detail);
+            }
+        } finally {
+            if (mountedRef.current) setResultMaskingSaving(false);
+        }
+    };
+
     const handleContextChange = async (level: AIContextLevel) => {
         try {
             const Service = (window as any).go?.aiservice?.Service;
@@ -1266,6 +1325,14 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         cardBg={cardBg}
                         cardBorder={cardBorder}
                         onChange={handleSafetyChange}
+                        resultMaskingSettings={resultMaskingSettings}
+                        resultMaskingLoading={resultMaskingLoading}
+                        resultMaskingSaving={resultMaskingSaving}
+                        resultMaskingLoadError={resultMaskingLoadError}
+                        resultMaskingSaveError={resultMaskingSaveError}
+                        onResultMaskingChange={setResultMaskingSettings}
+                        onSaveResultMasking={() => void handleSaveResultMasking()}
+                        onReloadResultMasking={() => void loadConfig()}
                     />
                 ))}
                 {renderSectionPanel('context', (
