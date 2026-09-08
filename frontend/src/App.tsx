@@ -59,6 +59,14 @@ import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButton
 import SettingsCenterTreeNav, {
   findSettingsCenterTreeItem,
 } from './components/settings/SettingsCenterTreeNav';
+import {
+  DataDirectoryPage,
+  DirectoryChoice,
+  DirectoryMetaGrid,
+  DirectoryNote,
+  DirectoryPathDisplay,
+  DirectorySectionHeading,
+} from './components/settings/DataDirectorySettings';
 import { AI_SETTINGS_NAV_ITEMS, type AISettingsSectionKey } from './components/ai/AISettingsSidebar';
 import CustomThemeStyleHost, {
   type CustomThemeAntTokenSnapshot,
@@ -287,6 +295,7 @@ import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/
 import { useAppUtilityStyles } from './hooks/useAppUtilityStyles';
 import { useWorkbenchTabs } from './hooks/useWorkbenchTabs';
 import { useAIWorkspaceSnapshot } from './components/ai/useAIWorkspaceSnapshot';
+import AgentDataSettingsPanel from './components/ai/AgentDataSettingsPanel';
 import {
   ApplyDataRootDirectory,
   ApplyLogDirectory,
@@ -614,6 +623,9 @@ type ToolCenterGroupKey = 'config' | 'workflow' | 'workspace';
 type ToolCenterPaneKey =
   | 'connection-package'
   | 'data-root'
+  | 'data-root-application'
+  | 'data-root-agent'
+  | 'data-root-saved-queries'
   | 'security-update'
   | 'drivers'
   | 'snippet-settings'
@@ -649,7 +661,7 @@ const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): S
     case 'services':
       return { key: 'proxy', group };
     case 'config':
-      return { key: 'data-root', group };
+      return { key: 'data-root-application', group };
     case 'workspace':
       return { key: 'snippet-settings', group };
     case 'about':
@@ -4377,7 +4389,7 @@ function App() {
   }, [t]);
 
   useEffect(() => {
-      if (!isDataRootModalOpen && activeSettingsCenterPane?.key !== 'data-root') {
+      if (!isDataRootModalOpen && !activeSettingsCenterPane?.key.startsWith('data-root')) {
           return;
       }
       void loadDataRootInfo();
@@ -4573,134 +4585,278 @@ function App() {
   }, [t]);
 
   const renderSavedQueryDirectorySettings = (readOnly = false) => (
-      <div style={utilityPanelStyle} data-saved-query-directory-settings="true">
-          <div style={{ fontWeight: 600 }}>{t('app.data_root.saved_query_directory.title')}</div>
-          <div style={{ ...utilityMutedTextStyle, marginTop: 6 }}>
-              {t('app.data_root.saved_query_directory.description')}
-          </div>
-          <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-              <div>
-                  <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                      {t('app.data_root.saved_query_directory.current_directory')}
-                  </div>
-                  <Input
-                      readOnly
-                      value={selectedSavedQueryDirectoryPath}
-                      placeholder={t('app.data_root.saved_query_directory.placeholder')}
-                      aria-label={t('app.data_root.saved_query_directory.title')}
+      <DataDirectoryPage testId="saved-queries">
+          <section className="gn-storage-panel gn-storage-panel--current" data-saved-query-directory-settings="true">
+              <div className="gn-storage-panel__body">
+                  <DirectorySectionHeading
+                      title={t('app.data_root.current_location')}
+                      description={t('app.data_root.saved_query_directory.current_description')}
                   />
+                  <DirectoryPathDisplay
+                      label={t('app.data_root.saved_query_directory.current_directory')}
+                      path={dataRootInfo?.savedQueryDirectory || selectedSavedQueryDirectoryPath}
+                      action={!readOnly ? (
+                          <Button onClick={() => void handleOpenSavedQueryDirectory()}>
+                              {t('app.data_root.action.open_current')}
+                          </Button>
+                      ) : undefined}
+                  />
+                  <DirectoryMetaGrid items={[{
+                      label: t('app.data_root.saved_query_directory.default_directory'),
+                      value: dataRootInfo?.defaultSavedQueryDirectory || '-',
+                  }]} />
               </div>
-              {!readOnly && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                          icon={<FolderOpenOutlined />}
-                          disabled={directorySettingsApplying}
-                          onClick={() => void handleSelectSavedQueryDirectory()}
-                      >
-                          {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenSavedQueryDirectory()}>
-                          {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                          disabled={directorySettingsApplying}
-                          loading={savedQueryDirectoryApplying}
-                          onClick={() => void handleApplySavedQueryDirectory(true)}
-                      >
-                          {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                      <Button
-                          type="primary"
-                          disabled={directorySettingsApplying}
-                          loading={savedQueryDirectoryApplying}
-                          onClick={() => void handleApplySavedQueryDirectory(false)}
-                      >
-                          {t('common.save')}
-                      </Button>
+          </section>
+
+          {!readOnly && (
+              <section className="gn-storage-panel">
+                  <div className="gn-storage-panel__body">
+                      <DirectorySectionHeading
+                          title={t('app.data_root.change_location')}
+                          description={t('app.data_root.saved_query_directory.change_description')}
+                      />
+                      <div className="gn-storage-path-editor">
+                          <Input
+                              readOnly
+                              value={selectedSavedQueryDirectoryPath}
+                              placeholder={t('app.data_root.saved_query_directory.placeholder')}
+                              aria-label={t('app.data_root.saved_query_directory.title')}
+                          />
+                          <div className="gn-storage-path-editor__actions">
+                              <Button
+                                  icon={<FolderOpenOutlined />}
+                                  disabled={directorySettingsApplying}
+                                  onClick={() => void handleSelectSavedQueryDirectory()}
+                              >
+                                  {t('app.data_root.action.select')}
+                              </Button>
+                              <Button
+                                  disabled={directorySettingsApplying}
+                                  loading={savedQueryDirectoryApplying}
+                                  onClick={() => void handleApplySavedQueryDirectory(true)}
+                              >
+                                  {t('app.data_root.action.restore_default_directory')}
+                              </Button>
+                          </div>
+                      </div>
+                      <DirectoryChoice
+                          recommended
+                          badge={t('app.data_root.recommended')}
+                          title={t('app.data_root.saved_query_directory.apply_title')}
+                          description={t('app.data_root.saved_query_directory.apply_description')}
+                          action={(
+                              <Button
+                                  type="primary"
+                                  disabled={directorySettingsApplying}
+                                  loading={savedQueryDirectoryApplying}
+                                  onClick={() => void handleApplySavedQueryDirectory(false)}
+                              >
+                                  {t('app.data_root.action.use_selected_directory')}
+                              </Button>
+                          )}
+                      />
                   </div>
-              )}
-              <div>
-                  <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                      {t('app.data_root.saved_query_directory.default_directory')}
-                  </div>
-                  <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                      {dataRootInfo?.defaultSavedQueryDirectory || '-'}
-                  </div>
-              </div>
-          </div>
-      </div>
+              </section>
+          )}
+      </DataDirectoryPage>
   );
 
-  const renderLogDirectorySettings = () => {
+  const renderLogDirectorySettings = (readOnly = false) => {
       const editable = dataRootInfo?.logDirectoryEditable !== false;
       const managedByEnvironment = dataRootInfo?.logDirectorySource === 'environment';
       const restartRequired = dataRootInfo?.logDirectoryRestartRequired === true;
       return (
-          <div style={utilityPanelStyle} data-log-directory-settings="true">
-              <div style={utilityMutedTextStyle}>
-                  {t('app.data_root.log_directory.description')}
-              </div>
-              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-                  <Input
-                      readOnly
-                      disabled={!editable}
-                      value={selectedLogDirectoryPath}
-                      placeholder={t('app.data_root.log_directory.placeholder')}
-                      aria-label={t('app.data_root.log_directory.title')}
-                  />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                          icon={<FolderOpenOutlined />}
-                          disabled={!editable || directorySettingsApplying}
-                          onClick={() => void handleSelectLogDirectory()}
-                      >
-                          {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenLogDirectory()}>
-                          {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                          disabled={!editable || directorySettingsApplying}
-                          loading={logDirectoryApplying}
-                          onClick={() => void handleApplyLogDirectory(true)}
-                      >
-                          {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                      <Button
-                          type="primary"
-                          disabled={!editable || directorySettingsApplying}
-                          loading={logDirectoryApplying}
-                          onClick={() => void handleApplyLogDirectory(false)}
-                      >
-                          {t('common.save')}
-                      </Button>
+          <section className="gn-storage-panel" data-log-directory-settings="true">
+              <div className="gn-storage-panel__body">
+                  <div className="gn-storage-panel__header">
+                      <DirectorySectionHeading
+                          title={t('app.data_root.log_directory.title')}
+                          description={t('app.data_root.log_directory.description')}
+                      />
+                      {!readOnly && (
+                          <Button onClick={() => void handleOpenLogDirectory()}>
+                              {t('app.data_root.action.open_current')}
+                          </Button>
+                      )}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                      <div>
-                          <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                              {t('app.data_root.log_directory.current_file')}
+                  <div className="gn-storage-path-editor">
+                      <Input
+                          readOnly
+                          disabled={!editable}
+                          value={selectedLogDirectoryPath}
+                          placeholder={t('app.data_root.log_directory.placeholder')}
+                          aria-label={t('app.data_root.log_directory.title')}
+                      />
+                      {!readOnly && (
+                          <div className="gn-storage-path-editor__actions">
+                              <Button
+                                  icon={<FolderOpenOutlined />}
+                                  disabled={!editable || directorySettingsApplying}
+                                  onClick={() => void handleSelectLogDirectory()}
+                              >
+                                  {t('app.data_root.action.select')}
+                              </Button>
+                              <Button
+                                  disabled={!editable || directorySettingsApplying}
+                                  loading={logDirectoryApplying}
+                                  onClick={() => void handleApplyLogDirectory(true)}
+                              >
+                                  {t('app.data_root.action.restore_default_directory')}
+                              </Button>
+                              <Button
+                                  type="primary"
+                                  disabled={!editable || directorySettingsApplying}
+                                  loading={logDirectoryApplying}
+                                  onClick={() => void handleApplyLogDirectory(false)}
+                              >
+                                  {t('app.data_root.log_directory.action.save')}
+                              </Button>
                           </div>
-                          <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                              {dataRootInfo?.logFilePath || '-'}
-                          </div>
-                      </div>
-                      <div>
-                          <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                              {t('app.data_root.log_directory.default_directory')}
-                          </div>
-                          <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                              {dataRootInfo?.defaultLogDirectory || '-'}
-                          </div>
-                      </div>
+                      )}
                   </div>
+                  <DirectoryMetaGrid items={[
+                      { label: t('app.data_root.log_directory.current_file'), value: dataRootInfo?.logFilePath || '-' },
+                      { label: t('app.data_root.log_directory.default_directory'), value: dataRootInfo?.defaultLogDirectory || '-' },
+                  ]} />
                   {managedByEnvironment ? (
                       <Alert type="warning" showIcon message={t('app.data_root.log_directory.environment_hint')} />
                   ) : restartRequired ? (
                       <Alert type="info" showIcon message={t('app.data_root.log_directory.pending_restart')} />
                   ) : (
-                      <div style={utilityMutedTextStyle}>{t('app.data_root.log_directory.restart_hint')}</div>
+                      <DirectoryNote>{t('app.data_root.log_directory.restart_hint')}</DirectoryNote>
                   )}
               </div>
+          </section>
+      );
+  };
+
+  const renderDataDirectorySettings = (
+      section: 'all' | 'application' | 'agent' | 'saved-queries' = 'all',
+      readOnly = false,
+  ) => {
+      if (dataRootLoading) {
+          return (
+              <div style={{ padding: '28px 0', textAlign: 'center' }}>
+                  <Spin />
+              </div>
+          );
+      }
+      return (
+          <div
+              style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0' }}
+              data-data-directory-layout="true"
+          >
+              {(section === 'all' || section === 'application') && (
+              <DataDirectoryPage testId="application">
+                  <section
+                      className="gn-storage-panel gn-storage-panel--current"
+                      data-data-directory-section="application"
+                  >
+                      <div className="gn-storage-panel__body">
+                          <DirectorySectionHeading
+                              title={t('app.data_root.current_location')}
+                              description={t('app.data_root.application.current_description')}
+                          />
+                          <DirectoryPathDisplay
+                              label={t('app.data_root.current_directory')}
+                              path={dataRootInfo?.path || ''}
+                              action={!readOnly ? (
+                                  <Button onClick={() => void handleOpenDataRoot()}>
+                                      {t('app.data_root.action.open_current')}
+                                  </Button>
+                              ) : undefined}
+                          />
+                          <div>
+                              <div className="gn-storage-field-label">{t('app.data_root.application.stores')}</div>
+                              <div className="gn-storage-tags">
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.connections')}</span>
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.ai_config')}</span>
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.drivers')}</span>
+                              </div>
+                          </div>
+                          <DirectoryMetaGrid items={[
+                              { label: t('app.data_root.default_directory'), value: dataRootInfo?.defaultPath || '-' },
+                              { label: t('app.data_root.driver_directory'), value: dataRootInfo?.driverPath || '-' },
+                          ]} />
+                      </div>
+                  </section>
+
+                  {!readOnly && (
+                      <section className="gn-storage-panel">
+                          <div className="gn-storage-panel__body">
+                              <DirectorySectionHeading
+                                  title={t('app.data_root.change_location')}
+                                  description={t('app.data_root.change_location_description')}
+                              />
+                              <div className="gn-storage-path-editor">
+                                  <Input
+                                      readOnly
+                                      value={selectedDataRootPath}
+                                      placeholder={t('app.data_root.placeholder.select_new_directory')}
+                                      aria-label={t('app.data_root.switch_target')}
+                                  />
+                                  <div className="gn-storage-path-editor__actions">
+                                      <Button
+                                          icon={<FolderOpenOutlined />}
+                                          disabled={directorySettingsApplying}
+                                          onClick={() => void handleSelectDataRoot()}
+                                      >
+                                          {t('app.data_root.action.select')}
+                                      </Button>
+                                      <Button
+                                          disabled={directorySettingsApplying}
+                                          loading={dataRootApplying}
+                                          onClick={() => void handleApplyDataRoot(false, true)}
+                                      >
+                                          {t('app.data_root.action.restore_default_directory')}
+                                      </Button>
+                                  </div>
+                              </div>
+                              <div className="gn-storage-choice-grid">
+                                  <DirectoryChoice
+                                      title={t('app.data_root.action.switch_now')}
+                                      description={t('app.data_root.switch_only_hint')}
+                                      action={(
+                                          <Button
+                                              disabled={directorySettingsApplying}
+                                              loading={dataRootApplying}
+                                              onClick={() => void handleApplyDataRoot(false)}
+                                          >
+                                              {t('app.data_root.action.switch_now')}
+                                          </Button>
+                                      )}
+                                  />
+                                  <DirectoryChoice
+                                      recommended
+                                      badge={t('app.data_root.recommended')}
+                                      title={t('app.data_root.action.migrate_now')}
+                                      description={t('app.data_root.migrate_hint')}
+                                      action={(
+                                          <Button
+                                              type="primary"
+                                              disabled={directorySettingsApplying}
+                                              loading={dataRootApplying}
+                                              onClick={() => void handleApplyDataRoot(true)}
+                                          >
+                                              {t('app.data_root.action.migrate_now')}
+                                          </Button>
+                                      )}
+                                  />
+                              </div>
+                              <DirectoryNote>{t('app.data_root.restart_hint')}</DirectoryNote>
+                          </div>
+                      </section>
+                  )}
+
+                  {renderLogDirectorySettings(readOnly)}
+              </DataDirectoryPage>
+              )}
+
+              {(section === 'all' || section === 'agent') && <AgentDataSettingsPanel
+                  readOnly={readOnly}
+              />}
+
+              {(section === 'all' || section === 'saved-queries') && renderSavedQueryDirectorySettings(readOnly)}
           </div>
       );
   };
@@ -8405,8 +8561,31 @@ function App() {
                     title: t('app.tools.entry.data_root.title'),
                     description: t('app.tools.entry.data_root.description'),
                     onClick: () => {
-                      handleOpenToolCenterPane('config', 'data-root');
+                      handleOpenToolCenterPane('config', 'data-root-application');
                     },
+                    children: [
+                      {
+                        key: 'data-root-application',
+                        icon: <HddOutlined />,
+                        title: t('app.data_root.current_directory'),
+                        description: t('app.data_root.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-application'),
+                      },
+                      {
+                        key: 'data-root-agent',
+                        icon: <RobotOutlined />,
+                        title: t('app.data_root.agent_data.title'),
+                        description: t('app.data_root.agent_data.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-agent'),
+                      },
+                      {
+                        key: 'data-root-saved-queries',
+                        icon: <FileTextOutlined />,
+                        title: t('app.data_root.saved_query_directory.title'),
+                        description: t('app.data_root.saved_query_directory.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-saved-queries'),
+                      },
+                    ],
                   },
                   {
                     key: 'security-update',
@@ -8617,29 +8796,14 @@ function App() {
                 );
               }
 
-              if (activeSettingsCenterPane.key === 'data-root') {
+              if (activeSettingsCenterPane.key.startsWith('data-root')) {
+                const dataDirectorySection = activeSettingsCenterPane.key === 'data-root-agent'
+                  ? 'agent'
+                  : activeSettingsCenterPane.key === 'data-root-saved-queries'
+                    ? 'saved-queries'
+                    : 'application';
                 if (isWebRuntime) {
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                      <div style={utilityPanelStyle}>
-                        <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                        <div style={{ display: 'grid', gap: 10 }}>
-                          <Input readOnly value={dataRootInfo?.path || ''} />
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div>
-                              <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                              <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                            </div>
-                            <div>
-                              <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                              <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      {renderSavedQueryDirectorySettings(true)}
-                    </div>
-                  );
+                  return renderDataDirectorySettings(dataDirectorySection, true);
                 }
                 return (
                   <Modal
@@ -8659,84 +8823,7 @@ function App() {
                       footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 },
                     }}
                   >
-                    {dataRootLoading ? (
-                      <div style={{ padding: '16px 0', textAlign: 'center' }}>
-                        <Spin />
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            <Input readOnly value={dataRootInfo?.path || ''} />
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                              <div>
-                                <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                                <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                              </div>
-                              <div>
-                                <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                                <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.switch_target')}</div>
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            <Input
-                              readOnly
-                              value={selectedDataRootPath}
-                              placeholder={t('app.data_root.placeholder.select_new_directory')}
-                            />
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                              <Button
-                                icon={<FolderOpenOutlined />}
-                                disabled={directorySettingsApplying}
-                                onClick={() => void handleSelectDataRoot()}
-                              >
-                                {t('app.data_root.action.select')}
-                              </Button>
-                              <Button onClick={() => void handleOpenDataRoot()}>
-                                {t('app.data_root.action.open_current')}
-                              </Button>
-                              <Button
-                                disabled={directorySettingsApplying}
-                                loading={dataRootApplying}
-                                onClick={() => void handleApplyDataRoot(false, true)}
-                              >
-                                {t('app.data_root.action.restore_default_directory')}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.apply_method')}</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                            <Button
-                              disabled={directorySettingsApplying}
-                              loading={dataRootApplying}
-                              onClick={() => void handleApplyDataRoot(false)}
-                            >
-                              {t('app.data_root.action.switch_only')}
-                            </Button>
-                            <Button
-                              type="primary"
-                              disabled={directorySettingsApplying}
-                              loading={dataRootApplying}
-                              onClick={() => void handleApplyDataRoot(true)}
-                            >
-                              {t('app.data_root.action.migrate_and_switch')}
-                            </Button>
-                          </div>
-                          <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                            {t('app.data_root.restart_hint')}
-                          </div>
-                        </div>
-                        {renderSavedQueryDirectorySettings()}
-                        {renderLogDirectorySettings()}
-                      </div>
-                    )}
+                    {renderDataDirectorySettings(dataDirectorySection)}
                   </Modal>
                 );
               }
@@ -9010,84 +9097,7 @@ function App() {
             width={720}
             styles={{ content: utilityModalShellStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 } }}
           >
-            {dataRootLoading ? (
-              <div style={{ padding: '16px 0', textAlign: 'center' }}>
-                <Spin />
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <Input readOnly value={dataRootInfo?.path || ''} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div>
-                        <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                        <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                      </div>
-                      <div>
-                        <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                        <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.switch_target')}</div>
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <Input
-                      readOnly
-                      value={selectedDataRootPath}
-                      placeholder={t('app.data_root.placeholder.select_new_directory')}
-                    />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                        icon={<FolderOpenOutlined />}
-                        disabled={directorySettingsApplying}
-                        onClick={() => void handleSelectDataRoot()}
-                      >
-                        {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenDataRoot()}>
-                        {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                        disabled={directorySettingsApplying}
-                        loading={dataRootApplying}
-                        onClick={() => void handleApplyDataRoot(false, true)}
-                      >
-                        {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.apply_method')}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    <Button
-                      disabled={directorySettingsApplying}
-                      loading={dataRootApplying}
-                      onClick={() => void handleApplyDataRoot(false)}
-                    >
-                      {t('app.data_root.action.switch_only')}
-                    </Button>
-                    <Button
-                      type="primary"
-                      disabled={directorySettingsApplying}
-                      loading={dataRootApplying}
-                      onClick={() => void handleApplyDataRoot(true)}
-                    >
-                      {t('app.data_root.action.migrate_and_switch')}
-                    </Button>
-                  </div>
-                  <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                    {t('app.data_root.restart_hint')}
-                  </div>
-                </div>
-                {renderSavedQueryDirectorySettings()}
-                {renderLogDirectorySettings()}
-              </div>
-            )}
+            {renderDataDirectorySettings()}
           </Modal>
           )}
           <SecurityUpdateIntroModal

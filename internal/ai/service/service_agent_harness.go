@@ -468,7 +468,12 @@ func (s *Service) initializeAgentHarness(ctx context.Context) error {
 		s.agentHarnessInitialization = fmt.Errorf("load agent run policy: %w", err)
 		return s.agentHarnessInitialization
 	}
-	keyPath, err := AgentLedgerKeyFilePath(configDir)
+	agentDataDir, err := appdata.ResolveAgentDataDirectory(configDir)
+	if err != nil {
+		s.agentHarnessInitialization = fmt.Errorf("resolve agent data directory: %w", err)
+		return s.agentHarnessInitialization
+	}
+	keyPath, err := AgentLedgerKeyFilePath(agentDataDir)
 	if err != nil {
 		s.agentHarnessInitialization = fmt.Errorf("resolve local agent ledger key: %w", err)
 		return s.agentHarnessInitialization

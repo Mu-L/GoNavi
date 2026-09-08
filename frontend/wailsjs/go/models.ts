@@ -325,6 +325,81 @@ export namespace ai {
 
 }
 
+export namespace aiservice {
+
+	export class AgentDataDirectoryInfo {
+	    directory: string;
+	    defaultDirectory: string;
+	    source: string;
+	    restartRequired: boolean;
+	    stats: runharness.LedgerStorageStats;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentDataDirectoryInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.directory = source["directory"];
+	        this.defaultDirectory = source["defaultDirectory"];
+	        this.source = source["source"];
+	        this.restartRequired = source["restartRequired"];
+	        this.stats = this.convertValues(source["stats"], runharness.LedgerStorageStats);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AgentDataMaintenanceResult {
+	    info: AgentDataDirectoryInfo;
+	    maintenance: runharness.LedgerMaintenanceResult;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentDataMaintenanceResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.info = this.convertValues(source["info"], AgentDataDirectoryInfo);
+	        this.maintenance = this.convertValues(source["maintenance"], runharness.LedgerMaintenanceResult);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace app {
 	
 	export class CloudBackupConnectionSummary {
@@ -3279,6 +3354,68 @@ export namespace runharness {
 	        this.database = source["database"];
 	        this.command = source["command"];
 	    }
+	}
+	export class LedgerStorageStats {
+	    fileBytes: number;
+	    walBytes: number;
+	    allocatedBytes: number;
+	    freeBytes: number;
+	    sessionCount: number;
+	    runCount: number;
+	    snapshotCount: number;
+	    activeRunCount: number;
+
+	    static createFrom(source: any = {}) {
+	        return new LedgerStorageStats(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fileBytes = source["fileBytes"];
+	        this.walBytes = source["walBytes"];
+	        this.allocatedBytes = source["allocatedBytes"];
+	        this.freeBytes = source["freeBytes"];
+	        this.sessionCount = source["sessionCount"];
+	        this.runCount = source["runCount"];
+	        this.snapshotCount = source["snapshotCount"];
+	        this.activeRunCount = source["activeRunCount"];
+	    }
+	}
+	export class LedgerMaintenanceResult {
+	    before: LedgerStorageStats;
+	    after: LedgerStorageStats;
+	    removedSnapshots: number;
+	    removedSessions: number;
+
+	    static createFrom(source: any = {}) {
+	        return new LedgerMaintenanceResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.before = this.convertValues(source["before"], LedgerStorageStats);
+	        this.after = this.convertValues(source["after"], LedgerStorageStats);
+	        this.removedSnapshots = source["removedSnapshots"];
+	        this.removedSessions = source["removedSessions"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class LedgerStatus {
 	    state: string;

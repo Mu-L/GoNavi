@@ -59,6 +59,7 @@ type Service struct {
 	agentHarnessInitialized        bool
 	agentHarnessInitialization     error
 	agentHarnessShutdown           bool
+	agentDataMaintenanceMu         sync.Mutex
 	agentPolicyMu                  sync.Mutex
 	// agentPolicyWatcherMu protects the lifecycle of the lightweight file
 	// watcher that keeps an already-running desktop Harness in sync with policy
