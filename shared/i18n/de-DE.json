@@ -10296,6 +10296,7 @@
   "ai_settings.form.custom_headers_hint": "Für API-Gateways und Mandantenrouting.",
   "ai_settings.form.max_output_tokens": "Max. Ausgabetokens",
   "ai_settings.form.context_window": "Kontextfenster",
+  "ai_settings.form.context_window_placeholder": "z. B. 128000; leer lassen für Modellstandard",
   "ai_settings.form.cli_path": "Ausführbarer Pfad",
   "ai_settings.form.cli_path_hint": "Leer lassen, um PATH-Suche beizubehalten.",
   "ai_settings.form.cli_env": "Umgebungsvariablen",

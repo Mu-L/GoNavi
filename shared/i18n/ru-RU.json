@@ -10296,6 +10296,7 @@
   "ai_settings.form.custom_headers_hint": "Для шлюзов API и маршрутизации тенантов.",
   "ai_settings.form.max_output_tokens": "Макс. токенов ответа",
   "ai_settings.form.context_window": "Окно контекста",
+  "ai_settings.form.context_window_placeholder": "Напр.: 128000; пусто — значение модели по умолчанию",
   "ai_settings.form.cli_path": "Путь к исполняемому файлу",
   "ai_settings.form.cli_path_hint": "Пусто — искать в PATH.",
   "ai_settings.form.cli_env": "Переменные окружения",

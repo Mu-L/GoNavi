@@ -10296,6 +10296,7 @@
   "ai_settings.form.custom_headers_hint": "用于网关或租户路由。",
   "ai_settings.form.max_output_tokens": "最大输出 Token",
   "ai_settings.form.context_window": "上下文窗口",
+  "ai_settings.form.context_window_placeholder": "例如：128000，留空则用模型默认",
   "ai_settings.form.cli_path": "可执行路径",
   "ai_settings.form.cli_path_hint": "留空则沿用 PATH 发现。",
   "ai_settings.form.cli_env": "环境变量",

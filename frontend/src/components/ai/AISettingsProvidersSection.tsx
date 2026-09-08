@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Dropdown, Form, Input, Popconfirm, Select, Tooltip } from 'antd';
-import { CheckOutlined, DeleteOutlined, DownOutlined, InfoCircleOutlined, LeftOutlined, LinkOutlined, RightOutlined } from '@ant-design/icons';
+import { CheckOutlined, DeleteOutlined, DownOutlined, InfoCircleOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import type { FormInstance } from 'antd/es/form';
 
 import type { AIProviderConfig } from '../../types';
@@ -217,9 +217,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   React.useEffect(() => {
     if (duplicateCLI || testStatus === 'error') revealFirstError();
   }, [duplicateCLI, testStatus, revealFirstError]);
-  const [moreOpen, setMoreOpen] = React.useState(false);
+  const [moreOpen, setMoreOpen] = React.useState(true);
   React.useEffect(() => {
-    setMoreOpen(false);
+    setMoreOpen(true);
   }, [isEditing, editingProvider?.id, presetKeyFromForm]);
   const cliScope = `${editorScope}:${editorReady}:${usesLocalCLI}:${duplicateCLI}`;
   const [cliCapabilityResponse, setCLICapabilityResponse] = React.useState<{ scope: string; views: ai.CLICapabilityView[] }>({ scope: '', views: [] });
@@ -408,7 +408,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
             {!usesLocalCLI && <Form.Item name="effort" hidden><Input /></Form.Item>}
             {duplicateCLI && <div role="alert">{copy('ai_settings.provider.duplicate_cli')}</div>}
             <Form.Item label={fieldLabel('ai_settings.form.config_name')} name="name">
-              <Input placeholder={presetFromForm?.label} size="middle" />
+              <Input placeholder={copy('ai_settings.form.provider_name_placeholder')} size="middle" />
             </Form.Item>
             <Form.Item label={fieldLabel('ai_settings.form.provider')}>
               <AIProviderPresetSelect
@@ -445,20 +445,22 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 { value: 'bearer', label: copy('ai_settings.form.auth_bearer') },
               ]} />
             </Form.Item>}
-            {!usesLocalCLI && <Form.Item label={fieldLabel(codeBuddyUsesOptionalSecret ? 'ai_settings.form.api_key.codebuddy_optional' : 'ai_settings.form.api_key')} name="apiKey"
-              rules={[{ validator: (_, value) => isProviderSecretRequirementSatisfied({ apiKeyInput: value, currentAuthMode: 'api-key', editingProvider,
-                allowEmptySecret: codeBuddyUsesOptionalSecret }) ? Promise.resolve() : Promise.reject(new Error(copy('ai_settings.form.api_key_required'))) }]}>
-              <Input.Password size="middle" placeholder={copy(codeBuddyUsesOptionalSecret ? 'ai_settings.form.api_key_placeholder.codebuddy' : 'ai_settings.form.api_key_placeholder')}
-                visibilityToggle={{ visible: primaryPasswordVisible, onVisibleChange: onPrimaryPasswordVisibleChange }} style={{ background: inputBg }} />
-            </Form.Item>}
-            {!usesLocalCLI && <Form.Item className="gonavi-ai-provider-field-url" label={fieldLabel('ai_settings.form.api_endpoint')} name="baseUrl"
-              rules={codeBuddyUsesOptionalSecret ? [] : [{ required: true, message: copy('ai_settings.form.api_endpoint_required') }]}>
-              {endpointOptions.length > 0 ? <Select showSearch optionFilterProp="label" size="middle" popupMatchSelectWidth={false}
-                classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}
-                options={endpointOptions.map((endpoint) => ({ label: endpoint.baseUrl, value: endpoint.baseUrl }))}
-                onChange={(baseUrl) => { const endpoint = endpointOptions.find((item) => item.baseUrl === baseUrl); if (endpoint) form.setFieldValue('type', endpoint.backendType); }} />
-                : <Input size="middle" readOnly={!supportsAdvancedEndpoint} placeholder={codeBuddyUsesOptionalSecret ? copy('ai_settings.form.api_endpoint_placeholder.codebuddy') : presetFromForm?.defaultBaseUrl || 'https://...'} suffix={<LinkOutlined />} />}
-            </Form.Item>}
+            {!usesLocalCLI && <div className="gonavi-ai-provider-connection-row">
+              <Form.Item label={fieldLabel(codeBuddyUsesOptionalSecret ? 'ai_settings.form.api_key.codebuddy_optional' : 'ai_settings.form.api_key')} name="apiKey"
+                rules={[{ validator: (_, value) => isProviderSecretRequirementSatisfied({ apiKeyInput: value, currentAuthMode: 'api-key', editingProvider,
+                  allowEmptySecret: codeBuddyUsesOptionalSecret }) ? Promise.resolve() : Promise.reject(new Error(copy('ai_settings.form.api_key_required'))) }]}>
+                <Input.Password size="middle" placeholder={copy(codeBuddyUsesOptionalSecret ? 'ai_settings.form.api_key_placeholder.codebuddy' : 'ai_settings.form.api_key_placeholder')}
+                  visibilityToggle={{ visible: primaryPasswordVisible, onVisibleChange: onPrimaryPasswordVisibleChange }} style={{ background: inputBg }} />
+              </Form.Item>
+              <Form.Item className="gonavi-ai-provider-field-url" label={fieldLabel('ai_settings.form.api_endpoint')} name="baseUrl"
+                rules={codeBuddyUsesOptionalSecret ? [] : [{ required: true, message: copy('ai_settings.form.api_endpoint_required') }]}>
+                {endpointOptions.length > 0 ? <Select showSearch optionFilterProp="label" size="middle" popupMatchSelectWidth={false}
+                  classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}
+                  options={endpointOptions.map((endpoint) => ({ label: endpoint.baseUrl, value: endpoint.baseUrl }))}
+                  onChange={(baseUrl) => { const endpoint = endpointOptions.find((item) => item.baseUrl === baseUrl); if (endpoint) form.setFieldValue('type', endpoint.backendType); }} />
+                  : <Input size="middle" readOnly={!supportsAdvancedEndpoint} placeholder={codeBuddyUsesOptionalSecret ? copy('ai_settings.form.api_endpoint_placeholder.codebuddy') : presetFromForm?.defaultBaseUrl || 'https://...'} />}
+              </Form.Item>
+            </div>}
             {!usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.custom_headers')} name="headerRows"
               extra={copy('ai_settings.form.custom_headers_hint')}>
               <AIProviderKeyValueRows
@@ -511,12 +513,14 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                   onAdd: (model) => patchModels({ customModels: [...new Set([...watchedCustomModels, model])] }),
                 }} />
             </Form.Item>
-            {!usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.max_output_tokens')} name="maxTokens">
-              <Input type="number" size="middle" min={0} />
-            </Form.Item>}
-            {!usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.context_window')} name="contextWindow">
-              <Input type="number" size="middle" min={0} />
-            </Form.Item>}
+            {!usesLocalCLI && <div className="gonavi-ai-provider-token-row">
+              <Form.Item label={fieldLabel('ai_settings.form.max_output_tokens')} name="maxTokens">
+                <Input type="number" size="middle" min={0} />
+              </Form.Item>
+              <Form.Item label={fieldLabel('ai_settings.form.context_window')} name="contextWindow">
+                <Input type="number" size="middle" min={0} placeholder={copy('ai_settings.form.context_window_placeholder')} />
+              </Form.Item>
+            </div>}
             {usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.effort')} name="effort">
               {activeCLICapability?.supportsEffort ? <Select allowClear size="middle" placeholder={copy('ai_settings.form.effort_placeholder_empty')}
                 popupMatchSelectWidth={false} classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}

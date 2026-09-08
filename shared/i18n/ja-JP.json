@@ -10296,6 +10296,7 @@
   "ai_settings.form.custom_headers_hint": "API ゲートウェイやテナント経路に使用します。",
   "ai_settings.form.max_output_tokens": "最大出力トークン",
   "ai_settings.form.context_window": "コンテキストウィンドウ",
+  "ai_settings.form.context_window_placeholder": "例：128000、空欄ならモデルの既定値を使用",
   "ai_settings.form.cli_path": "実行ファイルパス",
   "ai_settings.form.cli_path_hint": "空なら PATH 検出を使います。",
   "ai_settings.form.cli_env": "環境変数",

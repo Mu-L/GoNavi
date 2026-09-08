@@ -10296,6 +10296,7 @@
   "ai_settings.form.custom_headers_hint": "For API gateways and tenant routing.",
   "ai_settings.form.max_output_tokens": "Max output tokens",
   "ai_settings.form.context_window": "Context window",
+  "ai_settings.form.context_window_placeholder": "e.g. 128000; leave blank for the model default",
   "ai_settings.form.cli_path": "Executable path",
   "ai_settings.form.cli_path_hint": "Leave empty to keep PATH discovery.",
   "ai_settings.form.cli_env": "Environment variables",
