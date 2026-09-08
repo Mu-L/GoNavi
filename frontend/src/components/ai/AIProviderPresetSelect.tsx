@@ -132,7 +132,9 @@ const AIProviderPresetSelect: React.FC<AIProviderPresetSelectProps> = ({
                   </span>
                   <span className="gonavi-ai-provider-partner-main">
                     <span className="gonavi-ai-provider-partner-name">{partner.label}</span>
-                    <span className="gonavi-ai-provider-partner-benefit">{partner.benefit}</span>
+                    <span className="gonavi-ai-provider-partner-benefit">
+                      <span className="gonavi-ai-provider-partner-benefit-text">{partner.benefit}</span>
+                    </span>
                   </span>
                 </button>
                 {activePartnerKey === partner.key && <div id={`gonavi-ai-provider-partner-${partner.key}`}

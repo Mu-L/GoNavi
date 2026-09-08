@@ -126,6 +126,15 @@ describe('AISettingsProvidersSection', () => {
     expect(providerStyles).toContain('.gonavi-ai-provider-basic-fields > .ant-form-item .ant-form-item-label > label { min-height: 32px; }');
   });
 
+  it('centers provider rows and partner badges independently of custom UI font metrics', () => {
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-preset-dropdown \.ant-select-item-option-content \{[^}]*display: flex;[^}]*align-items: center;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-preset-option \{[^}]*display: flex;[^}]*align-items: center;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-partner-option \{[^}]*align-items: center;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-partner-main \{[^}]*align-items: center;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-partner-benefit \{[^}]*transform: none;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-partner-benefit-text \{[^}]*transform: translateY\(\.5px\);/);
+  });
+
   it('uses catalog keys for the list/edit chrome', () => {
     for (const key of REQUIRED_KEYS) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);

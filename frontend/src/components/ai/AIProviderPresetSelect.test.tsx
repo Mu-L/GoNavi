@@ -66,6 +66,7 @@ describe('AIProviderPresetSelect', () => {
     expect(markup).toContain('/sponsors/hualong-icon.png');
     expect(markup).toContain('華龍算力');
     expect(markup).toContain('1USD体验额度');
+    expect(markup).toContain('gonavi-ai-provider-partner-benefit-text');
 
     const renderer = create(<AIProviderPresetSelect {...props} />);
     const partner = renderer.root.findByProps({ className: 'gonavi-ai-provider-partner-option' });

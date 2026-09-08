@@ -400,7 +400,7 @@ body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
 .gonavi-ai-provider-kv { display: grid; gap: 8px; }
 .gonavi-ai-provider-kv > .gonavi-ai-provider-kv-add { justify-self: start; min-height: 32px; padding-inline: 14px; font-size: 13px; font-weight: 550; }
 .gonavi-ai-provider-kv-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr) 2rem; gap: 8px; align-items: center; }
-.gonavi-ai-provider-preset-option { display: inline-flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.gonavi-ai-provider-preset-option { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
 .gonavi-ai-provider-preset-option > span:last-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body[data-ui-version] .ant-select-dropdown.gonavi-ai-provider-preset-dropdown {
   width: max-content !important;
@@ -413,6 +413,11 @@ body[data-ui-version] .ant-select-dropdown.gonavi-ai-provider-preset-dropdown {
 body[data-ui-version] .gonavi-ai-provider-preset-dropdown .rc-virtual-list,
 body[data-ui-version] .gonavi-ai-provider-preset-dropdown .rc-virtual-list-holder { min-width: 18rem; }
 body[data-ui-version] .gonavi-ai-provider-preset-dropdown .ant-select-item { padding-inline-end: 16px; }
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .ant-select-item-option-content {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
 .gonavi-ai-provider-preset-dropdown-grid { display: grid; grid-template-columns: minmax(18rem, max-content) 13rem; width: max-content; max-width: min(36rem, calc(100vw - 2rem)); }
 body[data-ui-version] .ant-select-dropdown.gonavi-ai-provider-form-popup {
   width: max-content !important;
@@ -484,6 +489,13 @@ body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-sel
   line-height: 17px;
   letter-spacing: .01em;
   white-space: nowrap;
+  transform: none;
+}
+.gonavi-ai-provider-partner-benefit-text {
+  display: inline-block;
+  /* Font ascenders leave the mixed Latin/CJK label optically high inside the
+     already-centred pill; correct the ink without moving its border again. */
+  transform: translateY(.5px);
 }
 .gonavi-ai-provider-partner-offer {
   display: grid;
