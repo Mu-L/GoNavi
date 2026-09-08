@@ -16,9 +16,15 @@ export const PRESET_ICON_SLUG: Record<string, string> = {
   cursor: 'cursor',
   'cursor-cli': 'cursor',
   ollama: 'ollama',
+  atlascloud: 'atlascloud',
+  orcarouter: 'orcarouter',
+  zhipu: 'zhipu',
+  moonshot: 'moonshot',
+  'volcengine-ark': 'volcengine',
+  'volcengine-coding': 'volcengine',
 };
 
-const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'codex', 'cursor', 'grok', 'claudecode']);
+const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'codex', 'cursor', 'grok', 'claudecode', 'moonshot']);
 
 export interface AIProviderLogoProps {
   presetKey: string;
