@@ -6,7 +6,23 @@
 .gonavi-ai-provider-hint-overlay-interactive .ant-tooltip-content,
 .gonavi-ai-provider-hint-overlay-interactive .ant-tooltip-inner,
 .gonavi-ai-provider-hint-overlay-interactive .ant-tooltip-arrow { pointer-events: auto; }
-.gonavi-ai-provider-management { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; min-width: 0; color: var(--provider-text); --provider-lead-col: 120px; --provider-action-col: 14.5em; }
+.gonavi-ai-provider-management {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  color: var(--provider-text);
+  --provider-lead-col: 120px;
+  --provider-action-col: 14.5em;
+  /* Provider controls sit inside the settings workbench, so their surface must
+     inherit the active theme instead of reverting to Ant Design's white input. */
+  --provider-control-bg: var(--gn-bg-panel-2, var(--gn-bg-input, var(--provider-bg)));
+  --provider-control-disabled-bg: var(--gn-bg-active, var(--provider-active-bg));
+  --provider-control-border: var(--gn-br-2, var(--provider-line));
+  --provider-control-border-hover: var(--gn-br-3, var(--provider-active));
+}
 .gonavi-ai-provider-management.is-connected-only { flex: 0 0 auto; height: auto; }
 .gonavi-ai-provider-management button { font: inherit; }
 .gonavi-ai-provider-heading, .gonavi-ai-provider-workspace-toolbar { display: grid; grid-template-columns: var(--provider-lead-col) var(--provider-action-col) minmax(0, 1fr); column-gap: 8px; align-items: center; flex-shrink: 0; }
@@ -132,44 +148,101 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 }
 .gonavi-ai-provider-editor { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; container-type: inline-size; container-name: provider-editor; }
 .gonavi-ai-provider-editor-empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--provider-muted); font-size: 13px; padding: 30px; }
-/* The settings pane can be far wider than a form needs; on wide windows the
-   inputs stretch into meter-long stripes and the labels drift away from their
-   controls. Cap the editor column at a reading width and centre it so the
-   leftover space splits evenly instead of piling up on the right. */
-.gonavi-ai-provider-editor > .gonavi-ai-provider-form { display: flex; flex-direction: column; min-height: 0; height: 100%; max-width: min(920px, 100%); margin-inline: auto; }
+.gonavi-ai-provider-editor > .gonavi-ai-provider-form { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .gonavi-ai-provider-editor-scroll { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 1px 5px 6px 1px; scrollbar-width: thin; }
-.gonavi-ai-provider-editor-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 /* One hover icon replaces the stacked note blocks that used to sit between fields. */
 .gonavi-ai-provider-hint { flex-shrink: 0; display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; color: var(--provider-muted); background: transparent; cursor: help; font-size: 13px; }
 .gonavi-ai-provider-hint:hover, .gonavi-ai-provider-hint:focus-visible { color: var(--provider-active); background: var(--provider-active-bg); }
 .gonavi-ai-provider-hint-body { display: grid; gap: 4px; max-width: 26em; font-size: 11px; line-height: 1.5; }
 .gonavi-ai-provider-hint-body .gonavi-ai-provider-density { width: max-content; }
 .gonavi-ai-provider-hint-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.gonavi-ai-provider-editor-heading > div { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.gonavi-ai-provider-editor-heading strong { font-size: 14px; overflow-wrap: anywhere; }
-.gonavi-ai-provider-editor-heading > div > span { font-size: 11px; color: var(--provider-muted); }
-.gonavi-ai-provider-editor-heading > .ant-btn { flex-shrink: 0; padding-inline: 5px; font-size: 11px; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 0 12px; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-field-grid > .ant-form-item { margin-bottom: 8px; min-width: 0; }
-.gonavi-ai-provider-editor .ant-form-item-label { padding-bottom: 2px; }
-.gonavi-ai-provider-editor .ant-form-item-label > label { width: 100%; font-size: 12px; }
-.gonavi-ai-provider-editor .ant-input, .gonavi-ai-provider-editor .ant-select, .gonavi-ai-provider-editor .ant-select-selection-placeholder { font-size: 12px; }
+.gonavi-ai-provider-editor .ant-form-item-label { overflow: visible; padding-bottom: 2px; }
+.gonavi-ai-provider-editor .ant-form-item-label > label { width: 100%; height: auto; font-size: 12px; }
+.gonavi-ai-provider-editor .gonavi-ai-provider-basic-fields > .ant-form-item .ant-form-item-label > label { min-height: 32px; }
+.gonavi-ai-provider-form .ant-input,
+.gonavi-ai-provider-form .ant-input-affix-wrapper > input.ant-input,
+.gonavi-ai-provider-form .ant-input-number-input,
+.gonavi-ai-provider-form .ant-select,
+.gonavi-ai-provider-form .ant-select-selection-item,
+.gonavi-ai-provider-form .ant-select-selection-placeholder,
+.gonavi-ai-provider-form .ant-select-selection-search-input { font-size: 13px; }
 .gonavi-ai-provider-editor .ant-select { width: 100%; }
+.gonavi-ai-provider-management .gonavi-ai-provider-add-preset-select .ant-select-selector,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-number,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select-selector {
+  color: var(--gn-fg-1, var(--provider-text)) !important;
+  background: var(--provider-control-bg) !important;
+  border-color: var(--provider-control-border) !important;
+  box-shadow: none !important;
+}
+/* Password fields render an input inside an affix wrapper. Only the themed
+   wrapper paints the surface, otherwise the inner input leaves a white strip. */
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper > input.ant-input,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.gonavi-ai-provider-management .gonavi-ai-provider-add-preset-select:not(.ant-select-disabled):hover .ant-select-selector,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input:hover,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper:hover,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-number:hover,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: var(--provider-control-border-hover) !important;
+}
+.gonavi-ai-provider-management .gonavi-ai-provider-add-preset-select.ant-select-focused .ant-select-selector,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input:focus,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper-focused,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-number-focused,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select-focused:not(.ant-select-disabled) .ant-select-selector {
+  border-color: var(--gn-accent, var(--provider-active)) !important;
+  box-shadow: 0 0 0 2px var(--gn-focus-ring, var(--provider-active-bg)) !important;
+}
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input::placeholder,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper input::placeholder,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select-selection-placeholder,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select-arrow {
+  color: var(--gn-fg-5, var(--provider-muted)) !important;
+}
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input[disabled],
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-disabled,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-affix-wrapper-disabled,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-input-number-disabled,
+.gonavi-ai-provider-management .gonavi-ai-provider-form .ant-select-disabled .ant-select-selector {
+  color: var(--gn-fg-4, var(--provider-muted)) !important;
+  background: var(--provider-control-disabled-bg) !important;
+}
+.gonavi-ai-provider-editor .gonavi-ai-provider-auth-method { width: min(100%, 240px); margin-bottom: 8px; }
 .gonavi-ai-provider-editor .ant-form-item-extra { font-size: 11px; }
 .gonavi-ai-provider-model-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
-.gonavi-ai-provider-model-label button { padding: 1px 0; border: 0; color: var(--provider-active); background: transparent; cursor: pointer; white-space: nowrap; font-size: 10px; }
-.gonavi-ai-provider-editor details { border-top: 1px solid var(--provider-line); }
-/* WKWebView: flex on <summary> hides ::marker and makes the empty part of the
-   row unclickable. Keep summary as a block and put the flex row on an inner bar
-   so the whole header is the hit target; the caret stays beside the title. */
-.gonavi-ai-provider-editor summary { display: block; width: 100%; padding: 0; color: var(--provider-muted); cursor: pointer; font-size: 12px; list-style: none; user-select: none; }
-.gonavi-ai-provider-editor summary::-webkit-details-marker, .gonavi-ai-provider-editor summary::marker { display: none; content: none; }
-.gonavi-ai-provider-disclosure { display: flex; align-items: center; gap: 4px; width: 100%; box-sizing: border-box; padding: 7px 1px; }
-/* 5.5em fits 「认证与连接」; the shorter 「更多设置」 shares that column so both carets sit on one x. */
-.gonavi-ai-provider-disclosure-lead { display: grid; grid-template-columns: 5.5em 14px; column-gap: 4px; align-items: center; flex: 0 0 auto; }
-.gonavi-ai-provider-disclosure-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gonavi-ai-provider-editor summary:hover .gonavi-ai-provider-disclosure { color: var(--provider-text); }
-.gonavi-ai-provider-editor summary:hover .gonavi-ai-provider-caret { opacity: 1; }
+.gonavi-ai-provider-model-label button {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 5px 11px;
+  border: 1px solid transparent; border-radius: 6px; color: var(--provider-active); background: transparent;
+  cursor: pointer; white-space: nowrap; font-size: 12px; font-weight: 600; line-height: 20px;
+}
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-sync {
+  gap: 5px; padding-inline: 10px;
+  border: 1px solid var(--gn-br-3, var(--provider-line)); border-radius: 5px;
+  color: var(--provider-active); background: var(--provider-active-bg);
+}
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-sync:hover,
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-sync:focus-visible {
+  border-color: var(--provider-active); background: var(--gn-bg-hover, var(--provider-active-bg)); outline: none;
+}
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-sync:disabled {
+  border-color: var(--provider-line); color: var(--provider-muted); background: var(--provider-control-disabled-bg); cursor: wait;
+}
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-count:hover,
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-count:focus-visible {
+  border-color: var(--gn-br-2, var(--provider-line)); background: var(--gn-bg-hover, var(--provider-active-bg)); outline: none;
+}
+.gonavi-ai-provider-model-label .gonavi-ai-provider-model-count {
+  border-color: var(--provider-control-border); color: var(--provider-text); background: var(--provider-control-bg);
+}
 /* Test, its result and save stay on one line; the result truncates instead of
    wrapping, so the row never steals a second line from the form above it. */
 .gonavi-ai-provider-actions { flex-shrink: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 0 0; margin-top: 0; min-height: 40px; box-sizing: border-box; }
@@ -231,7 +304,39 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-editor .gonavi-ai-provider-connection-fields.is-inline > .gonavi-ai-provider-field-url { flex: 2 1 200px; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-connection-fields.is-inline > .gonavi-ai-provider-field-key { flex: 1 1 150px; }
 .gonavi-ai-provider-editor .gonavi-ai-provider-connection-fields.is-inline input:not(:focus) { text-overflow: ellipsis; }
+.gonavi-ai-provider-editor .gonavi-ai-provider-cli-path-field { width: min(100%, 680px); }
+.gonavi-ai-provider-cli-path-label { display: inline-flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.gonavi-ai-provider-cli-path-mode {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--provider-control-border);
+  border-radius: 999px;
+  color: var(--gn-fg-3, var(--provider-muted));
+  background: var(--gn-bg-subtle, var(--provider-control-bg));
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.gonavi-ai-provider-cli-path-mode.is-auto {
+  border-color: var(--gn-primary, var(--provider-active));
+  color: var(--gn-primary, var(--provider-active));
+  background: var(--gn-bg-selected, var(--provider-active-bg));
+}
+.gonavi-ai-provider-cli-path-help { display: block; color: var(--gn-fg-4, var(--provider-muted)); line-height: 1.45; }
 .gonavi-ai-model-management-popup { max-width: calc(100vw - 24px); }
+body[data-ui-version] .ant-select-dropdown.gonavi-ai-model-management-popup {
+  color: var(--gn-fg-1, var(--ant-color-text));
+  background: var(--gn-bg-panel-2, var(--ant-color-bg-elevated)) !important;
+  border-color: var(--gn-br-2, var(--ant-color-border-secondary)) !important;
+}
+body[data-ui-version] .gonavi-ai-model-management-popup .ant-input {
+  color: var(--gn-fg-1, var(--ant-color-text)) !important;
+  background: var(--gn-bg-panel-2, var(--gn-bg-input, var(--ant-color-bg-container))) !important;
+  border-color: var(--gn-br-2, var(--ant-color-border)) !important;
+}
 .gonavi-ai-model-management { color: inherit; font-size: 12px; }
 .gonavi-ai-model-management button { cursor: pointer; font: inherit; border: 0; background: transparent; color: inherit; border-radius: 5px; transition: background-color .12s ease, color .12s ease, transform .06s ease; }
 /* Press feedback is local to the button, so a click reads as handled even before the form round-trip re-renders the row. */
@@ -258,7 +363,7 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-chip-hint { position: absolute; top: -6px; right: 18px; z-index: 1; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 4px; color: var(--provider-muted); background: var(--provider-bg); cursor: help; font-size: 11px; }
 .gonavi-ai-provider-chip-hint:hover, .gonavi-ai-provider-chip-hint:focus-visible { color: var(--provider-active); background: var(--provider-active-bg); }
 .gonavi-ai-provider-model-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
-.gonavi-ai-provider-model-meta { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.gonavi-ai-provider-model-meta { display: inline-flex; align-items: center; gap: 7px; flex: none; }
 /* The body grows with its list up to MODEL_MANAGEMENT_BODY_HEIGHT (from
    AIProviderModelSelect.tsx via --gn-model-management-body-height) and scrolls
    beyond it; a short list drops the cap so one or two models do not leave a gap. */
@@ -290,63 +395,148 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 /* Live region for assistive tech only; the visible confirmation is the row popover. */
 .gonavi-ai-model-management-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .gonavi-ai-model-management button:focus-visible { outline: 2px solid var(--gn-primary, #00984a); outline-offset: 1px; border-radius: 3px; }
+.gonavi-ai-provider-logo { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; display: inline-grid; place-items: center; }
+.gonavi-ai-provider-logo.is-fallback { width: 16px; height: 16px; border-radius: 3px; background: var(--provider-active-bg, #edf7f0); color: var(--provider-active, #00984a); font-size: 9px; font-weight: 700; }
+.gonavi-ai-provider-kv { display: grid; gap: 8px; }
+.gonavi-ai-provider-kv > .gonavi-ai-provider-kv-add { justify-self: start; min-height: 32px; padding-inline: 14px; font-size: 13px; font-weight: 550; }
+.gonavi-ai-provider-kv-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr) 2rem; gap: 8px; align-items: center; }
+.gonavi-ai-provider-preset-option { display: inline-flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.gonavi-ai-provider-preset-option > span:last-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body[data-ui-version] .ant-select-dropdown.gonavi-ai-provider-preset-dropdown {
+  width: max-content !important;
+  min-width: 0 !important;
+  padding: 4px 0;
+  color: var(--gn-fg-1, var(--ant-color-text));
+  background: var(--gn-bg-panel-2, var(--ant-color-bg-elevated)) !important;
+  border-color: var(--gn-br-2, var(--ant-color-border-secondary)) !important;
+}
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .rc-virtual-list,
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .rc-virtual-list-holder { min-width: 18rem; }
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .ant-select-item { padding-inline-end: 16px; }
+.gonavi-ai-provider-preset-dropdown-grid { display: grid; grid-template-columns: minmax(18rem, max-content) 13rem; width: max-content; max-width: min(36rem, calc(100vw - 2rem)); }
+body[data-ui-version] .ant-select-dropdown.gonavi-ai-provider-form-popup {
+  width: max-content !important;
+  min-width: 12rem !important;
+  max-width: min(36rem, calc(100vw - 2rem));
+  color: var(--gn-fg-1, var(--ant-color-text));
+  background: var(--gn-bg-panel-2, var(--ant-color-bg-elevated)) !important;
+  border-color: var(--gn-br-2, var(--ant-color-border-secondary)) !important;
+}
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled),
+body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: var(--gn-bg-active, var(--ant-control-item-bg-hover)) !important;
+}
+body[data-ui-version] .gonavi-ai-provider-preset-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled),
+body[data-ui-version] .gonavi-ai-provider-form-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  color: var(--gn-fg-1, var(--ant-color-text)) !important;
+  background: var(--gn-bg-selected, var(--ant-control-item-bg-active)) !important;
+}
+.gonavi-ai-provider-preset-col { min-width: 0; padding: 4px 8px 8px; }
+.gonavi-ai-provider-preset-col.is-partner { border-left: 1px solid var(--provider-line, #e8eeeb); }
+.gonavi-ai-provider-preset-col-title { padding: 6px 8px 8px; font-size: 11px; color: var(--provider-muted, #6b7280); }
+.gonavi-ai-provider-partner-list { display: grid; gap: 6px; padding: 0 2px; }
+.gonavi-ai-provider-partner-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--gn-fg-1, var(--provider-text, #17232d));
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.gonavi-ai-provider-partner-option:hover,
+.gonavi-ai-provider-partner-option:focus-visible,
+.gonavi-ai-provider-partner-option.is-active {
+  border-color: var(--gn-br-2, var(--provider-line, #e8eeeb));
+  background: var(--gn-bg-active, var(--provider-active-bg, #edf7f0));
+  outline: none;
+}
+.gonavi-ai-provider-partner-logo-frame {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  background: transparent;
+}
+.gonavi-ai-provider-logo.gonavi-ai-provider-partner-logo {
+  width: 20px;
+  height: 20px;
+}
+.gonavi-ai-provider-partner-main { min-width: 0; display: flex; align-items: center; gap: 6px; flex: 1; }
+.gonavi-ai-provider-partner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+.gonavi-ai-provider-partner-benefit {
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  padding: 0 7px;
+  border: 1px solid var(--gn-primary, var(--provider-active, #00984a));
+  border-radius: 999px;
+  color: var(--gn-primary, var(--provider-active, #007f3d));
+  background: var(--gn-bg-selected, var(--provider-active-bg, #edf7f0));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.gonavi-ai-provider-partner-offer {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 2px;
+  padding: 8px;
+  border: 1px solid var(--gn-br-2, var(--provider-line, #e8eeeb));
+  border-radius: 8px;
+  color: var(--gn-fg-1, var(--provider-text, #17232d));
+  background: var(--gn-bg-panel-1, var(--provider-control-bg, #fff));
+  box-shadow: inset 3px 0 0 var(--gn-primary, var(--provider-active, #00984a));
+}
+.gonavi-ai-provider-partner-code-label { color: var(--gn-fg-4, var(--provider-muted, #6b7280)); font-size: 10px; }
+.gonavi-ai-provider-partner-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 7px;
+  border: 1px dashed var(--gn-br-2, var(--provider-line, #cfd9d4));
+  border-radius: 6px;
+  color: var(--gn-fg-1, var(--provider-text, #17232d));
+  background: var(--gn-bg-subtle, var(--provider-bg, #f7faf8));
+  cursor: copy;
+}
+.gonavi-ai-provider-partner-code:hover,
+.gonavi-ai-provider-partner-code:focus-visible { border-color: var(--gn-primary, var(--provider-active, #00984a)); outline: none; }
+.gonavi-ai-provider-partner-code code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 700; }
+.gonavi-ai-provider-partner-code > span { flex: 0 0 auto; color: var(--gn-primary, var(--provider-active, #007f3d)); font-size: 9px; }
+.gonavi-ai-provider-partner-copy-state { min-height: 15px; color: var(--gn-fg-4, var(--provider-muted, #6b7280)); font-size: 10px; line-height: 15px; }
+.gonavi-ai-provider-partner-copy-state.is-error { color: var(--gn-danger, #cf4343); }
+.gonavi-ai-provider-partner-apply,
+.gonavi-ai-provider-partner-visit {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--gn-primary, var(--provider-active, #00984a));
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+.gonavi-ai-provider-partner-apply {
+  color: var(--gn-primary, var(--provider-active, #007f3d));
+  background: var(--gn-bg-panel-1, var(--provider-control-bg, #fff));
+}
+.gonavi-ai-provider-partner-visit { color: var(--gn-on-primary, #fff); background: var(--gn-primary, var(--provider-active, #00984a)); }
+.gonavi-ai-provider-partner-apply:hover,
+.gonavi-ai-provider-partner-apply:focus-visible,
+.gonavi-ai-provider-partner-visit:hover,
+.gonavi-ai-provider-partner-visit:focus-visible { filter: brightness(.96); outline: 2px solid var(--gn-focus-ring, var(--provider-active-bg, #d7f3e2)); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) {
   .gonavi-ai-model-switch, .gonavi-ai-model-switch::after, .gonavi-ai-model-management button { transition: none; }
   .gonavi-ai-model-management button:active { transform: none; }
   .gonavi-ai-provider-chip-remove:hover, .gonavi-ai-provider-chip-remove:focus-visible { animation: none; transform: scale(1.2); }
 }
-.gonavi-ai-provider-logo { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; display: inline-grid; place-items: center; }
-.gonavi-ai-provider-logo.is-fallback { width: 16px; height: 16px; border-radius: 3px; background: var(--provider-active-bg, #edf7f0); color: var(--provider-active, #00984a); font-size: 9px; font-weight: 700; }
-.gonavi-ai-provider-config-list { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
-.gonavi-ai-provider-config-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.gonavi-ai-provider-config-list-heading h3 { margin: 0; font-size: 13px; font-weight: 600; }
-.gonavi-ai-provider-config-empty { border: 1px dashed var(--provider-line); border-radius: 6px; padding: 24px; text-align: center; color: var(--provider-muted); }
-.gonavi-ai-provider-config-empty p { margin: 0 0 8px; font-size: 13px; }
-.gonavi-ai-provider-config-cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
-.gonavi-ai-provider-config-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--provider-line); border-radius: 6px; }
-.gonavi-ai-provider-config-card.is-default { border-color: var(--provider-active); background: var(--provider-active-bg); }
-.gonavi-ai-provider-config-card-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.gonavi-ai-provider-config-card-main > div { min-width: 0; flex: 1; }
-.gonavi-ai-provider-config-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
-.gonavi-ai-provider-config-card-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12px; }
-.gonavi-ai-provider-config-card-preset { font-size: 11px; color: var(--provider-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gonavi-ai-provider-config-card-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.gonavi-ai-provider-editor.is-list-edit { flex: 1; min-height: 0; }
-.gonavi-ai-provider-editor-heading.is-edit-nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-bottom: 12px; }
-.gonavi-ai-provider-editor-heading.is-edit-nav h3 { margin: 0; text-align: center; font-size: 13px; font-weight: 600; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item { margin-bottom: 12px; width: 100%; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item-row { flex-wrap: nowrap; width: 100%; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item-label { overflow: visible; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item-label > label { height: auto; max-width: 100%; white-space: normal; overflow: visible; line-height: 1.35; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item-control { min-width: 0; max-width: 100%; }
-.gonavi-ai-provider-form.ant-form-horizontal .ant-form-item-control-input,
-.gonavi-ai-provider-form.ant-form-horizontal .ant-select,
-.gonavi-ai-provider-form.ant-form-horizontal .ant-input-affix-wrapper,
-.gonavi-ai-provider-form.ant-form-horizontal .ant-input { width: 100%; max-width: 100%; }
-.gonavi-ai-provider-form .gonavi-ai-provider-model-label { flex-direction: column; align-items: flex-end; justify-content: flex-start; gap: 2px; }
-.gonavi-ai-provider-kv { display: grid; gap: 8px; }
-/* The add row is an action, not another field: keep it at its own width so an
-   empty key/value block does not read as a full-width input stripe. */
-.gonavi-ai-provider-kv > .ant-btn { justify-self: start; }
-/* Paired fields share one row once the editor is wide enough, so the extra
-   width buys a shorter form instead of longer input stripes. The URL column
-   gets more room than the key because addresses are the longer values. */
-.gonavi-ai-provider-connection-row,
-.gonavi-ai-provider-token-row { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 16px; }
-@container provider-editor (min-width: 760px) {
-  .gonavi-ai-provider-connection-row { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
-  .gonavi-ai-provider-token-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-}
-.gonavi-ai-provider-kv-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr) 2rem; gap: 8px; align-items: center; }
-.gonavi-ai-provider-preset-option { display: inline-flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
-.gonavi-ai-provider-preset-option > span:last-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ant-select-dropdown.gonavi-ai-provider-preset-dropdown { width: max-content !important; min-width: 0 !important; padding: 4px 0; }
-.gonavi-ai-provider-preset-dropdown .rc-virtual-list,
-.gonavi-ai-provider-preset-dropdown .rc-virtual-list-holder { min-width: 18rem; }
-.gonavi-ai-provider-preset-dropdown .ant-select-item { padding-inline-end: 16px; }
-.gonavi-ai-provider-preset-dropdown-grid { display: grid; grid-template-columns: minmax(18rem, max-content) 9rem; width: max-content; max-width: min(32rem, calc(100vw - 2rem)); }
-.ant-select-dropdown.gonavi-ai-provider-form-popup { width: max-content !important; min-width: 12rem !important; max-width: min(36rem, calc(100vw - 2rem)); }
-.gonavi-ai-provider-preset-col { min-width: 0; padding: 4px 8px 8px; }
-.gonavi-ai-provider-preset-col.is-partner { border-left: 1px solid var(--provider-line, #e8eeeb); }
-.gonavi-ai-provider-preset-col-title { padding: 6px 8px 8px; font-size: 11px; color: var(--provider-muted, #6b7280); }
-.gonavi-ai-provider-preset-empty { padding: 8px; font-size: 12px; color: var(--provider-muted, #6b7280); }

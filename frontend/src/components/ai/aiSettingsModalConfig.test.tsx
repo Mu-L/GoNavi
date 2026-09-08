@@ -7,6 +7,7 @@ import {
   ORCAROUTER_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   resolvePresetBaseURL,
+  resolveProviderPresetModeKey,
   resolvePresetTransport,
 } from '../../utils/aiProviderPresets';
 import { t as translateCatalog } from '../../i18n/catalog';
@@ -16,6 +17,7 @@ import {
   MINIMAX_ENDPOINTS,
   PROVIDER_PRESETS,
   findPreset,
+  getProviderPresetMode,
   localizeProviderPresets,
   matchProviderPreset,
 } from './aiSettingsModalConfig';
@@ -65,14 +67,18 @@ describe('aiSettingsModalConfig', () => {
     }).key).toBe('moonshot');
   });
 
-  it('matches an anthropic-compatible provider back to the qwen coding plan preset', () => {
-    const preset = matchProviderPreset({
-      type: 'custom',
+  it('matches an anthropic-compatible Coding Plan config back to the merged Qwen provider', () => {
+    const provider = {
+      type: 'custom' as const,
       baseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
       apiFormat: 'claude-cli',
+    };
+    const preset = matchProviderPreset({
+      ...provider,
     });
 
-    expect(preset.key).toBe('qwen-coding-plan');
+    expect(preset.key).toBe('qwen-bailian');
+    expect(resolveProviderPresetModeKey(preset, provider)).toBe('coding-plan');
   });
 
   it('matches a CodeBuddy CLI provider back to the dedicated preset', () => {
@@ -95,11 +101,15 @@ describe('aiSettingsModalConfig', () => {
     expect(preset.key).toBe('cursor');
   });
 
-  it('offers Cursor CLI as a separate local-login preset with optional model selection', () => {
-    expect(findPreset('cursor-cli')).toMatchObject({
+  it('keeps Cursor API and local CLI as modes of one provider', () => {
+    const preset = findPreset('cursor-cli');
+    expect(preset.key).toBe('cursor');
+    expect(getProviderPresetMode(preset, 'local-cli')).toMatchObject({
       backendType: 'custom', fixedApiFormat: 'cursor-cli', authMode: 'local-cli', defaultBaseUrl: '', defaultModel: '', models: [],
     });
-    expect(matchProviderPreset({ type: 'custom', apiFormat: 'cursor-cli', authMode: 'local-cli', baseUrl: '' }).key).toBe('cursor-cli');
+    const provider = { type: 'custom' as const, apiFormat: 'cursor-cli', authMode: 'local-cli' as const, baseUrl: '' };
+    expect(matchProviderPreset(provider).key).toBe('cursor');
+    expect(resolveProviderPresetModeKey(preset, provider)).toBe('local-cli');
   });
 
   it('exposes and recognizes the Atlas Cloud preset', () => {
@@ -168,19 +178,22 @@ describe('aiSettingsModalConfig', () => {
     });
   });
 
-  it('matches local Codex and Claude subscriptions without confusing Qwen Claude CLI', () => {
+  it('matches local Codex under OpenAI and Claude subscription under the merged Claude provider', () => {
     expect(matchProviderPreset({
       type: 'custom',
       baseUrl: '',
       apiFormat: 'codex-cli',
       authMode: 'local-cli',
-    }).key).toBe('codex');
-    expect(matchProviderPreset({
+    }).key).toBe('openai');
+    const provider = {
       type: 'custom',
       baseUrl: '',
       apiFormat: 'claude-cli',
       authMode: 'local-cli',
-    }).key).toBe('claude-subscription');
+    } as const;
+    const preset = matchProviderPreset(provider);
+    expect(preset.key).toBe('anthropic');
+    expect(resolveProviderPresetModeKey(preset, provider)).toBe('subscription');
   });
 
   it('preserves a legacy Claude CLI provider that still owns an API secret', () => {
@@ -206,8 +219,11 @@ describe('aiSettingsModalConfig', () => {
   it('keeps the provider preset list available for the settings modal', () => {
     expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
-    expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(true);
-    expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(true);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'qwen-coding-plan')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'volcengine-coding')).toBe(false);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'cursor-cli')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codebuddy')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'cursor')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'openai')).toBe(true);
@@ -220,9 +236,10 @@ describe('aiSettingsModalConfig', () => {
     const custom = localized.find((item) => item.key === 'custom');
 
     expect(qwen).toMatchObject({
-      label: 'Qwen (Bailian General)',
-      desc: 'Bailian Chat / Anthropic-compatible endpoints',
+      label: 'Qwen',
+      desc: 'Bailian General / Coding Plan',
     });
+    expect(qwen?.modes?.map((mode) => mode.label)).toEqual(['Qwen (Bailian General)', 'Qwen (Coding Plan)']);
     expect(custom).toMatchObject({
       label: 'Custom',
       desc: 'Custom API endpoint',
@@ -233,21 +250,13 @@ describe('aiSettingsModalConfig', () => {
     });
     expect(localized.find((item) => item.key === 'cursor')).toMatchObject({
       label: 'Cursor',
-      desc: 'Cloud Agents API / official API Key',
+      desc: 'Cloud Agents API / local CLI',
     });
-    expect(localized.find((item) => item.key === 'cursor-cli')).toMatchObject({
-      label: 'Cursor CLI', desc: 'Local Cursor CLI / existing sign-in', authMode: 'local-cli',
+    expect(localized.find((item) => item.key === 'cursor')?.modes?.[1]).toMatchObject({ label: 'Cursor CLI', authMode: 'local-cli' });
+    expect(localized.find((item) => item.key === 'anthropic')).toMatchObject({
+      label: 'Claude', desc: 'Claude API / local subscription',
     });
-    expect(localized.find((item) => item.key === 'codex')).toMatchObject({
-      label: 'Codex Subscription',
-      desc: 'Local Codex CLI / ChatGPT subscription login',
-      authMode: 'local-cli',
-    });
-    expect(localized.find((item) => item.key === 'claude-subscription')).toMatchObject({
-      label: 'Claude Subscription',
-      desc: 'Local Claude Code CLI / Claude subscription login',
-      authMode: 'local-cli',
-    });
+    expect(localized.find((item) => item.key === 'anthropic')?.modes?.[1]).toMatchObject({ label: 'Claude Subscription', authMode: 'local-cli' });
     expect(localized.find((item) => item.key === 'minimax')).toMatchObject({
       desc: 'M3 / M2.7 series (Anthropic-compatible)',
     });
