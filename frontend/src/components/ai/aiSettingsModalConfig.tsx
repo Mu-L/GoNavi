@@ -28,6 +28,11 @@ import {
   QWEN_BAILIAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_MODELS,
+  XIAOMI_MIMO_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_DEFAULT_MODEL,
+  XIAOMI_MIMO_OPENAI_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL,
   resolveProviderPresetKey,
   type ProviderPresetCandidate,
   type ProviderPresetEndpoint,
@@ -67,6 +72,13 @@ export const MOONSHOT_ENDPOINTS: ProviderPresetEndpoint[] = [
   { backendType: 'anthropic', baseUrl: MOONSHOT_ANTHROPIC_BASE_URL },
 ];
 
+export const XIAOMI_MIMO_ENDPOINTS: ProviderPresetEndpoint[] = [
+  { backendType: 'openai', baseUrl: XIAOMI_MIMO_OPENAI_BASE_URL },
+  { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_ANTHROPIC_BASE_URL },
+  { backendType: 'openai', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL },
+  { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL },
+];
+
 export const QWEN_BAILIAN_ENDPOINTS: ProviderPresetEndpoint[] = [
   { backendType: 'anthropic', baseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL },
   { backendType: 'openai', baseUrl: LEGACY_QWEN_BAILIAN_OPENAI_BASE_URL },
@@ -87,6 +99,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
   { key: 'zhipu', label: 'Zhipu GLM', labelKey: 'ai_settings.provider_preset.zhipu.label', icon: <ExperimentOutlined />, desc: 'GLM-5.2 models', descKey: 'ai_settings.provider_preset.zhipu.desc', color: '#0ea5e9', backendType: 'openai', defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-5.2', models: [] },
   { key: 'moonshot', label: 'Kimi', labelKey: 'ai_settings.provider_preset.moonshot.label', icon: <ExperimentOutlined />, desc: 'Kimi K3 / OpenAI-compatible', descKey: 'ai_settings.provider_preset.moonshot.desc', color: '#0d9488', backendType: 'openai', defaultBaseUrl: MOONSHOT_OPENAI_BASE_URL, endpoints: MOONSHOT_ENDPOINTS, defaultModel: 'kimi-k3', models: [] },
+  { key: 'xiaomi-mimo', label: 'Xiaomi MiMo', labelKey: 'ai_settings.provider_preset.xiaomi_mimo.label', icon: <ExperimentOutlined />, desc: 'MiMo-V2.5 series / OpenAI and Anthropic compatible', descKey: 'ai_settings.provider_preset.xiaomi_mimo.desc', color: '#ff6900', backendType: 'openai', defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL, endpoints: XIAOMI_MIMO_ENDPOINTS, defaultModel: XIAOMI_MIMO_DEFAULT_MODEL, models: [] },
   {
     key: 'anthropic', label: 'Claude', labelKey: 'ai_settings.provider_preset.anthropic.label', icon: <ExperimentOutlined />, desc: 'Claude API / local subscription', descKey: 'ai_settings.provider_preset.anthropic.desc', color: '#d97706',
     backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5', models: [],

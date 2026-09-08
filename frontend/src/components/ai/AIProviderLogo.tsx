@@ -19,6 +19,7 @@ export const PRESET_ICON_SLUG: Record<string, string> = {
   orcarouter: 'orcarouter',
   zhipu: 'zhipu',
   moonshot: 'moonshot',
+  'xiaomi-mimo': 'xiaomimimo',
   'volcengine-ark': 'volcengine',
   'volcengine-coding': 'volcengine',
 };

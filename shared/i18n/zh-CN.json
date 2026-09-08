@@ -1791,6 +1791,8 @@
   "ai_settings.form.cli_capability_unavailable": "暂时无法读取 CLI 能力，已保留原档位。可重新打开编辑重试。",
   "ai_settings.form.local_cli.details": "登录与技术详情",
   "ai_settings.form.local_cli.command": "命令",
+  "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5 系列 / OpenAI 与 Anthropic 兼容",
+  "ai_settings.provider_preset.xiaomi_mimo.label": "小米 MiMo",
   "ai_settings.test.endpoint": "端点检查通过 · 未验证模型响应",
   "ai_settings.test.local-auth": "本机登录检查通过 · 未验证模型响应",
   "ai_settings.test.model-list": "模型列表检查通过 · 未验证模型响应",

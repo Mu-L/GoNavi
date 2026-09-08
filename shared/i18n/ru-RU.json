@@ -1791,6 +1791,8 @@
   "ai_settings.form.cli_capability_unavailable": "Возможности CLI недоступны; сохранённый уровень сохранён. Откройте редактор снова.",
   "ai_settings.form.local_cli.details": "Вход и технические сведения",
   "ai_settings.form.local_cli.command": "Команда",
+  "ai_settings.provider_preset.xiaomi_mimo.desc": "Серия MiMo-V2.5 / совместимо с OpenAI и Anthropic",
+  "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
   "ai_settings.test.endpoint": "Эндпоинт проверен · ответ модели не проверен",
   "ai_settings.test.local-auth": "Локальный вход проверен · ответ модели не проверен",
   "ai_settings.test.model-list": "Список моделей проверен · ответ модели не проверен",

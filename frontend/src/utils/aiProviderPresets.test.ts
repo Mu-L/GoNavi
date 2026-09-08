@@ -12,6 +12,11 @@ import {
   QWEN_BAILIAN_MODELS_BASE_URL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_MODELS,
+  XIAOMI_MIMO_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_DEFAULT_MODEL,
+  XIAOMI_MIMO_OPENAI_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL,
   isLocalCLISubscriptionProvider,
   getSingletonCLIIdentity,
   matchQwenPresetKey,
@@ -45,6 +50,15 @@ const PRESETS: ProviderPresetMatcher[] = [
   { key: 'atlascloud', backendType: 'openai', defaultBaseUrl: ATLAS_CLOUD_BASE_URL },
   { key: 'orcarouter', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL },
   { key: 'moonshot', backendType: 'openai', defaultBaseUrl: MOONSHOT_OPENAI_BASE_URL },
+  {
+    key: 'xiaomi-mimo', backendType: 'openai', defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL,
+    endpoints: [
+      { backendType: 'openai', baseUrl: XIAOMI_MIMO_OPENAI_BASE_URL },
+      { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_ANTHROPIC_BASE_URL },
+      { backendType: 'openai', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL },
+      { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL },
+    ],
+  },
   { key: 'deepseek', backendType: 'openai', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultApiFormat: 'openai-responses' },
   {
     key: 'qwen-bailian', backendType: 'anthropic', defaultBaseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL, defaultModeKey: 'bailian',
@@ -134,6 +148,23 @@ describe('ai provider preset helpers', () => {
   it('keeps Kimi endpoint variants mapped by their actual protocol', () => {
     expect(MOONSHOT_OPENAI_BASE_URL).toBe('https://api.moonshot.cn/v1');
     expect(MOONSHOT_ANTHROPIC_BASE_URL).toBe('https://api.moonshot.cn/anthropic');
+  });
+
+  it('recognizes Xiaomi MiMo pay-as-you-go and Token Plan endpoints', () => {
+    expect(XIAOMI_MIMO_OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1');
+    expect(XIAOMI_MIMO_ANTHROPIC_BASE_URL).toBe('https://api.xiaomimimo.com/anthropic');
+    expect(XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL).toBe('https://token-plan-cn.xiaomimimo.com/v1');
+    expect(XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL).toBe('https://token-plan-cn.xiaomimimo.com/anthropic');
+    expect(XIAOMI_MIMO_DEFAULT_MODEL).toBe('mimo-v2.5-pro');
+
+    for (const provider of [
+      { type: 'openai' as const, baseUrl: XIAOMI_MIMO_OPENAI_BASE_URL },
+      { type: 'anthropic' as const, baseUrl: XIAOMI_MIMO_ANTHROPIC_BASE_URL },
+      { type: 'openai' as const, baseUrl: XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL },
+      { type: 'anthropic' as const, baseUrl: XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL },
+    ]) {
+      expect(resolveProviderPresetKey(provider, PRESETS, 'custom')).toBe('xiaomi-mimo');
+    }
   });
 
   it('uses the current DeepSeek Responses endpoint and model as the preset defaults', () => {

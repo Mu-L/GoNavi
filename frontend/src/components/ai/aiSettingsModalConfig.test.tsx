@@ -6,6 +6,8 @@ import {
   ORCAROUTER_BASE_URL,
   ORCAROUTER_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_DEFAULT_MODEL,
+  XIAOMI_MIMO_OPENAI_BASE_URL,
   resolvePresetBaseURL,
   resolveProviderPresetModeKey,
   resolvePresetTransport,
@@ -16,6 +18,7 @@ import {
   EMPTY_SKILL,
   MINIMAX_ENDPOINTS,
   PROVIDER_PRESETS,
+  XIAOMI_MIMO_ENDPOINTS,
   findPreset,
   getProviderPresetMode,
   localizeProviderPresets,
@@ -142,6 +145,27 @@ describe('aiSettingsModalConfig', () => {
     }).key).toBe('orcarouter');
   });
 
+  it('exposes Xiaomi MiMo with current official endpoints and model', () => {
+    const preset = findPreset('xiaomi-mimo');
+
+    expect(preset).toMatchObject({
+      label: 'Xiaomi MiMo',
+      backendType: 'openai',
+      defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL,
+      defaultModel: XIAOMI_MIMO_DEFAULT_MODEL,
+    });
+    expect(XIAOMI_MIMO_ENDPOINTS).toEqual([
+      { backendType: 'openai', baseUrl: 'https://api.xiaomimimo.com/v1' },
+      { backendType: 'anthropic', baseUrl: 'https://api.xiaomimimo.com/anthropic' },
+      { backendType: 'openai', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
+      { backendType: 'anthropic', baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic' },
+    ]);
+
+    for (const endpoint of XIAOMI_MIMO_ENDPOINTS) {
+      expect(matchProviderPreset({ type: endpoint.backendType, baseUrl: endpoint.baseUrl }).key).toBe('xiaomi-mimo');
+    }
+  });
+
   it('supports every configured MiniMax region and protocol endpoint', () => {
     const preset = findPreset('minimax');
 
@@ -219,6 +243,7 @@ describe('aiSettingsModalConfig', () => {
   it('keeps the provider preset list available for the settings modal', () => {
     expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'xiaomi-mimo')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(false);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'qwen-coding-plan')).toBe(false);
@@ -259,6 +284,10 @@ describe('aiSettingsModalConfig', () => {
     expect(localized.find((item) => item.key === 'anthropic')?.modes?.[1]).toMatchObject({ label: 'Claude Subscription', authMode: 'local-cli' });
     expect(localized.find((item) => item.key === 'minimax')).toMatchObject({
       desc: 'M3 / M2.7 series (Anthropic-compatible)',
+    });
+    expect(localized.find((item) => item.key === 'xiaomi-mimo')).toMatchObject({
+      label: 'Xiaomi MiMo',
+      desc: 'MiMo-V2.5 series / OpenAI and Anthropic compatible',
     });
   });
 

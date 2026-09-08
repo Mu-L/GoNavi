@@ -1791,6 +1791,8 @@
   "ai_settings.form.cli_capability_unavailable": "CLI-Funktionen nicht verfügbar; gespeicherte Denkstufe bleibt erhalten. Öffnen Sie den Editor erneut.",
   "ai_settings.form.local_cli.details": "Anmeldung und technische Details",
   "ai_settings.form.local_cli.command": "Befehl",
+  "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5-Reihe / OpenAI- und Anthropic-kompatibel",
+  "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
   "ai_settings.test.endpoint": "Endpunkt geprüft · Modellantwort nicht geprüft",
   "ai_settings.test.local-auth": "Lokale Anmeldung geprüft · Modellantwort nicht geprüft",
   "ai_settings.test.model-list": "Modellliste geprüft · Modellantwort nicht geprüft",

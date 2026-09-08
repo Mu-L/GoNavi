@@ -5,8 +5,8 @@ import { getProviderEndpointType, getProviderEndpointTypes, resolveProviderEndpo
 describe('provider endpoint compatibility', () => {
   it.each<[ProviderEndpointType, string[]]>([
     ['openai-responses', ['openai', 'deepseek', 'custom']],
-    ['openai', ['openai', 'atlascloud', 'orcarouter', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
-    ['anthropic', ['qwen-bailian', 'moonshot', 'anthropic', 'minimax', 'custom']],
+    ['openai', ['openai', 'atlascloud', 'orcarouter', 'deepseek', 'qwen-bailian', 'zhipu', 'moonshot', 'xiaomi-mimo', 'volcengine-ark', 'minimax', 'ollama', 'custom']],
+    ['anthropic', ['qwen-bailian', 'moonshot', 'xiaomi-mimo', 'anthropic', 'minimax', 'custom']],
     ['gemini', ['gemini', 'custom']],
     ['cli', ['qwen-bailian', 'anthropic', 'grok', 'codebuddy', 'cursor', 'custom']],
     ['cursor-agent', ['cursor', 'custom']],
@@ -33,6 +33,15 @@ describe('provider endpoint compatibility', () => {
     });
     expect(resolveProviderEndpointConnection(findPreset('minimax'), 'anthropic', 'https://api.minimax.io/v1')).toEqual({
       type: 'anthropic', apiFormat: 'anthropic', baseUrl: 'https://api.minimax.io/anthropic',
+    });
+  });
+
+  it('changes Xiaomi MiMo protocols without leaving the selected billing endpoint', () => {
+    expect(resolveProviderEndpointConnection(findPreset('xiaomi-mimo'), 'openai', 'https://token-plan-cn.xiaomimimo.com/anthropic')).toEqual({
+      type: 'openai', apiFormat: 'openai', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+    expect(resolveProviderEndpointConnection(findPreset('xiaomi-mimo'), 'anthropic', 'https://api.xiaomimimo.com/v1')).toEqual({
+      type: 'anthropic', apiFormat: 'anthropic', baseUrl: 'https://api.xiaomimimo.com/anthropic',
     });
   });
 

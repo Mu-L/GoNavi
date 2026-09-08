@@ -1791,6 +1791,8 @@
   "ai_settings.form.cli_capability_unavailable": "CLI capabilities are unavailable; the saved effort is preserved. Reopen the editor to retry.",
   "ai_settings.form.local_cli.details": "Sign-in and technical details",
   "ai_settings.form.local_cli.command": "Command",
+  "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5 series / OpenAI and Anthropic compatible",
+  "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
   "ai_settings.test.endpoint": "Endpoint checked · model response not verified",
   "ai_settings.test.local-auth": "Local sign-in checked · model response not verified",
   "ai_settings.test.model-list": "Model list checked · model response not verified",

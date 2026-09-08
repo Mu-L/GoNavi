@@ -13,6 +13,11 @@ export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
 export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
 export const MOONSHOT_OPENAI_BASE_URL = 'https://api.moonshot.cn/v1';
 export const MOONSHOT_ANTHROPIC_BASE_URL = 'https://api.moonshot.cn/anthropic';
+export const XIAOMI_MIMO_OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1';
+export const XIAOMI_MIMO_ANTHROPIC_BASE_URL = 'https://api.xiaomimimo.com/anthropic';
+export const XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
+export const XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic';
+export const XIAOMI_MIMO_DEFAULT_MODEL = 'mimo-v2.5-pro';
 
 export const QWEN_CODING_PLAN_MODELS = [
   'qwen3.5-plus',
