@@ -1793,6 +1793,8 @@
   "ai_settings.form.local_cli.command": "Команда",
   "ai_settings.provider_preset.xiaomi_mimo.desc": "Серия MiMo-V2.5 / совместимо с OpenAI и Anthropic",
   "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
+  "ai_settings.run_policy.advanced.collapse": "Скрыть дополнительные параметры ({count})",
+  "ai_settings.run_policy.advanced.expand": "Показать дополнительные параметры ({count})",
   "ai_settings.test.endpoint": "Эндпоинт проверен · ответ модели не проверен",
   "ai_settings.test.local-auth": "Локальный вход проверен · ответ модели не проверен",
   "ai_settings.test.model-list": "Список моделей проверен · ответ модели не проверен",

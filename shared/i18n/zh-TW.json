@@ -1793,6 +1793,8 @@
   "ai_settings.form.local_cli.command": "命令",
   "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5 系列 / OpenAI 與 Anthropic 相容",
   "ai_settings.provider_preset.xiaomi_mimo.label": "小米 MiMo",
+  "ai_settings.run_policy.advanced.collapse": "收起進階選項（{count}）",
+  "ai_settings.run_policy.advanced.expand": "展開進階選項（{count}）",
   "ai_settings.test.endpoint": "端點檢查通過 · 未驗證模型回應",
   "ai_settings.test.local-auth": "本機登入檢查通過 · 未驗證模型回應",
   "ai_settings.test.model-list": "模型清單檢查通過 · 未驗證模型回應",

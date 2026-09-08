@@ -1793,6 +1793,8 @@
   "ai_settings.form.local_cli.command": "Command",
   "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5 series / OpenAI and Anthropic compatible",
   "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
+  "ai_settings.run_policy.advanced.collapse": "Hide advanced options ({count})",
+  "ai_settings.run_policy.advanced.expand": "Show advanced options ({count})",
   "ai_settings.test.endpoint": "Endpoint checked · model response not verified",
   "ai_settings.test.local-auth": "Local sign-in checked · model response not verified",
   "ai_settings.test.model-list": "Model list checked · model response not verified",

@@ -1793,6 +1793,8 @@
   "ai_settings.form.local_cli.command": "コマンド",
   "ai_settings.provider_preset.xiaomi_mimo.desc": "MiMo-V2.5 シリーズ / OpenAI・Anthropic 互換",
   "ai_settings.provider_preset.xiaomi_mimo.label": "Xiaomi MiMo",
+  "ai_settings.run_policy.advanced.collapse": "詳細オプションを非表示（{count}）",
+  "ai_settings.run_policy.advanced.expand": "詳細オプションを表示（{count}）",
   "ai_settings.test.endpoint": "接続先を確認済み · モデル応答は未確認",
   "ai_settings.test.local-auth": "ローカルログインを確認済み · モデル応答は未確認",
   "ai_settings.test.model-list": "モデル一覧を確認済み · モデル応答は未確認",
