@@ -811,7 +811,7 @@ func (o *OracleDB) fetchOracleTableComment(schema string, table string) string {
 	if err != nil || len(data) == 0 {
 		return ""
 	}
-	return oracleRowString(data[0], "COMMENT", "COMMENTS")
+	return normalizeOracleMetadataComment(oracleRowString(data[0], "COMMENT", "COMMENTS"))
 }
 
 type oracleColumnComment struct {
@@ -846,7 +846,7 @@ ORDER BY c.column_id`, escapedTable)
 	for _, row := range data {
 		comments = append(comments, oracleColumnComment{
 			columnName: oracleRowString(row, "COLUMN_NAME"),
-			comment:    oracleRowString(row, "COMMENT", "COMMENTS"),
+			comment:    normalizeOracleMetadataComment(oracleRowString(row, "COMMENT", "COMMENTS")),
 		})
 	}
 	return comments
@@ -1014,7 +1014,7 @@ func parseOracleColumns(data []map[string]interface{}) []connection.ColumnDefini
 			Type:     formatOracleColumnType(row),
 			Nullable: oracleRowString(row, "NULLABLE"),
 			Key:      oracleRowString(row, "COLUMN_KEY"),
-			Comment:  oracleRowString(row, "COMMENT"),
+			Comment:  normalizeOracleMetadataComment(oracleRowString(row, "COMMENT")),
 		}
 
 		if defaultValue := oracleRowValue(row, "DATA_DEFAULT"); defaultValue != nil {
@@ -1721,7 +1721,7 @@ func (o *OracleDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 			TableName: fmt.Sprintf("%v", row["TABLE_NAME"]),
 			Name:      fmt.Sprintf("%v", row["COLUMN_NAME"]),
 			Type:      fmt.Sprintf("%v", row["DATA_TYPE"]),
-			Comment:   fmt.Sprintf("%v", row["COMMENT"]),
+			Comment:   normalizeOracleMetadataComment(fmt.Sprintf("%v", row["COMMENT"])),
 		}
 		cols = append(cols, col)
 	}
