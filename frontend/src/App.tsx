@@ -203,7 +203,7 @@ import {
   type SecurityUpdateRepairSource,
   type SecurityUpdateSettingsFocusTarget,
 } from './utils/securityUpdateRepairFlow';
-import { getWindowsScaleFixNudgedWidth, hasWindowsViewportScaleDrift } from './utils/windowsScaleFix';
+import { getWindowsScaleFixNudgedWidth } from './utils/windowsScaleFix';
 import {
   clearStartupWindowRestorePending,
   isStartupMaximisedWindowSettled,
@@ -247,9 +247,6 @@ import {
   installNativeWindowActivityScheduler,
   resolveTitleBarToggleIconKey,
   resolveWindowsScaleCheckDelayMs,
-  shouldApplyWindowsScaleFix,
-  shouldResetWebViewZoomForScaleFix,
-  shouldToggleMaximisedWindowForScaleFix,
   WINDOW_STATE_FALLBACK_INTERVAL_MS,
   WINDOWS_SCALE_FALLBACK_INTERVAL_MS,
   type WindowScaleFixReason,
@@ -265,6 +262,7 @@ import {
   shouldUseFullscreenAIPanelOverlay,
 } from './utils/aiPanelLayout';
 import { safeWindowRuntimeCall } from './utils/wailsRuntime';
+import { repairWindowsWindowScale } from './utils/windowsWindowScaleRepair';
 import { waitForWindowCondition } from './utils/windowTransition';
 import {
   hasNativeDetachedWindowManager,
@@ -1808,8 +1806,13 @@ function App() {
 
       const checkStartupPreferenceApplied = async (): Promise<boolean> => {
           try {
-              const isMaximised = await WindowIsMaximised();
+              const [isMaximised, size] = await Promise.all([
+                  WindowIsMaximised(),
+                  WindowGetSize(),
+              ]);
               return isStartupMaximisedWindowSettled({
+                  windowWidth: Number(size?.w),
+                  windowHeight: Number(size?.h),
                   isMaximised,
                   isWindows: isWindowsPlatform(),
                   surfaceWidth: window.innerWidth,
@@ -2094,15 +2097,22 @@ function App() {
               state.windowState,
           );
           if (restoreMode !== 'normal') {
+              markStartupWindowRestorePending(startupRestoreGraceMs);
               if (bounds && bounds.width >= 400 && bounds.height >= 300) {
                   try {
                       // Seed the OS restore rectangle before maximising so a later
-                      // unmaximise returns to the user's last normal window bounds.
-                      applyRestoredWindowBounds(bounds);
+                      // unmaximise returns to the last normal bounds. A frontend
+                      // reload may already be maximised: SetSize in that state
+                      // shrinks the HWND while its client area stays maximised.
+                      if (!await WindowIsMaximised() && !await WindowIsFullscreen() && !cancelled) {
+                          const appliedBounds = applyRestoredWindowBounds(bounds);
+                          await waitForNativeWindowBounds(appliedBounds);
+                      }
                   } catch (e) {
                       console.warn('Failed to prepare remembered normal window bounds', e);
                   }
               }
+              if (cancelled) return;
               markStartupWindowRestorePending(startupRestoreGraceMs);
               applyStartupWindowChrome(1);
               return;
@@ -2375,7 +2385,6 @@ function App() {
       let minimisedSeen = false;
       let hiddenSeen = document.visibilityState === 'hidden';
 
-      const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
       // Automatic scale-fix may call ResetWebViewZoom multiple times on startup.
       // The backend path depends on Wails unexported fields and can fail harmlessly;
       // log at most once so the console is not flooded with expected unavailability.
@@ -2400,90 +2409,45 @@ function App() {
           }
       };
 
+      let refreshWebViewBoundsUnavailableLogged = false;
+      const tryRefreshWebViewBoundsQuietly = async (): Promise<boolean> => {
+          try {
+              const result = await (window as any).go?.app?.App?.RefreshWebViewBounds?.();
+              if (result?.success) return true;
+              if (!refreshWebViewBoundsUnavailableLogged) {
+                  refreshWebViewBoundsUnavailableLogged = true;
+                  console.warn('RefreshWebViewBounds unavailable in scale repair:', result?.message);
+              }
+          } catch (error) {
+              if (!refreshWebViewBoundsUnavailableLogged) {
+                  refreshWebViewBoundsUnavailableLogged = true;
+                  console.warn('RefreshWebViewBounds call failed in scale repair', error);
+              }
+          }
+          return false;
+      };
+
       const fixWindowScaleIfNeeded = async (reason: WindowScaleFixReason) => {
           if (cancelled || inFlight) return;
           const now = Date.now();
           if (now - lastFixAt < 700) return;
           inFlight = true;
           try {
-              const [isFullscreen, isMaximised] = await Promise.all([
-                  safeWindowRuntimeCall(() => WindowIsFullscreen(), false),
-                  safeWindowRuntimeCall(() => WindowIsMaximised(), false),
-              ]);
-
-              // 全屏状态下只广播 resize，避免破坏用户的全屏上下文。
-              if (isFullscreen) {
-                  window.dispatchEvent(new Event('resize'));
-                  lastFixAt = Date.now();
-                  return;
-              }
-
-              const size = await safeWindowRuntimeCall(() => WindowGetSize(), null);
-              const width = Math.trunc(Number(size?.w || 0));
-              const height = Math.trunc(Number(size?.h || 0));
-              const hasViewportScaleDrift = hasWindowsViewportScaleDrift({
-                  windowWidth: width,
-                  innerWidth: window.innerWidth,
-                  devicePixelRatio: Number(window.devicePixelRatio) || 1,
-                  visualViewportScale: window.visualViewport?.scale,
+              await repairWindowsWindowScale({
+                  reason,
+                  readViewport: () => ({
+                      innerWidth: window.innerWidth,
+                      devicePixelRatio: Number(window.devicePixelRatio) || 1,
+                      visualViewportScale: window.visualViewport?.scale,
+                  }),
+                  resetZoom: tryResetWebViewZoomQuietly,
+                  refreshBounds: tryRefreshWebViewBoundsQuietly,
+                  notifyResize: () => window.dispatchEvent(new Event('resize')),
+                  isCancelled: () => cancelled,
               });
-              const shouldResetWebViewZoom = shouldResetWebViewZoomForScaleFix(reason, hasViewportScaleDrift);
-
-              if (shouldResetWebViewZoom && !isMaximised) {
-                  await tryResetWebViewZoomQuietly();
-              }
-
-              if (isMaximised) {
-                  if (!shouldToggleMaximisedWindowForScaleFix(reason, hasViewportScaleDrift)) {
-                      // restore（任务栏点击恢复后字体异常变大/变糊）的零感知修复路径：
-                      // 调 backend App.ResetWebViewZoom 触发 WebView2 ICoreWebView2Controller::put_ZoomFactor(1.0)，
-                      // 让 WebView2 重算 D2D/DirectWrite 字体度量。该异常不一定表现为 viewport ratio drift，
-                      // 所以 restore 场景不能依赖 hasViewportScaleDrift。完全不动窗口、零动画。
-                      // backend 失败（wails 升级破坏反射 / 非 Windows）时回退到 dispatch resize 兜底；
-                      // 用户仍可按 Ctrl+Shift+0 手动 toggle 修复。
-                      if (shouldResetWebViewZoom) {
-                          await tryResetWebViewZoomQuietly();
-                      }
-                      window.dispatchEvent(new Event('resize'));
-                      lastFixAt = Date.now();
-                      return;
-                  }
-
-                  try {
-                      WindowUnmaximise();
-                      await wait(96);
-                      WindowMaximise();
-                      await wait(96);
-                  } catch (e) {
-                      console.warn("Wails Window maximise restore unavailable in fixWindowScaleIfNeeded", e);
-                  }
-                  window.dispatchEvent(new Event('resize'));
-                  lastFixAt = Date.now();
-                  return;
-              }
-
-              if (width <= 0 || height <= 0) {
-                  window.dispatchEvent(new Event('resize'));
-                  lastFixAt = Date.now();
-                  return;
-              }
-
-              if (!shouldApplyWindowsScaleFix(reason, hasViewportScaleDrift)) {
-                  window.dispatchEvent(new Event('resize'));
-                  lastFixAt = Date.now();
-                  return;
-              }
-
-              const nudgedWidth = getWindowsScaleFixNudgedWidth(width);
-              try {
-                  WindowSetSize(nudgedWidth, height);
-                  await wait(28);
-                  WindowSetSize(width, height);
-              } catch(e) {}
-              window.dispatchEvent(new Event('resize'));
               lastFixAt = Date.now();
-          } catch(e) {
-              console.warn("Wails Window APIs unavailable in fixWindowScaleIfNeeded", e);
+          } catch (error) {
+              console.warn('Wails Window APIs unavailable in scale repair', error);
           } finally {
               inFlight = false;
           }
