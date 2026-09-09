@@ -2,7 +2,7 @@ import Modal from './common/ResizableDraggableModal';
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Input, Button, Table, Progress, Space, Tag, message, Tooltip, Select, Empty } from 'antd';
 import { SearchOutlined, StopOutlined, EyeOutlined, DatabaseOutlined } from '@ant-design/icons';
-import { CancelQuery, DBQueryWithCancel, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
+import { CancelQuery, DBQueryApplicationWithCancel, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
 import { v4 as uuidv4 } from 'uuid';
 import { quoteIdentPart, quoteQualifiedIdent, escapeLiteral } from '../utils/sql';
 import { useStore } from '../store';
@@ -216,7 +216,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
 
                 try {
                     currentQueryIdRef.current = queryId;
-                    const res = await DBQueryWithCancel(
+                    const res = await DBQueryApplicationWithCancel(
                         buildRpcConnectionConfig(config) as any,
                         dbName,
                         sql,

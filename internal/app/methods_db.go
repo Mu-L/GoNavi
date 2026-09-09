@@ -1331,6 +1331,16 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 	})
 }
 
+// DBQueryApplicationWithCancel exposes DBQuery's cancellation support without
+// classifying an application-owned read as query-editor execution history.
+func (a *App) DBQueryApplicationWithCancel(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
+	return a.dbQueryWithCancel(config, dbName, query, queryID, dbQueryAuditOptions{
+		auditAll:    a.webRuntime,
+		auditWrites: true,
+		source:      "application_api",
+	})
+}
+
 func (a *App) DBQueryWithCancel(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
 	explicitQuery := strings.TrimSpace(queryID) != ""
 	auditSource := "query_editor"

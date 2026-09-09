@@ -230,6 +230,10 @@ export function DBQuery(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBQuery'](arg1, arg2, arg3);
 }
 
+export function DBQueryApplicationWithCancel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBQueryApplicationWithCancel'](arg1, arg2, arg3, arg4);
+}
+
 export function DBQueryAI(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBQueryAI'](arg1, arg2, arg3);
 }
