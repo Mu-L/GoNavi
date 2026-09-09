@@ -309,7 +309,7 @@ body[data-custom-theme][data-ui-version="v2"] {
   --gn-danger-strong: ${palette.dangerStrong};
   --gn-danger-strong-hover: ${palette.dangerHover};
   --gn-on-danger: ${palette.onDanger};
-  --gn-status-connected: ${palette.mode === 'dark' ? '#4ade80' : '#15803d'};
+  --gn-status-connected: ${palette.mode === 'dark' ? '#4ade80' : '#157d3c'};
   --gn-purple: ${palette.purple};
   --gn-purple-soft: ${palette.purpleSoft};
 
@@ -648,7 +648,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       fg1: '#ebe2d6', fg2: '#d5c9b8', fg3: '#b6a790', fg4: '#9a8b74', fg5: '#8f806b',
       border1: 'rgba(232, 214, 188, 0.06)', border2: 'rgba(232, 214, 188, 0.11)', border3: 'rgba(232, 214, 188, 0.18)',
       accent: '#c49456', accent2: '#b3844a', accentSoft: 'rgba(196, 148, 86, 0.16)', accentSoftHover: 'rgba(196, 148, 86, 0.24)', accentOutline: 'rgba(212, 168, 108, 0.40)', onAccent: '#23180e',
-      info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#b36359', dangerHover: '#a3574e', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
+      info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#ae5f55', dangerHover: '#a3574e', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(232, 214, 188, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#3a322a', kbdFg: '#d5c9b8',
     },
@@ -663,7 +663,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       hover: 'rgba(230, 214, 220, 0.05)', active: 'rgba(230, 214, 220, 0.08)', selected: 'rgba(184, 126, 146, 0.16)',
       fg1: '#ebe3e6', fg2: '#d4c8cd', fg3: '#b5a6ad', fg4: '#978990', fg5: '#8c7f86',
       border1: 'rgba(230, 214, 220, 0.06)', border2: 'rgba(230, 214, 220, 0.11)', border3: 'rgba(230, 214, 220, 0.18)',
-      accent: '#b87e92', accent2: '#a87084', accentSoft: 'rgba(184, 126, 146, 0.16)', accentSoftHover: 'rgba(184, 126, 146, 0.24)', accentOutline: 'rgba(200, 148, 166, 0.40)', onAccent: '#27141c',
+      accent: '#bb8195', accent2: '#b37b8f', accentSoft: 'rgba(184, 126, 146, 0.16)', accentSoftHover: 'rgba(184, 126, 146, 0.24)', accentOutline: 'rgba(200, 148, 166, 0.40)', onAccent: '#27141c',
       info: '#7ea6bc', infoSoft: 'rgba(126, 166, 188, 0.15)', onInfo: '#102028', warn: '#c9a060', warnSoft: 'rgba(201, 160, 96, 0.16)', danger: '#d47d86', dangerStrong: '#b35a64', dangerHover: '#a34f58', onDanger: '#ffffff', purple: '#a18ab8', purpleSoft: 'rgba(161, 138, 184, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(230, 214, 220, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#372f33', kbdFg: '#d4c8cd',
@@ -679,7 +679,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       hover: 'rgba(206, 220, 208, 0.05)', active: 'rgba(206, 220, 208, 0.08)', selected: 'rgba(122, 158, 126, 0.16)',
       fg1: '#e2ebe3', fg2: '#c8d4ca', fg3: '#a7b6aa', fg4: '#8a998d', fg5: '#7f8e82',
       border1: 'rgba(206, 220, 208, 0.06)', border2: 'rgba(206, 220, 208, 0.11)', border3: 'rgba(206, 220, 208, 0.18)',
-      accent: '#7a9e7e', accent2: '#6c8f70', accentSoft: 'rgba(122, 158, 126, 0.16)', accentSoftHover: 'rgba(122, 158, 126, 0.24)', accentOutline: 'rgba(142, 176, 146, 0.40)', onAccent: '#152018',
+      accent: '#7ca080', accent2: '#749778', accentSoft: 'rgba(122, 158, 126, 0.16)', accentSoftHover: 'rgba(122, 158, 126, 0.24)', accentOutline: 'rgba(142, 176, 146, 0.40)', onAccent: '#152018',
       info: '#76a5b5', infoSoft: 'rgba(118, 165, 181, 0.15)', onInfo: '#0f2228', warn: '#c2a35f', warnSoft: 'rgba(194, 163, 95, 0.16)', danger: '#cd8078', dangerStrong: '#b05f58', dangerHover: '#9f544e', onDanger: '#ffffff', purple: '#958eaa', purpleSoft: 'rgba(149, 142, 170, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(206, 220, 208, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#303832', kbdFg: '#c8d4ca',
@@ -695,8 +695,8 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       hover: 'rgba(220, 212, 234, 0.05)', active: 'rgba(220, 212, 234, 0.08)', selected: 'rgba(156, 138, 196, 0.16)',
       fg1: '#e8e4f0', fg2: '#d0cadc', fg3: '#b0a8c0', fg4: '#9289a4', fg5: '#877e99',
       border1: 'rgba(220, 212, 234, 0.06)', border2: 'rgba(220, 212, 234, 0.11)', border3: 'rgba(220, 212, 234, 0.18)',
-      accent: '#9c8ac4', accent2: '#8c7ab4', accentSoft: 'rgba(156, 138, 196, 0.16)', accentSoftHover: 'rgba(156, 138, 196, 0.24)', accentOutline: 'rgba(172, 156, 208, 0.40)', onAccent: '#1c152c',
-      info: '#7ea8c4', infoSoft: 'rgba(126, 168, 196, 0.15)', onInfo: '#10202c', warn: '#c9a45f', warnSoft: 'rgba(201, 164, 95, 0.16)', danger: '#d48494', dangerStrong: '#b35f70', dangerHover: '#a35363', onDanger: '#ffffff', purple: '#b09ad0', purpleSoft: 'rgba(176, 154, 208, 0.16)',
+      accent: '#9c8ac4', accent2: '#9583bd', accentSoft: 'rgba(156, 138, 196, 0.16)', accentSoftHover: 'rgba(156, 138, 196, 0.24)', accentOutline: 'rgba(172, 156, 208, 0.40)', onAccent: '#1c152c',
+      info: '#7ea8c4', infoSoft: 'rgba(126, 168, 196, 0.15)', onInfo: '#10202c', warn: '#c9a45f', warnSoft: 'rgba(201, 164, 95, 0.16)', danger: '#d48494', dangerStrong: '#af5b6c', dangerHover: '#a35363', onDanger: '#ffffff', purple: '#b09ad0', purpleSoft: 'rgba(176, 154, 208, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.22)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.30)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.40)', shadowCard: '0 0 0 0.5px rgba(220, 212, 234, 0.07), 0 1px 3px rgba(0, 0, 0, 0.24)',
       kbdBg: '#342f40', kbdFg: '#d0cadc',
     },
@@ -725,7 +725,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
     {
       mode: 'light', app: '#eef3f8', chrome: '#e2ebf4', panel: '#f7fafc', panel2: '#eef4fa', input: '#ffffff',
       hover: 'rgba(36, 64, 92, 0.05)', active: 'rgba(36, 64, 92, 0.09)', selected: 'rgba(47, 106, 146, 0.14)',
-      fg1: '#182433', fg2: '#2c3d50', fg3: '#4a6074', fg4: '#5b7184', fg5: '#61788b',
+      fg1: '#182433', fg2: '#2c3d50', fg3: '#4a6074', fg4: '#5b7184', fg5: '#5e7587',
       border1: 'rgba(36, 64, 92, 0.08)', border2: 'rgba(36, 64, 92, 0.13)', border3: 'rgba(36, 64, 92, 0.20)',
       accent: '#2f6a92', accent2: '#255878', accentSoft: '#dceaf3', accentSoftHover: '#cbe0ed', accentOutline: 'rgba(47, 106, 146, 0.30)', onAccent: '#ffffff',
       info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
@@ -792,7 +792,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       hover: 'rgba(20, 72, 84, 0.05)', active: 'rgba(20, 72, 84, 0.09)', selected: 'rgba(14, 124, 134, 0.14)',
       fg1: '#142830', fg2: '#28404a', fg3: '#466068', fg4: '#567078', fg5: '#5c7680',
       border1: 'rgba(20, 72, 84, 0.08)', border2: 'rgba(20, 72, 84, 0.13)', border3: 'rgba(20, 72, 84, 0.20)',
-      accent: '#0e7c86', accent2: '#0a6670', accentSoft: '#d5eef1', accentSoftHover: '#c2e5ea', accentOutline: 'rgba(14, 124, 134, 0.30)', onAccent: '#ffffff',
+      accent: '#0d7983', accent2: '#0a6670', accentSoft: '#d5eef1', accentSoftHover: '#c2e5ea', accentOutline: 'rgba(14, 124, 134, 0.30)', onAccent: '#ffffff',
       info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
       shadowSm: '0 1px 2px rgba(20, 72, 84, 0.06)', shadowMd: '0 4px 14px rgba(20, 72, 84, 0.09)', shadowLg: '0 12px 36px rgba(20, 72, 84, 0.14)', shadowCard: '0 0 0 0.5px rgba(20, 72, 84, 0.10), 0 1px 3px rgba(20, 72, 84, 0.06)',
       kbdBg: '#dceef2', kbdFg: '#28404a',
