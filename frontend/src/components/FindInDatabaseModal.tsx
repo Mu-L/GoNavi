@@ -1,8 +1,9 @@
 import Modal from './common/ResizableDraggableModal';
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Input, Button, Table, Progress, Space, Tag, message, Tooltip, Select, Empty } from 'antd';
 import { SearchOutlined, StopOutlined, EyeOutlined, DatabaseOutlined } from '@ant-design/icons';
-import { DBQuery, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
+import { CancelQuery, DBQueryWithCancel, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
+import { v4 as uuidv4 } from 'uuid';
 import { quoteIdentPart, quoteQualifiedIdent, escapeLiteral } from '../utils/sql';
 import { useStore } from '../store';
 import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
@@ -74,7 +75,8 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
     const [results, setResults] = useState<SearchResultItem[]>([]);
     const [progress, setProgress] = useState({ current: 0, total: 0, tableName: '' });
     const [expandedTable, setExpandedTable] = useState<string | null>(null);
-    const cancelledRef = useRef(false);
+    const searchRunSequenceRef = useRef(0);
+    const currentQueryIdRef = useRef('');
 
     const connections = useStore(state => state.connections);
     const theme = useStore(state => state.theme);
@@ -100,6 +102,25 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
         };
     }, [conn]);
 
+    const cancelActiveSearch = useCallback(() => {
+        searchRunSequenceRef.current += 1;
+        const queryId = currentQueryIdRef.current;
+        currentQueryIdRef.current = '';
+        setSearching(false);
+        if (queryId) {
+            void Promise.resolve(CancelQuery(queryId)).catch(() => undefined);
+        }
+    }, []);
+
+    useEffect(() => () => {
+        searchRunSequenceRef.current += 1;
+        const queryId = currentQueryIdRef.current;
+        currentQueryIdRef.current = '';
+        if (queryId) {
+            void Promise.resolve(CancelQuery(queryId)).catch(() => undefined);
+        }
+    }, []);
+
     const handleSearch = useCallback(async () => {
         const searchKeyword = keyword.trim();
         if (!searchKeyword) {
@@ -112,13 +133,17 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
             return;
         }
 
+        const searchRunSequence = ++searchRunSequenceRef.current;
+        const searchRunId = uuidv4();
+        const isCurrentRun = () => searchRunSequenceRef.current === searchRunSequence;
+
         setSearching(true);
         setResults([]);
         setExpandedTable(null);
-        cancelledRef.current = false;
 
         try {
             const tablesRes = await DBGetTables(buildRpcConnectionConfig(config) as any, dbName);
+            if (!isCurrentRun()) return;
             if (!tablesRes.success || isTableMetadataIncomplete(tablesRes)) {
                 const detail = getTableMetadataIssueDetail(tablesRes);
                 const notify = tablesRes.success ? message.warning : message.error;
@@ -137,6 +162,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
             setProgress({ current: 0, total: tableNames.length, tableName: '' });
 
             const allColsRes = await DBGetAllColumns(buildRpcConnectionConfig(config) as any, dbName);
+            if (!isCurrentRun()) return;
             if (!allColsRes?.success) {
                 message.error(t('find_in_database.message.get_all_columns_failed', {
                     detail: String(allColsRes?.message || ''),
@@ -159,7 +185,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
             const escapedKeyword = escapeLiteral(searchKeyword);
 
             for (let i = 0; i < tableNames.length; i++) {
-                if (cancelledRef.current) break;
+                if (!isCurrentRun()) return;
 
                 const tableName = tableNames[i];
                 setProgress({ current: i + 1, total: tableNames.length, tableName });
@@ -186,9 +212,20 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     : quoteQualifiedIdent(dbType, tableName);
                 const baseSql = `SELECT * FROM ${quotedTable} WHERE ${whereConditions.join(' OR ')}`;
                 const sql = buildLimitedSelectSQL(dbType, baseSql, MAX_MATCH_ROWS_PER_TABLE);
+                const queryId = `database-search-${searchRunId}-${i}`;
 
                 try {
-                    const res = await DBQuery(buildRpcConnectionConfig(config) as any, dbName, sql);
+                    currentQueryIdRef.current = queryId;
+                    const res = await DBQueryWithCancel(
+                        buildRpcConnectionConfig(config) as any,
+                        dbName,
+                        sql,
+                        queryId,
+                    );
+                    if (!isCurrentRun()) return;
+                    if (currentQueryIdRef.current === queryId) {
+                        currentQueryIdRef.current = '';
+                    }
                     if (res.success && Array.isArray(res.data) && res.data.length > 0) {
                         const matchedCols = new Set<string>();
                         const lowerKeyword = searchKeyword.toLowerCase();
@@ -218,33 +255,38 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     }
                 } catch {
                     // Per-table query failures should not stop the whole search.
+                } finally {
+                    if (currentQueryIdRef.current === queryId) {
+                        currentQueryIdRef.current = '';
+                    }
                 }
             }
 
-            if (!cancelledRef.current) {
+            if (isCurrentRun()) {
                 setResults([...searchResults]);
                 if (searchResults.length === 0) {
                     message.info(t('find_in_database.message.no_matches'));
                 }
             }
         } catch (e: any) {
+            if (!isCurrentRun()) return;
             message.error(t('find_in_database.message.search_failed', { detail: e?.message || String(e) }));
         } finally {
-            setSearching(false);
+            if (isCurrentRun()) setSearching(false);
         }
     }, [keyword, matchMode, dbName, dbType, buildConfig, t]);
 
     const handleCancel = useCallback(() => {
-        cancelledRef.current = true;
-    }, []);
+        cancelActiveSearch();
+    }, [cancelActiveSearch]);
 
     const handleClose = useCallback(() => {
-        cancelledRef.current = true;
+        cancelActiveSearch();
         setResults([]);
         setExpandedTable(null);
         setProgress({ current: 0, total: 0, tableName: '' });
         onClose();
-    }, [onClose]);
+    }, [cancelActiveSearch, onClose]);
 
     const summaryColumns = useMemo(() => [
         {
