@@ -284,6 +284,16 @@ export const resolveSidebarTreeVirtualHeight = (
   );
 };
 
+/** Exact V2 row geometry, including Ant Tree's 4px inter-row margin. */
+export const resolveSidebarTreeRowHeight = (
+  node: SidebarTreeNode | null | undefined,
+): number => {
+  if (node?.type === 'v2-table-section' || node?.type === 'v2-database-section') {
+    return 36;
+  }
+  return 30;
+};
+
 export const hasSidebarLazyChildren = (children: unknown): boolean => {
   return Array.isArray(children) && children.length > 0;
 };

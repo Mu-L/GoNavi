@@ -3161,6 +3161,8 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder {
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical {
   visibility: hidden !important;
   pointer-events: none;
+  /* Keep the visible 8px scrollbar above App's 16px sidebar resize hit area. */
+  z-index: 4;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell.is-vertical-scrolling .ant-tree-list-scrollbar-vertical {
@@ -3207,12 +3209,6 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode {
   padding: 0 6px !important;
   align-items: center;
   transition: background-color 80ms ease;
-}
-
-/* Connection rows sit one step taller than object rows for hierarchy */
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection),
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) {
-  min-height: 28px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher {
@@ -3263,10 +3259,9 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wra
   color: var(--gn-fg-3) !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-node-content-wrapper,
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-node-content-wrapper {
-  min-height: 28px !important;
-  padding-right: 8px !important;
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection-group {
+  padding-right: 2px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:hover {

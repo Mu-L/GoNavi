@@ -234,6 +234,7 @@ import {
   buildV2RailConnectionGroups,
   buildV2SidebarDatabaseSectionedChildren,
   buildV2SidebarTableSectionedChildren,
+  resolveSidebarTreeRowHeight,
   collectSidebarSubtreeKeys,
   estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
@@ -277,6 +278,7 @@ export {
   buildV2RailConnectionGroups,
   buildV2SidebarDatabaseSectionedChildren,
   buildV2SidebarTableSectionedChildren,
+  resolveSidebarTreeRowHeight,
   collectSidebarSubtreeKeys,
   estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
@@ -1270,7 +1272,6 @@ const Sidebar: React.FC<{
   // Virtual Scroll State
   const [treeHeight, setTreeHeight] = useState(500);
   const [treeViewportWidth, setTreeViewportWidth] = useState(0);
-  const [isTreeScrolling, setIsTreeScrolling] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const treeScrollIdleTimerRef = useRef<number | null>(null);
   const treeRef = useRef<any>(null);
@@ -1332,13 +1333,13 @@ const Sidebar: React.FC<{
 
   const markTreeScrollActivity = useCallback(() => {
       if (!isV2Ui) return;
-      setIsTreeScrolling(true);
+      treeContainerRef.current?.classList.add('is-vertical-scrolling');
       if (treeScrollIdleTimerRef.current !== null) {
           window.clearTimeout(treeScrollIdleTimerRef.current);
       }
       treeScrollIdleTimerRef.current = window.setTimeout(() => {
           treeScrollIdleTimerRef.current = null;
-          setIsTreeScrolling(false);
+          treeContainerRef.current?.classList.remove('is-vertical-scrolling');
       }, SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS);
   }, [isV2Ui]);
 
@@ -1346,6 +1347,7 @@ const Sidebar: React.FC<{
       if (treeScrollIdleTimerRef.current !== null) {
           window.clearTimeout(treeScrollIdleTimerRef.current);
       }
+      treeContainerRef.current?.classList.remove('is-vertical-scrolling');
   }, []);
 
   useEffect(() => {
@@ -4894,7 +4896,7 @@ const Sidebar: React.FC<{
 
         <div
             ref={treeContainerRef}
-            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}${isTreeScrolling ? ' is-vertical-scrolling' : ''}${sidebarTreeDragNodeType === 'connection' ? ' is-host-tree-dragging' : ''}${sidebarTreeDropPreview ? ' has-host-group-drop-preview' : ''}`}
+            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}${sidebarTreeDragNodeType === 'connection' ? ' is-host-tree-dragging' : ''}${sidebarTreeDropPreview ? ' has-host-group-drop-preview' : ''}`}
             onWheelCapture={handleTreeWheel}
             onTouchMoveCapture={markTreeScrollActivity}
             onDragEnterCapture={handleSidebarTreeDragOverCapture}
@@ -4957,6 +4959,8 @@ const Sidebar: React.FC<{
                     selectedKeys={selectedKeys}
                     blockNode
                     height={effectiveTreeHeight}
+                    itemHeight={isV2Ui ? 30 : undefined}
+                    itemHeightResolver={isV2Ui ? resolveSidebarTreeRowHeight : undefined}
                     scrollWidth={isV2Ui ? v2TreeHorizontalScrollWidth : undefined}
                     onRightClick={onRightClick}
                 />
