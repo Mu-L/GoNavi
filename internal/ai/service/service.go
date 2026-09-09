@@ -59,6 +59,7 @@ type Service struct {
 	agentHarnessInitialized        bool
 	agentHarnessInitialization     error
 	agentHarnessShutdown           bool
+	agentDataMaintenanceMu         sync.Mutex
 	agentPolicyMu                  sync.Mutex
 	// agentPolicyWatcherMu protects the lifecycle of the lightweight file
 	// watcher that keeps an already-running desktop Harness in sync with policy
@@ -486,6 +487,10 @@ func (s *Service) AISaveProvider(config ai.ProviderConfig) error {
 	if err := validateSubscriptionCLIProviderAuth(config); err != nil {
 		return err
 	}
+	// These fields belonged to controls removed from the provider editor. Clear
+	// them at the service boundary as well, so stale or older clients cannot keep
+	// hidden values alive in memory or on disk.
+	config = clearRemovedProviderEditorFields(config)
 	localCLIAuth := isLocalCLIAuthProvider(config)
 	if localCLIAuth {
 		config = clearLocalCLIProviderSecrets(config)
@@ -1272,6 +1277,22 @@ func (s *Service) AIListModels() map[string]interface{} {
 	}
 
 	config = normalizeProviderConfig(config)
+	return listProviderModels(config, localizer, true)
+}
+
+// AIListProviderModels refreshes model choices for an unsaved provider draft.
+// It never writes the draft or changes the active provider; saved credentials
+// are resolved by ID when the editor intentionally retains its existing secret.
+func (s *Service) AIListProviderModels(config ai.ProviderConfig) map[string]interface{} {
+	localizer := s.serviceLocalizerForLanguage()
+	resolved, err := s.resolveProviderConfigSecrets(config)
+	if err != nil {
+		return map[string]interface{}{"success": false, "models": []string{}, "error": err.Error()}
+	}
+	return listProviderModels(normalizeProviderConfig(resolved), localizer, false)
+}
+
+func listProviderModels(config ai.ProviderConfig, localizer *i18n.Localizer, allowConfiguredFallback bool) map[string]interface{} {
 	if isLocalCLIAuthProvider(config) || normalizedProviderType(config) == "codebuddy-cli" {
 		return map[string]interface{}{
 			"success": true,
@@ -1286,7 +1307,7 @@ func (s *Service) AIListModels() map[string]interface{} {
 	models, err := fetchModelsFunc(config, localizer)
 	if err != nil {
 		// 回退到配置中的静态模型列表
-		if len(config.Models) > 0 || len(config.CustomModels) > 0 {
+		if allowConfiguredFallback && (len(config.Models) > 0 || len(config.CustomModels) > 0) {
 			return map[string]interface{}{"success": true, "models": selectableProviderModels(config, config.Models), "source": "static"}
 		}
 		return map[string]interface{}{"success": false, "models": []string{}, "error": err.Error()}

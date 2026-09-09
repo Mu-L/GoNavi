@@ -153,7 +153,7 @@ describe('settings center tool entries', () => {
     expect(appSource).not.toMatch(/rootClassName=\{`gonavi-settings-center-modal/);
     expect(appSource).toContain("return { key: 'language', group }");
     expect(appSource).toContain("return { key: 'proxy', group }");
-    expect(appSource).toContain("return { key: 'data-root', group }");
+    expect(appSource).toContain("return { key: 'data-root-application', group }");
     expect(appSource).not.toContain('handleBackFromSettingsCenterPane');
     expect(appSource).not.toContain('gonavi-settings-center-group-tab');
     expect(appSource).not.toContain("t('common.back_to_settings')");
@@ -162,6 +162,11 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain('AI_SETTINGS_NAV_ITEMS.map');
     expect(appSource).toContain("key: `ai-${item.key}`");
     expect(appSource).toContain("key: 'ai-providers-connected'");
+    expect(appSource).toContain("key: 'data-root-application'");
+    expect(appSource).toContain("key: 'data-root-agent'");
+    expect(appSource).toContain("key: 'data-root-saved-queries'");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'data-root-agent')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'data-root-saved-queries')");
     expect(appSource).toContain('onProvidersViewChange={setAiSettingsProviderView}');
     expect(appSource).toContain('onCloseHost={handleCancelSettingsCenterPane}');
     expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");

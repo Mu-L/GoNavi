@@ -538,6 +538,27 @@ if (
         defaultSavedQueryDirectory: 'C:/mock/.gonavi/saved_queries',
         savedQueryDirectorySource: 'default',
     };
+    let mockAgentDataDirectory = mockDataRootInfo.path;
+    let mockAgentDataRestartRequired = false;
+    const mockAgentDataStats = () => ({
+        fileBytes: 4096 + mockAgentSessions.size * 2048 + mockWorkspaceSnapshots.size * 1024,
+        walBytes: 0,
+        allocatedBytes: 4096 + mockAgentSessions.size * 2048 + mockWorkspaceSnapshots.size * 1024,
+        freeBytes: 0,
+        sessionCount: mockAgentSessions.size,
+        runCount: mockAgentRuns.size,
+        snapshotCount: mockWorkspaceSnapshots.size,
+        activeRunCount: [...mockAgentRuns.values()].filter((run) => (
+            !['completed', 'failed', 'canceled', 'exhausted'].includes(run.snapshot.state)
+        )).length,
+    });
+    const mockAgentDataInfo = () => ({
+        directory: mockAgentDataDirectory,
+        defaultDirectory: mockDataRootInfo.path,
+        source: mockAgentDataDirectory === mockDataRootInfo.path ? 'default' : 'custom',
+        restartRequired: mockAgentDataRestartRequired,
+        stats: mockAgentDataStats(),
+    });
 
     const upsertMockConnection = (view: any) => {
         const index = mockConnections.findIndex((item) => item.id === view.id);
@@ -1274,6 +1295,41 @@ if (
                 AIGetContextLevel: async () => mockAIContextLevel,
                 AIGetBuiltinPrompts: async () => ({}),
                 AIGetUserPromptSettings: async () => cloneBrowserMockValue(mockAIUserPromptSettings),
+                AIGetAgentDataDirectoryInfo: async () => cloneBrowserMockValue(mockAgentDataInfo()),
+                AISelectAgentDataDirectory: async (current: string) => (
+                    String(current || mockAgentDataDirectory).replace(/[\\/]$/, '') + '/ai-assistant-data'
+                ),
+                AIApplyAgentDataDirectory: async (directory: string) => {
+                    mockAgentDataDirectory = String(directory || mockDataRootInfo.path);
+                    mockAgentDataRestartRequired = true;
+                    return cloneBrowserMockValue(mockAgentDataInfo());
+                },
+                AIOpenAgentDataDirectory: async () => null,
+                AIOptimizeAgentData: async () => {
+                    const before = mockAgentDataStats();
+                    const newestSnapshots = new Map(mockWorkspaceSnapshots);
+                    mockWorkspaceSnapshots.clear();
+                    newestSnapshots.forEach((value, key) => mockWorkspaceSnapshots.set(key, value));
+                    return cloneBrowserMockValue({
+                        info: mockAgentDataInfo(),
+                        maintenance: { before, after: mockAgentDataStats(), removedSnapshots: 0, removedSessions: 0 },
+                    });
+                },
+                AIClearAgentData: async () => {
+                    const before = mockAgentDataStats();
+                    mockAgentSessions.clear();
+                    mockAgentRuns.clear();
+                    mockWorkspaceSnapshots.clear();
+                    return cloneBrowserMockValue({
+                        info: mockAgentDataInfo(),
+                        maintenance: {
+                            before,
+                            after: mockAgentDataStats(),
+                            removedSnapshots: before.snapshotCount,
+                            removedSessions: before.sessionCount,
+                        },
+                    });
+                },
                 AISubmitAgentInput: async (request: any) => submitMockAgentInput(request),
                 AIControlAgentRun: async (request: any) => controlMockAgentRun(request),
                 AIReadAgentRun: async (request: any) => {

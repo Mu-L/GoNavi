@@ -3,7 +3,6 @@ import { AppstoreOutlined } from '@ant-design/icons';
 
 export const PRESET_ICON_SLUG: Record<string, string> = {
   openai: 'openai',
-  codex: 'codex',
   deepseek: 'deepseek',
   'qwen-bailian': 'alibabacloud',
   'qwen-coding-plan': 'alibabacloud',
@@ -20,11 +19,12 @@ export const PRESET_ICON_SLUG: Record<string, string> = {
   orcarouter: 'orcarouter',
   zhipu: 'zhipu',
   moonshot: 'moonshot',
+  'xiaomi-mimo': 'xiaomimimo',
   'volcengine-ark': 'volcengine',
   'volcengine-coding': 'volcengine',
 };
 
-const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'codex', 'cursor', 'grok', 'claudecode', 'moonshot']);
+const WHITE_DARK_SLUGS = new Set(['openai', 'anthropic', 'ollama', 'cursor', 'grok', 'claudecode', 'atlascloud']);
 
 export interface AIProviderLogoProps {
   presetKey: string;
