@@ -17,7 +17,7 @@ import (
 )
 
 func TestBuildCodexCLIArgsUsesIsolatedReadOnlyExecutionAndStdin(t *testing.T) {
-	args := buildCodexCLIArgs(ai.ProviderConfig{Model: "gpt-5-codex"})
+	args := buildCodexCLIArgs(ai.ProviderConfig{Model: "gpt-5-codex"}, codexCLIProviderRouting{})
 
 	for _, expected := range []string{
 		"exec",
@@ -69,7 +69,7 @@ func TestBuildCodexCLIArgsUsesIsolatedReadOnlyExecutionAndStdin(t *testing.T) {
 }
 
 func TestBuildCodexCLIArgsLeavesModelToSubscriptionDefault(t *testing.T) {
-	args := buildCodexCLIArgs(ai.ProviderConfig{})
+	args := buildCodexCLIArgs(ai.ProviderConfig{}, codexCLIProviderRouting{})
 	if hasArg(args, "-m") {
 		t.Fatalf("expected no model override, got %#v", args)
 	}
@@ -190,6 +190,287 @@ func TestCodexCLIProviderCustomEnvironmentCanSelectAPIKeyAuthentication(t *testi
 	}
 }
 
+func TestCodexCLIProviderPreservesSelectedCustomModelProvider(t *testing.T) {
+	restore := overrideCodexCLIForTest(t, "success")
+	defer restore()
+
+	codexHome := t.TempDir()
+	configTOML := `model = "proxy-model"
+model_provider = "proxy"
+developer_instructions = "must not reach GoNavi"
+
+[model_providers.proxy]
+name = "Compatible proxy"
+base_url = "https://proxy.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.unused]
+base_url = "https://unused.example/v1"
+
+[mcp_servers.untrusted]
+command = "must-not-run"
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	helperCommandContext := codexCommandContext
+	var modelArgs []string
+	codexCommandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
+		modelArgs = append([]string(nil), args...)
+		return helperCommandContext(ctx, path, args...)
+	}
+
+	provider, err := NewCodexCLIProvider(ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv:   map[string]string{"CODEX_HOME": codexHome},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "hello"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	joined := strings.Join(modelArgs, "\n")
+	for _, want := range []string{`model_provider="proxy"`, `https://proxy.example/v1`, "-m\nproxy-model"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("Codex invocation did not preserve %q: %#v", want, modelArgs)
+		}
+	}
+	for _, forbidden := range []string{"must not reach GoNavi", "https://unused.example/v1", "must-not-run"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("Codex invocation leaked unrelated user config %q: %#v", forbidden, modelArgs)
+		}
+	}
+	if !hasArg(modelArgs, "--ignore-user-config") {
+		t.Fatalf("provider routing must not disable user-config isolation: %#v", modelArgs)
+	}
+}
+
+func TestCodexCLIProviderUsesExplicitGoNaviModelOverCLIConfigDefault(t *testing.T) {
+	providerConfig := codexCLIModelProviderConfig{BaseURL: "https://proxy.example/v1"}
+	args := buildCodexCLIArgs(ai.ProviderConfig{Model: "gonavi-model"}, codexCLIProviderRouting{
+		Model:      "cli-default-model",
+		ProviderID: "proxy",
+		Provider:   &providerConfig,
+	})
+	if !hasArgSequence(args, "-m", "gonavi-model") || hasArg(args, "cli-default-model") {
+		t.Fatalf("expected GoNavi model to override CLI default, got %#v", args)
+	}
+}
+
+func TestLoadCodexCLIProviderRoutingPrefersConfiguredCODEXHome(t *testing.T) {
+	processHome := t.TempDir()
+	configuredHome := t.TempDir()
+	t.Setenv("CODEX_HOME", processHome)
+	for path, model := range map[string]string{
+		processHome:    "process-model",
+		configuredHome: "configured-model",
+	} {
+		if err := os.WriteFile(filepath.Join(path, "config.toml"), []byte(`model = "`+model+`"`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	routing, err := loadCodexCLIProviderRouting(map[string]string{"CODEX_HOME": configuredHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routing.Model != "configured-model" {
+		t.Fatalf("model = %q, want configured CODEX_HOME model", routing.Model)
+	}
+}
+
+func TestCodexCLIProviderMovesStaticProviderSecretsOutOfArgsAndLogs(t *testing.T) {
+	codexHome := t.TempDir()
+	configTOML := `model_provider = "proxy"
+
+[model_providers.proxy]
+base_url = "https://proxy.example/v1"
+wire_api = "responses"
+experimental_bearer_token = "secret-static-bearer"
+http_headers = { Authorization = "Bearer secret-header-value", X-Tenant = "tenant-secret" }
+env_http_headers = { X-Existing = "EXISTING_HEADER_ENV" }
+query_params = { api-version = "secret-query-value" }
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	routing, err := loadCodexCLIProviderRouting(map[string]string{"CODEX_HOME": codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := buildCodexCLIArgs(ai.ProviderConfig{}, routing)
+	joinedArgs := strings.Join(args, "\n")
+	for _, secret := range []string{"secret-static-bearer", "secret-header-value", "tenant-secret"} {
+		if strings.Contains(joinedArgs, secret) {
+			t.Fatalf("provider secret leaked into argv: %q in %#v", secret, args)
+		}
+	}
+	if routing.Env["GONAVI_CODEX_PROVIDER_BEARER_TOKEN"] != "secret-static-bearer" {
+		t.Fatalf("static bearer token was not moved to the child environment: %#v", routing.Env)
+	}
+	if routing.Env["GONAVI_CODEX_PROVIDER_HTTP_HEADER_0"] != "Bearer secret-header-value" ||
+		routing.Env["GONAVI_CODEX_PROVIDER_HTTP_HEADER_1"] != "tenant-secret" {
+		t.Fatalf("static headers were not moved to the child environment: %#v", routing.Env)
+	}
+
+	loggedArgs := sanitizeCodexCLIArgsForLog(args)
+	joinedLog := strings.Join(loggedArgs, "\n")
+	for _, hidden := range []string{"https://proxy.example/v1", "secret-query-value", "GONAVI_CODEX_PROVIDER_BEARER_TOKEN"} {
+		if strings.Contains(joinedLog, hidden) {
+			t.Fatalf("provider config leaked into request log: %q in %#v", hidden, loggedArgs)
+		}
+	}
+	if !strings.Contains(joinedLog, "model_providers.proxy.base_url=[REDACTED]") {
+		t.Fatalf("expected provider config values to be redacted, got %#v", loggedArgs)
+	}
+}
+
+func TestLoadCodexCLIProviderRoutingRejectsMissingSelectedProvider(t *testing.T) {
+	codexHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(`model_provider = "missing"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loadCodexCLIProviderRouting(map[string]string{"CODEX_HOME": codexHome})
+	if err == nil || !strings.Contains(err.Error(), "refusing to fall back") {
+		t.Fatalf("expected missing provider to block OpenAI fallback, got %v", err)
+	}
+}
+
+func TestLoadCodexCLIProviderRoutingAllowsBuiltInProviderWithoutTable(t *testing.T) {
+	codexHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(`model_provider = "ollama"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	routing, err := loadCodexCLIProviderRouting(map[string]string{"CODEX_HOME": codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if routing.ProviderID != "ollama" || routing.Provider != nil || codexCLIProviderNeedsLocalAuth(routing) {
+		t.Fatalf("unexpected built-in provider routing: %#v", routing)
+	}
+	args := buildCodexCLIArgs(ai.ProviderConfig{}, routing)
+	if !hasArgSequence(args, "-c", `model_provider="ollama"`) {
+		t.Fatalf("built-in provider selection was not preserved: %#v", args)
+	}
+}
+
+func TestLoadCodexCLIProviderRoutingPreservesBedrockAWSOverridesWithoutBaseURL(t *testing.T) {
+	codexHome := t.TempDir()
+	configTOML := `model_provider = "amazon-bedrock"
+
+[model_providers.amazon-bedrock.aws]
+region = "us-west-2"
+
+[model_providers.amazon-bedrock.aws.credential_export]
+command = "aws-creds"
+args = ["export", "--json"]
+timeout_ms = 1234
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	routing, err := loadCodexCLIProviderRouting(map[string]string{"CODEX_HOME": codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := buildCodexCLIArgs(ai.ProviderConfig{}, routing)
+	for _, expected := range []string{
+		`model_providers.amazon-bedrock.aws.region="us-west-2"`,
+		`model_providers.amazon-bedrock.aws.credential_export.command="aws-creds"`,
+		`model_providers.amazon-bedrock.aws.credential_export.args=["export","--json"]`,
+		`model_providers.amazon-bedrock.aws.credential_export.timeout_ms=1234`,
+	} {
+		if !hasArg(args, expected) {
+			t.Fatalf("expected %q in Bedrock routing args: %#v", expected, args)
+		}
+	}
+}
+
+func TestCodexCLIProviderDoesNotRequireOpenAILoginForProviderOwnedAuth(t *testing.T) {
+	restore := overrideCodexCLIForTest(t, "success")
+	defer restore()
+
+	codexHome := t.TempDir()
+	configTOML := `model_provider = "proxy"
+
+[model_providers.proxy]
+base_url = "https://proxy.example/v1"
+env_key = "THIRD_PARTY_API_KEY"
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authChecks := 0
+	codexCLILocalAuthCheck = func(context.Context, ai.ProviderConfig) error {
+		authChecks++
+		return errors.New("OpenAI login must not be required")
+	}
+
+	provider, err := NewCodexCLIProvider(ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv: map[string]string{
+			"CODEX_HOME":          codexHome,
+			"THIRD_PARTY_API_KEY": "configured",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Chat(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "hello"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if authChecks != 0 {
+		t.Fatalf("provider-owned API key unexpectedly triggered %d OpenAI login checks", authChecks)
+	}
+}
+
+func TestCodexCLIProviderRejectsMissingProviderOwnedAPIKeyBeforeRequest(t *testing.T) {
+	restore := overrideCodexCLIForTest(t, "success")
+	defer restore()
+
+	codexHome := t.TempDir()
+	configTOML := `model_provider = "proxy"
+
+[model_providers.proxy]
+base_url = "https://proxy.example/v1"
+env_key = "MISSING_THIRD_PARTY_API_KEY"
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	modelStarted := false
+	helperCommandContext := codexCommandContext
+	codexCommandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
+		modelStarted = true
+		return helperCommandContext(ctx, path, args...)
+	}
+
+	provider, err := NewCodexCLIProvider(ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv:   map[string]string{"CODEX_HOME": codexHome},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = provider.Chat(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "hello"}}})
+	if err == nil || !strings.Contains(err.Error(), "MISSING_THIRD_PARTY_API_KEY") {
+		t.Fatalf("expected actionable missing API key error, got %v", err)
+	}
+	if modelStarted {
+		t.Fatal("model request started despite missing provider-owned API key")
+	}
+}
+
 func TestCodexCLIProviderChatStopsWhenAuthenticationCheckFails(t *testing.T) {
 	originalAuthCheck := codexCLILocalAuthCheck
 	originalCommandContext := codexCommandContext
@@ -245,6 +526,42 @@ func TestCheckCodexCLIAuthAcceptsAPIKeyLogin(t *testing.T) {
 
 	if err := CheckCodexCLIAuth(context.Background()); err != nil {
 		t.Fatalf("expected API key login to be accepted, got %v", err)
+	}
+}
+
+func TestCheckCodexCLIAuthAcceptsCustomProviderOwnedAPIKey(t *testing.T) {
+	restore := overrideCodexCLIForTest(t, "login-failed")
+	defer restore()
+
+	codexHome := t.TempDir()
+	configTOML := `model_provider = "proxy"
+
+[model_providers.proxy]
+base_url = "https://proxy.example/v1"
+env_key = "THIRD_PARTY_API_KEY"
+`
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commandsStarted := 0
+	helperCommandContext := codexCommandContext
+	codexCommandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
+		commandsStarted++
+		return helperCommandContext(ctx, path, args...)
+	}
+
+	err := CheckCodexCLIAuthWithConfig(context.Background(), ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv: map[string]string{
+			"CODEX_HOME":          codexHome,
+			"THIRD_PARTY_API_KEY": "configured",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected provider-owned API key auth to be accepted, got %v", err)
+	}
+	if commandsStarted != 0 {
+		t.Fatalf("provider-owned API key should not run OpenAI login status, started %d command(s)", commandsStarted)
 	}
 }
 
@@ -446,6 +763,7 @@ func TestCodexCLIHelperProcess(t *testing.T) {
 
 func overrideCodexCLIForTest(t *testing.T, mode string) func() {
 	t.Helper()
+	t.Setenv("CODEX_HOME", t.TempDir())
 	originalLookPath := codexLookPath
 	originalCommandContext := codexCommandContext
 	originalAuthCheck := codexCLILocalAuthCheck
