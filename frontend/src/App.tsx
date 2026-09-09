@@ -5987,6 +5987,7 @@ function App() {
       id: DownloadSourceId;
       labelKey: string;
       descKey: string;
+      guideKey: string;
       tagKey: string;
       icon: React.ReactNode;
       iconColor: string;
@@ -5998,6 +5999,7 @@ function App() {
           id: 'cst',
           labelKey: 'app.download_source.option.cst',
           descKey: 'app.download_source.option.cst.desc',
+          guideKey: 'app.download_source.option.cst.guide',
           tagKey: 'app.download_source.option.cst.tag',
           icon: <ThunderboltOutlined />,
           iconColor: '#f59e0b',
@@ -6009,6 +6011,7 @@ function App() {
           id: 'bero',
           labelKey: 'app.download_source.option.bero',
           descKey: 'app.download_source.option.bero.desc',
+          guideKey: 'app.download_source.option.bero.guide',
           tagKey: 'app.download_source.option.bero.tag',
           icon: <ApiOutlined />,
           iconColor: '#0ea5e9',
@@ -6020,6 +6023,7 @@ function App() {
           id: 'github',
           labelKey: 'app.download_source.option.github',
           descKey: 'app.download_source.option.github.desc',
+          guideKey: 'app.download_source.option.github.guide',
           tagKey: 'app.download_source.option.github.tag',
           icon: <GithubOutlined />,
           iconColor: darkMode ? '#cbd5e1' : '#475569',
@@ -6030,7 +6034,6 @@ function App() {
   ];
 
   const renderDownloadSourceSettingsContent = useCallback(() => {
-      const cardColumns = viewportWidth < 720 ? 1 : 3;
       return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0' }}>
               <div style={utilityPanelStyle}>
@@ -6042,7 +6045,7 @@ function App() {
                       aria-label={t('app.download_source.title')}
                       style={{
                           display: 'grid',
-                          gridTemplateColumns: `repeat(${cardColumns}, minmax(0, 1fr))`,
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
                           gap: 12,
                       }}
                   >
@@ -6162,6 +6165,9 @@ function App() {
                                               {t(source.tagKey)}
                                           </span>
                                       </div>
+                                      <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, lineHeight: 1.6 }}>
+                                          {t(source.guideKey)}
+                                      </div>
                                       <div
                                           style={{
                                               marginTop: 6,
@@ -6209,7 +6215,6 @@ function App() {
       t,
       utilityMutedTextStyle,
       utilityPanelStyle,
-      viewportWidth,
   ]);
   const renderSidebarMetadataSettingsPane = useCallback(() => (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
