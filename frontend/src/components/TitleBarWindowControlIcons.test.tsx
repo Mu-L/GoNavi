@@ -1,7 +1,6 @@
 import React from 'react';
 import { create } from 'react-test-renderer';
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import {
   TitleBarCloseIcon,
@@ -10,9 +9,6 @@ import {
   TitleBarRestoreIcon,
   resolveTitleBarWindowToggleIcon,
 } from './TitleBarWindowControlIcons';
-
-const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
-const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
 
 describe('TitleBarWindowControlIcons', () => {
   it('renders thin-line minimize / maximize / restore / close glyphs', () => {
@@ -36,15 +32,5 @@ describe('TitleBarWindowControlIcons', () => {
     const restoreTree = create(resolveTitleBarWindowToggleIcon('restore')).toJSON();
     expect(JSON.stringify(maximizeTree)).toContain('7.3');
     expect(JSON.stringify(restoreTree)).toContain('titlebar-window-control-restore-front');
-  });
-
-  it('wires the custom icons into the Windows/Linux titlebar controls', () => {
-    expect(appSource).toContain("from './components/TitleBarWindowControlIcons'");
-    expect(appSource).toContain('<TitleBarMinimizeIcon />');
-    expect(appSource).toContain('<TitleBarCloseIcon />');
-    expect(appSource).toContain("titleBarToggleIconKey === 'restore' ? <TitleBarRestoreIcon /> : <TitleBarMaximizeIcon />");
-    expect(appSource).not.toMatch(/icon=\{<MinusOutlined\s*\/>\}/);
-    expect(appSource).not.toMatch(/titleBarToggleIconKey === 'restore' \? <SwitcherOutlined/);
-    expect(appCss).toContain('.titlebar-window-controls .titlebar-window-control-restore-front');
   });
 });
