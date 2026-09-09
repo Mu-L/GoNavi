@@ -3,7 +3,7 @@ import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Input, Button, Table, Progress, Space, Tag, message, Tooltip, Select, Empty } from 'antd';
 import { SearchOutlined, StopOutlined, EyeOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { DBQuery, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
-import { quoteIdentPart, escapeLiteral } from '../utils/sql';
+import { quoteIdentPart, quoteQualifiedIdent, escapeLiteral } from '../utils/sql';
 import { useStore } from '../store';
 import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
@@ -11,6 +11,7 @@ import { isMacLikePlatform } from '../utils/appearance';
 import { useI18n } from '../i18n/provider';
 import { normalizeTableNamesFromMetadataRows } from '../utils/tableMetadataRows';
 import { getTableMetadataIssueDetail, isTableMetadataIncomplete } from '../utils/tableMetadataResult';
+import { splitQualifiedNameSegments } from '../utils/qualifiedName';
 
 interface FindInDatabaseModalProps {
     open: boolean;
@@ -60,6 +61,10 @@ const buildLimitedSelectSQL = (dbType: string, baseSql: string, limit: number): 
 };
 
 const MAX_MATCH_ROWS_PER_TABLE = 100;
+
+const getTableMetadataIdentity = (dbType: string, tableName: string): string => (
+    splitQualifiedNameSegments(String(tableName || ''), dbType).join('.')
+);
 
 const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose, connectionId, dbName }) => {
     const { t } = useI18n();
@@ -145,7 +150,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
 
             const columnsByTable: Record<string, Array<{ name: string; type: string }>> = {};
             allColumns.forEach((col: any) => {
-                const tbl = col.tableName || '';
+                const tbl = getTableMetadataIdentity(dbType, col.tableName || '');
                 if (!columnsByTable[tbl]) columnsByTable[tbl] = [];
                 columnsByTable[tbl].push({ name: col.name, type: col.type || '' });
             });
@@ -159,7 +164,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                 const tableName = tableNames[i];
                 setProgress({ current: i + 1, total: tableNames.length, tableName });
 
-                const tableCols = columnsByTable[tableName] || [];
+                const tableCols = columnsByTable[getTableMetadataIdentity(dbType, tableName)] || [];
                 const textCols = tableCols.filter(c => isTextColumnType(c.type));
 
                 if (textCols.length === 0) continue;
@@ -173,7 +178,12 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     return `CAST(${quotedCol} AS ${castType}) LIKE '%${escapedKeyword}%'`;
                 });
 
-                const quotedTable = quoteIdentPart(dbType, tableName);
+                // MySQL permits a literal dot in an unqualified table name. Keep
+                // the legacy whole-name quoting there; PostgreSQL and other
+                // qualified-name dialects need segment-aware quoting.
+                const quotedTable = dbType.toLowerCase() === 'mysql'
+                    ? quoteIdentPart(dbType, tableName)
+                    : quoteQualifiedIdent(dbType, tableName);
                 const baseSql = `SELECT * FROM ${quotedTable} WHERE ${whereConditions.join(' OR ')}`;
                 const sql = buildLimitedSelectSQL(dbType, baseSql, MAX_MATCH_ROWS_PER_TABLE);
 
