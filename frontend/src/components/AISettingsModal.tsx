@@ -35,6 +35,8 @@ import AISettingsSafetySection from './ai/AISettingsSafetySection';
 import AISettingsContextSection from './ai/AISettingsContextSection';
 import AISettingsRunPolicySection from './ai/AISettingsRunPolicySection';
 import AISettingsProvidersSection from './ai/AISettingsProvidersSection';
+import AISettingsAnalysisSection from './ai/AISettingsAnalysisSection';
+import AISettingsRequestEventsSection from './ai/AISettingsRequestEventsSection';
 import AISettingsPromptsSection from './ai/AISettingsPromptsSection';
 import AISettingsSkillsSection from './ai/AISettingsSkillsSection';
 import {
@@ -369,7 +371,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
 
     // Each section owns its reads. Opening providers never starts MCP inspection.
     const loadConfig = useCallback(async () => {
-        if (activeSection === 'providers' || activeSection === 'tools') return;
+        if (activeSection === 'providers' || activeSection === 'tools' || activeSection === 'analysis' || activeSection === 'request_events') return;
         const sequence = ++sectionLoadSequenceRef.current;
         const isCurrent = () => mountedRef.current && sequence === sectionLoadSequenceRef.current;
         if (activeSection === 'safety' && isCurrent()) {
@@ -1417,7 +1419,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 role={hideSidebar ? undefined : 'tabpanel'}
                 aria-labelledby={hideSidebar ? undefined : `gonavi-ai-settings-tab-${sectionKey}`}
                 hidden={activeSection !== sectionKey}
-                className={sectionKey === 'providers' ? 'gonavi-ai-settings-panel-providers' : undefined}
+                className={sectionKey === 'providers'
+                    ? 'gonavi-ai-settings-panel-providers'
+                    : sectionKey === 'request_events'
+                        ? 'gonavi-ai-settings-panel-request-events'
+                        : undefined}
             >
                 {sectionKey !== 'providers' && <div style={{ paddingBottom: 12, marginBottom: 2 }}>
                     <div style={{ marginTop: 3, fontSize: 'var(--gn-font-size-sm, 12px)', lineHeight: 1.55, color: overlayTheme.mutedText }}>
@@ -1446,7 +1452,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             <div
                 ref={settingsContentScrollRef}
                 className="gonavi-ai-settings-content"
-                style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: activeSection === 'providers' ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 8px 0' }}
+                style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: activeSection === 'providers' || activeSection === 'request_events' ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 8px 0' }}
             >
                 {renderSectionPanel('providers', (
                     <AISettingsProvidersSection
@@ -1496,6 +1502,24 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         onSaveProviderAsCopy={() => handleSaveProvider('copy')}
                         saveMode={providerSaveMode}
                         dirty={providerDirty}
+                    />
+                ))}
+                {renderSectionPanel('analysis', (
+                    <AISettingsAnalysisSection
+                        active={active && activeSection === 'analysis'}
+                        providers={providers}
+                        overlayTheme={overlayTheme}
+                        cardBg={cardBg}
+                        cardBorder={cardBorder}
+                    />
+                ))}
+                {renderSectionPanel('request_events', (
+                    <AISettingsRequestEventsSection
+                        active={active && activeSection === 'request_events'}
+                        providers={providers}
+                        overlayTheme={overlayTheme}
+                        cardBg={cardBg}
+                        cardBorder={cardBorder}
                     />
                 ))}
                 {renderSectionPanel('safety', (

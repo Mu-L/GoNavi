@@ -46,6 +46,8 @@ vi.mock('../i18n/provider', async () => {
 vi.mock('../store', () => ({ useStore: (select: any) => select({ aiChatOpenMode: 'dock', setAIChatOpenMode: vi.fn() }) }));
 vi.mock('./ai/aiSettingsModalConfig', async (original) => ({ ...await original<object>(), waitForAIService: mocks.resolve }));
 vi.mock('./ai/AISettingsProvidersSection', () => ({ default: (props: any) => { mocks.providerProps = props; return null; } }));
+vi.mock('./ai/AISettingsAnalysisSection', () => ({ default: () => null }));
+vi.mock('./ai/AISettingsRequestEventsSection', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsSidebar', async (original) => ({ ...await original<object>(), default: (props: any) => { mocks.sidebarProps = props; return null; } }));
 vi.mock('./ai/AIBuiltinToolsCatalog', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsMCPSection', () => ({ default: () => null }));
