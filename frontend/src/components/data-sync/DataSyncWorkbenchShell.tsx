@@ -316,14 +316,9 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const taskListRef = useRef<HTMLElement | null>(null);
   const editorColumnRef = useRef<HTMLElement | null>(null);
   const taskMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const [dirtyTaskIds, setDirtyTaskIds] = useState<Set<string>>(
-    () =>
-      new Set(
-        initialTasksRef.current!
-          .filter((task) => task.id.startsWith('data-sync-local-'))
-          .map((task) => task.id),
-      ),
-  );
+  // Entry points provide the initial clean baseline. Explicit edits and tasks
+  // created inside this workbench call markTaskDirty below.
+  const [dirtyTaskIds, setDirtyTaskIds] = useState<Set<string>>(() => new Set());
   const dirtyTaskIdsRef = useRef(dirtyTaskIds);
   const deletedTaskIdsRef = useRef(new Set<string>());
   const markTaskDirty = (taskId: string) => {

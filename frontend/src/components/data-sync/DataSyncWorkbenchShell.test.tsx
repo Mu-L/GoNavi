@@ -25,6 +25,7 @@ import {
   DataSyncWorkbenchShell,
   resolveDataSyncSidebarRefreshes,
 } from './DataSyncWorkbenchShell';
+import { getDirtyWorkbenchTabCloseGuards } from '../../utils/workbenchTabCloseProtection';
 
 const dataSyncWorkbenchCss = readFileSync(
   new URL('./DataSyncWorkbench.css', import.meta.url),
@@ -145,6 +146,7 @@ describe('DataSyncWorkbenchShell', () => {
   });
 
   it('keeps an entry-point task while loading unrelated persisted tasks', async () => {
+    const workbenchTabId = 'data-sync-workbench-loaded-tasks';
     const entryTask = {
       ...buildTask(),
       id: 'data-sync-local-schema-compare',
@@ -168,6 +170,7 @@ describe('DataSyncWorkbenchShell', () => {
         initialTasks={[entryTask]}
         gateway={gateway}
         locale="zh-CN"
+        workbenchTabId={workbenchTabId}
       />,
     );
 
@@ -186,6 +189,160 @@ describe('DataSyncWorkbenchShell', () => {
       'data-task-id': entryTask.id,
       'data-selected': 'true',
     })).toBeTruthy();
+    const dirtyGuards = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+    act(() => renderer.unmount());
+    expect(dirtyGuards).toHaveLength(0);
+  });
+
+  it('treats an entry-point draft as clean until the user edits it when bootstrap fails', async () => {
+    const workbenchTabId = 'data-sync-workbench-clean-entry';
+    const task = {
+      ...buildTask(),
+      id: 'data-sync-local-clean-entry',
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({ tasks: [] });
+    const gateway = {
+      ...baseGateway,
+      listTasks: vi.fn(async () => {
+        throw new Error('data sync service unavailable');
+      }),
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[task]}
+        gateway={gateway}
+        locale="en-US"
+        workbenchTabId={workbenchTabId}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const initialDirtyGuards = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+
+    const taskName = renderer.root
+      .findAllByType('input')
+      .find((input) => input.props.value === task.name)!;
+    act(() => taskName.props.onChange({ target: { value: 'Edited task' } }));
+    const editedDirtyGuards = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+    act(() => renderer.unmount());
+
+    expect(initialDirtyGuards).toHaveLength(0);
+    expect(editedDirtyGuards).toHaveLength(1);
+  });
+
+  it('drops a discarded draft guard and reopens the same entry point cleanly', async () => {
+    const workbenchTabId = 'data-sync-workbench-discard';
+    const task = {
+      ...buildTask(),
+      id: 'data-sync-local-discard',
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[task]}
+        locale="en-US"
+        workbenchTabId={workbenchTabId}
+      />,
+    );
+    const taskName = renderer.root
+      .findAllByType('input')
+      .find((input) => input.props.value === task.name)!;
+    act(() => taskName.props.onChange({ target: { value: 'Discard me' } }));
+    const [dirtyGuard] = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+    expect(dirtyGuard).toBeTruthy();
+
+    await act(async () => {
+      await dirtyGuard.guard.discard();
+      renderer.unmount();
+    });
+    expect(getDirtyWorkbenchTabCloseGuards([workbenchTabId])).toHaveLength(0);
+
+    const reopened = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[task]}
+        locale="en-US"
+        workbenchTabId={workbenchTabId}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const reopenedDirtyGuards = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+    act(() => reopened.unmount());
+    expect(reopenedDirtyGuards).toHaveLength(0);
+  });
+
+  it('clears the close guard after a successful save', async () => {
+    const workbenchTabId = 'data-sync-workbench-save-success';
+    const task = {
+      ...buildTask(),
+      id: 'data-sync-local-save-success',
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({ tasks: [] });
+    const saveTask = vi.fn(async (submitted: typeof task) => ({
+      ...submitted,
+      id: 'persisted-save-success',
+      revision: submitted.revision + 1,
+    }));
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[task]}
+        gateway={{ ...baseGateway, saveTask }}
+        locale="en-US"
+        workbenchTabId={workbenchTabId}
+      />,
+    );
+    const taskName = renderer.root
+      .findAllByType('input')
+      .find((input) => input.props.value === task.name)!;
+    act(() => taskName.props.onChange({ target: { value: 'Save me' } }));
+    const [dirtyGuard] = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+
+    await act(async () => {
+      expect(await dirtyGuard.guard.save()).toBe(true);
+      await Promise.resolve();
+    });
+    expect(saveTask).toHaveBeenCalledTimes(1);
+    expect(getDirtyWorkbenchTabCloseGuards([workbenchTabId])).toHaveLength(0);
+    expect(renderer.root.findByProps({ 'data-dirty': 'false' })).toBeTruthy();
+    act(() => renderer.unmount());
+  });
+
+  it('keeps the close guard dirty when saving fails so the user can retry', async () => {
+    const workbenchTabId = 'data-sync-workbench-save-failure';
+    const task = {
+      ...buildTask(),
+      id: 'data-sync-local-save-failure',
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({ tasks: [] });
+    const saveTask = vi.fn(async () => {
+      throw new Error('save failed');
+    });
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[task]}
+        gateway={{ ...baseGateway, saveTask }}
+        locale="en-US"
+        workbenchTabId={workbenchTabId}
+      />,
+    );
+    const taskName = renderer.root
+      .findAllByType('input')
+      .find((input) => input.props.value === task.name)!;
+    act(() => taskName.props.onChange({ target: { value: 'Retry me' } }));
+    const [dirtyGuard] = getDirtyWorkbenchTabCloseGuards([workbenchTabId]);
+
+    await act(async () => {
+      expect(await dirtyGuard.guard.save()).toBe(false);
+      await Promise.resolve();
+    });
+    expect(saveTask).toHaveBeenCalledTimes(1);
+    expect(getDirtyWorkbenchTabCloseGuards([workbenchTabId])).toHaveLength(1);
+    expect(renderer.root.findByProps({ 'data-dirty': 'true' })).toBeTruthy();
+    act(() => renderer.unmount());
   });
 
   it('turns an unavailable Wails bridge error into a recoverable message', async () => {
