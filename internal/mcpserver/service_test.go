@@ -32,6 +32,8 @@ type fakeBackend struct {
 	queryResult           connection.QueryResult
 	inspection            appcore.SQLInspection
 	safetyLevel           ai.SQLPermissionLevel
+	maskingSettings       ai.ResultMaskingSettings
+	maskingSettingsErr    error
 	queryCalled           bool
 	queryContext          context.Context
 	queryMaxRowsPerResult int
@@ -68,6 +70,19 @@ type cancellableViewsBackend struct {
 type cancellableColumnsBackend struct {
 	*fakeBackend
 	started chan struct{}
+}
+
+type resolvedDialectBackend struct {
+	*fakeBackend
+	effectiveDialect string
+}
+
+func (b *resolvedDialectBackend) ExecuteAuthorizedSQLFromMCP(ctx context.Context, _ string, _ connection.ConnectionConfig, _ string, _ string, _ bool, maxRowsPerResult int) (connection.QueryResult, string) {
+	b.queryCalled = true
+	b.queryContext = ctx
+	b.queryMaxRowsPerResult = maxRowsPerResult
+	b.events = append(b.events, "query")
+	return b.queryResult, b.effectiveDialect
 }
 
 func (b *cancellableViewsBackend) DBGetViews(ctx context.Context, _ connection.ConnectionConfig, _ string) connection.QueryResult {
@@ -157,6 +172,10 @@ func (f *fakeBackend) GetSQLSafetyLevel() ai.SQLPermissionLevel {
 		return ai.PermissionReadOnly
 	}
 	return f.safetyLevel
+}
+
+func (f *fakeBackend) GetResultMaskingSettings() (ai.ResultMaskingSettings, error) {
+	return f.maskingSettings, f.maskingSettingsErr
 }
 
 func (f *fakeBackend) AuthorizeSQLConnection(config connection.ConnectionConfig, sql string) error {
@@ -1415,6 +1434,94 @@ func TestExecuteSQLNormalizesAndTruncatesResultSets(t *testing.T) {
 	}
 	if len(out.Results[0].Rows) != 2 {
 		t.Fatalf("expected 2 returned rows, got %d", len(out.Results[0].Rows))
+	}
+}
+
+func TestExecuteSQLFailsClosedWhenResultMaskingConfigCannotLoad(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{ID: "mysql-main", Config: connection.ConnectionConfig{Type: "mysql", Database: "app"}},
+		inspection:         appcore.SQLInspection{StatementCount: 1, ReadOnly: true, Statements: []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}}},
+		maskingSettingsErr: errors.New("invalid ai_config.json"),
+	}
+	result, _, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{ConnectionID: "mysql-main", SQL: "select phone from users"})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("expected standard MCP error, result=%#v err=%v", result, err)
+	}
+	if backend.queryCalled {
+		t.Fatal("SQL must not execute when result masking configuration cannot load")
+	}
+}
+
+func TestExecuteSQLMasksStructuredAndMarkdownResults(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{ID: "mysql-main", Config: connection.ConnectionConfig{Type: "mysql", Database: "app"}},
+		inspection:         appcore.SQLInspection{StatementCount: 1, ReadOnly: true, Statements: []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}}},
+		maskingSettings:    ai.ResultMaskingSettings{Enabled: true, FullMaskFields: []string{"phone"}},
+		queryResult:        connection.QueryResult{Success: true, Data: []connection.ResultSetData{{StatementIndex: 1, Columns: []string{"mobile"}, Rows: []map[string]interface{}{{"mobile": "13800138000"}}}}},
+	}
+	result, output, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{ConnectionID: "mysql-main", SQL: "select u.phone as mobile from users u"})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	}
+	if got := output.Results[0].Rows[0]["mobile"]; got != "***********" {
+		t.Fatalf("structured output leaked value: %#v", got)
+	}
+	if text := firstTextContent(result); strings.Contains(text, "13800138000") || !strings.Contains(text, "***********") {
+		t.Fatalf("markdown output was not masked: %q", text)
+	}
+}
+
+func TestExecuteSQLUsesResolvedConnectionSQLModeForDuplicateAliases(t *testing.T) {
+	base := &fakeBackend{
+		// The editable view intentionally has no DSN: production strips opaque
+		// connection strings before exposing saved connection metadata.
+		editableConnection: connection.SavedConnectionView{ID: "mysql-main", Config: connection.ConnectionConfig{Type: "mysql", Database: "app"}},
+		inspection:         appcore.SQLInspection{StatementCount: 1, ReadOnly: true, Statements: []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}}},
+		maskingSettings:    ai.ResultMaskingSettings{Enabled: true, FullMaskFields: []string{"phone"}},
+		queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{{
+			StatementIndex: 1,
+			Columns:        []string{"label", "mobile", "mobile_2"},
+			Rows:           []map[string]interface{}{{"label": "public", "mobile": "secret", "mobile_2": "secret2"}},
+		}}},
+	}
+	backend := &resolvedDialectBackend{fakeBackend: base, effectiveDialect: "mysql"}
+	result, output, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "mysql-main",
+		SQL:          `SELECT 'a\' AS label, phone AS mobile, phone AS mobile FROM users`,
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	}
+	row := output.Results[0].Rows[0]
+	if row["mobile"] != "******" || row["mobile_2"] != "*******" {
+		t.Fatalf("resolved NO_BACKSLASH_ESCAPES mode leaked duplicate aliases: %#v", row)
+	}
+	if text := firstTextContent(result); strings.Contains(text, "secret") {
+		t.Fatalf("markdown output leaked duplicate aliases: %q", text)
+	}
+}
+
+func TestExecuteSQLUsesEffectiveOceanBaseOracleDialect(t *testing.T) {
+	base := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{ID: "oceanbase-main", Config: connection.ConnectionConfig{Type: "oceanbase", Database: "app"}},
+		inspection:         appcore.SQLInspection{StatementCount: 1, ReadOnly: true, Statements: []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}}},
+		maskingSettings:    ai.ResultMaskingSettings{Enabled: true, FullMaskFields: []string{"phone"}},
+		queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{{
+			StatementIndex: 1,
+			Columns:        []string{"label", "mobile"},
+			Rows:           []map[string]interface{}{{"label": "public", "mobile": "secret"}},
+		}}},
+	}
+	backend := &resolvedDialectBackend{fakeBackend: base, effectiveDialect: "oracle"}
+	result, output, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "oceanbase-main",
+		SQL:          `SELECT q'[Bob's phone, from sales]' AS label, phone AS mobile FROM users`,
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected success, result=%#v err=%v", result, err)
+	}
+	if got := output.Results[0].Rows[0]["mobile"]; got != "******" {
+		t.Fatalf("OceanBase Oracle projection leaked value: %#v", got)
 	}
 }
 

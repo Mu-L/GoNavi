@@ -280,6 +280,16 @@ func NewApp() *App {
 	return NewAppWithSecretStore(secretstore.NewKeyringStore())
 }
 
+// ConfigDirForIntegration returns the directory used for persisted application
+// settings. It is a package function rather than an App method so Wails does
+// not expose the local filesystem path through its reflective RPC bridge.
+func ConfigDirForIntegration(a *App) string {
+	if a == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.configDir)
+}
+
 // NewWebApp creates the backend used by the authenticated browser server.
 // The immutable runtime marker keeps desktop-only Wails APIs from being
 // reached through the reflective Web RPC bridge.

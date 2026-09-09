@@ -136,7 +136,8 @@ func (executor *MCPQueryExecutor) DBQueryMultiContext(
 	query string,
 	maxRowsPerResult int,
 ) connection.QueryResult {
-	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, true, maxRowsPerResult)
+	result, _ := executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, true, maxRowsPerResult)
+	return result
 }
 
 // DBQueryMultiAuthorizedContext is the MCP execution boundary. It resolves
@@ -152,6 +153,22 @@ func (executor *MCPQueryExecutor) DBQueryMultiAuthorizedContext(
 	allowMutating bool,
 	maxRowsPerResult int,
 ) connection.QueryResult {
+	result, _ := executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating, maxRowsPerResult)
+	return result
+}
+
+// DBQueryMultiAuthorizedContextWithDialect reports the effective SQL dialect
+// from the exact saved connection snapshot used for this execution. This keeps
+// MCP projection parsing aligned with OceanBase protocol and custom-driver
+// routing without exposing resolved connection secrets outside the app layer.
+func (executor *MCPQueryExecutor) DBQueryMultiAuthorizedContextWithDialect(
+	ctx context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	query string,
+	allowMutating bool,
+	maxRowsPerResult int,
+) (connection.QueryResult, string) {
 	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating, maxRowsPerResult)
 }
 
@@ -162,21 +179,22 @@ func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
 	query string,
 	allowMutating bool,
 	maxRowsPerResult int,
-) connection.QueryResult {
+) (connection.QueryResult, string) {
 	if executor == nil || executor.app == nil {
-		return connection.QueryResult{Success: false, Message: "MCP query executor is unavailable"}
+		return connection.QueryResult{Success: false, Message: "MCP query executor is unavailable"}, ""
 	}
 	resolvedConfig, err := executor.app.resolveConnectionSecrets(config)
 	if err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: err.Error()}, ""
 	}
+	effectiveDialect := resolveDDLDBType(resolvedConfig)
 	runtime := &HeadlessRuntime{app: executor.app}
 	if err := runtime.authorizeHeadlessSQL(resolvedConfig, query, allowMutating, false); err != nil {
 		return connection.QueryResult{
 			Success: false,
 			Message: err.Error(),
 			Data:    map[string]any{"errorKind": headlessResultErrorKindPolicy},
-		}
+		}, effectiveDialect
 	}
 	return executor.app.dbQueryMulti(resolvedConfig, dbName, query, "", dbQueryMultiAuditOptions{
 		auditAll:         true,
@@ -184,7 +202,7 @@ func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
 		source:           "mcp",
 		executionContext: ctx,
 		RowBudget:        maxRowsPerResult,
-	})
+	}), effectiveDialect
 }
 
 func normalizeSQLAuditUserActionSource(source string) string {

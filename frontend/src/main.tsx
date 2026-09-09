@@ -151,6 +151,25 @@ if (
     const mockProviderSecrets = new Map<string, string>();
     let mockActiveProviderId = '';
     let mockAISafetyLevel = 'readonly';
+    let mockAIResultMaskingSettings = {
+        enabled: false,
+        fullMaskFields: [] as string[],
+        partialMaskFields: [] as string[],
+    };
+    const mockMaskFieldEquals = (left: string, right: string) => {
+        const escaped = left.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`^(?:${escaped})$`, 'iu').test(right);
+    };
+    const normalizeMockMaskFields = (fields: unknown, excluded: string[] = []) => {
+        const seen = [...excluded];
+        return (Array.isArray(fields) ? fields : []).reduce<string[]>((result, value) => {
+            const field = String(value || '').trim();
+            if (!field || seen.some((existing) => mockMaskFieldEquals(existing, field))) return result;
+            seen.push(field);
+            result.push(field);
+            return result;
+        }, []);
+    };
     let mockAIContextLevel = 'schema_only';
     let mockAIUserPromptSettings: any = {
         global: '',
@@ -1307,6 +1326,7 @@ if (
                 AIGetCLIModelCatalog: async () => ({ models: [], source: 'none', stale: false }),
                 AIListCLIModels: async () => [],
                 AIGetSafetyLevel: async () => mockAISafetyLevel,
+                AIGetResultMaskingSettings: async () => cloneBrowserMockValue(mockAIResultMaskingSettings),
                 AIGetContextLevel: async () => mockAIContextLevel,
                 AIGetBuiltinPrompts: async () => ({}),
                 AIGetUserPromptSettings: async () => cloneBrowserMockValue(mockAIUserPromptSettings),
@@ -1600,6 +1620,15 @@ if (
                 }),
                 AISetSafetyLevel: async (level: string) => {
                     mockAISafetyLevel = String(level || 'readonly');
+                    return null;
+                },
+                AISaveResultMaskingSettings: async (settings: any) => {
+                    const fullMaskFields = normalizeMockMaskFields(settings?.fullMaskFields);
+                    mockAIResultMaskingSettings = {
+                        enabled: settings?.enabled === true,
+                        fullMaskFields,
+                        partialMaskFields: normalizeMockMaskFields(settings?.partialMaskFields, fullMaskFields),
+                    };
                     return null;
                 },
                 AISetContextLevel: async (level: string) => {
