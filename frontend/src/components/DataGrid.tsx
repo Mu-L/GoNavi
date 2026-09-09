@@ -450,7 +450,10 @@ const DataGrid: React.FC<DataGridProps> = ({
   const dataTableDensity = appearance.dataTableDensity;
   const densityParams = useMemo(() => getDensityParams(dataTableDensity), [dataTableDensity]);
   const headerCellMinHeight = densityParams.headerMinHeight;
-  const inputCellPadding: React.CSSProperties = { padding: densityParams.inputCellPadding };
+  const inputCellPadding = useMemo<React.CSSProperties>(
+      () => ({ padding: densityParams.inputCellPadding }),
+      [densityParams.inputCellPadding],
+  );
   const dataTableVerticalBorderColor = resolveDataTableVerticalBorderColor({
       darkMode,
       visible: showDataTableVerticalBorders,
@@ -612,8 +615,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   );
 
   // Handle Dragging
+  const pointerSensorOptions = useMemo(() => ({ activationConstraint: { distance: 8 } }), []);
   const sensors = useSensors(
-      useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+      useSensor(PointerSensor, pointerSensorOptions),
   );
 
   const columnOrderDragScopeRef = useRef(generateUuid());
@@ -633,14 +637,14 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
   }, [connectionId, dbName, enableColumnOrderMemory, localHiddenColumns, setTableColumnOrder, tableName]);
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     // 防御性检查：若正在调整列宽，忽略拖拽排序事件
     if (isResizingRef.current) return;
     const { active, over } = event;
     if (active.id !== over?.id && over) {
       reorderVisibleColumns(String(active.id), String(over.id));
     }
-  };
+  }, [reorderVisibleColumns]);
 
   const selectionColumnWidth = 46;
   const currentConnConfig = connections.find(c => c.id === connectionId)?.config;
@@ -755,6 +759,11 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [darkMode, opacity, resolvedAppearance.blur, isMacLike]);
 
   // 解构常用变量以保持后续代码引用不变
+  const dataGridFilterMessageApi = useMemo(() => ({
+      warning: (content: string) => {
+          void message.warning(content);
+      },
+  }), []);
   const {
       bgContent, bgFilter, bgContextMenu,
       rowAddedBg, rowModBg,
@@ -1667,11 +1676,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       onApplyFilter,
       onApplyQuickWhereCondition,
       onSort,
-      messageApi: {
-          warning: (content) => {
-              void message.warning(content);
-          },
-      },
+      messageApi: dataGridFilterMessageApi,
       translate: translateDataGrid,
       getColumnFilterType,
       resolveDefaultGridFilterOperator,
@@ -3654,9 +3659,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       ));
   }, []);
 
+  const handleViewModeChangeRef = useRef(handleViewModeChange);
+  handleViewModeChangeRef.current = handleViewModeChange;
   const handleRowNumberDoubleClick = useCallback((index: number) => {
-      handleViewModeChange('text', { textRecordIndex: index });
-  }, [handleViewModeChange]);
+      handleViewModeChangeRef.current('text', { textRecordIndex: index });
+  }, []);
 
   const rowNumberColumn = useMemo<ColumnType<any>>(() => ({
       title: (
@@ -3752,28 +3759,29 @@ const DataGrid: React.FC<DataGridProps> = ({
       },
   }), [handleResizeAutoFit, handleResizeStart, handleRowNumberClick, handleRowNumberDoubleClick, pagination?.current, pagination?.pageSize, rowNumberColumnWidth, translateDataGrid]);
 
-  const tableColumns = useMemo(() => {
-      const baseColumns = resolvedShowRowNumberColumn
+  const baseTableColumns = useMemo(() => (
+      resolvedShowRowNumberColumn
           ? [rowNumberColumn, ...mergedColumns]
-          : mergedColumns;
+          : mergedColumns
+  ), [mergedColumns, resolvedShowRowNumberColumn, rowNumberColumn]);
+  const tableColumns = useMemo(() => {
       // 少列时把视口多余宽度只加到数据列，避免行号列被 rc-table 均摊撑宽
       const fixedKeys = [
           ...(resolvedShowRowNumberColumn ? [GONAVI_ROW_NUMBER_COLUMN_KEY] : []),
           ...pinnedLeftColumnNames,
       ];
       return absorbExtraWidthIntoFlexibleColumns({
-          columns: baseColumns,
+          columns: baseTableColumns,
           selectionColumnWidth,
           tableViewportWidth,
           fixedColumnKeys: fixedKeys,
           defaultColumnWidth: densityParams.defaultColumnWidth,
       });
   }, [
+      baseTableColumns,
       densityParams.defaultColumnWidth,
-      mergedColumns,
       pinnedLeftColumnNames,
       resolvedShowRowNumberColumn,
-      rowNumberColumn,
       selectionColumnWidth,
       tableViewportWidth,
   ]);

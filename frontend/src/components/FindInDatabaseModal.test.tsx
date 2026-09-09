@@ -52,6 +52,13 @@ vi.mock("../../wailsjs/go/app/App", () => ({
 vi.mock("antd", async () => {
   const React = await import("react");
   return {
+    Alert: ({
+      description,
+      message,
+    }: {
+      description?: React.ReactNode;
+      message?: React.ReactNode;
+    }) => React.createElement("aside", null, message, description),
     Modal: ({
       children,
       open,
@@ -297,6 +304,150 @@ describe("FindInDatabaseModal i18n", () => {
     expect(mocks.message.error).toHaveBeenCalledWith("Failed to get column summary: metadata permission denied");
     expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
     expect(mocks.dbQueryApplicationWithCancel).not.toHaveBeenCalled();
+  });
+
+  it("reports returned and rejected query failures without counting skipped tables", async () => {
+    mocks.dbGetTables.mockResolvedValue({
+      success: true,
+      data: [{ Table: "denied" }, { Table: "binary_data" }, { Table: "offline" }],
+    });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { tableName: "denied", name: "name", type: "varchar(255)" },
+        { tableName: "binary_data", name: "payload", type: "blob" },
+        { tableName: "offline", name: "name", type: "text" },
+      ],
+    });
+    mocks.dbQuery
+      .mockResolvedValueOnce({ success: false, message: "permission denied" })
+      .mockRejectedValueOnce(new Error("connection lost"));
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedText = textContent(renderer.toJSON());
+    expect(mocks.dbQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.message.error).toHaveBeenCalledWith("Search failed for all 2 searchable tables");
+    expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
+    expect(renderedText).toContain("denied: permission denied");
+    expect(renderedText).toContain("offline: connection lost");
+    expect(renderedText).not.toContain("binary_data:");
+    expect(renderedText).not.toContain("No matching data found");
+  });
+
+  it("preserves matches and marks the result incomplete when one table fails", async () => {
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "customers" }, { Table: "restricted" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { tableName: "customers", name: "name", type: "varchar(255)" },
+        { tableName: "restricted", name: "name", type: "varchar(255)" },
+      ],
+    });
+    mocks.dbQuery
+      .mockResolvedValueOnce({ success: true, data: [{ name: "Alice" }] })
+      .mockResolvedValueOnce({ success: false, message: "permission denied" });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedText = textContent(renderer.toJSON());
+    expect(mocks.message.warning).toHaveBeenCalledWith("Search incomplete: 1 of 2 searchable tables failed");
+    expect(renderedText).toContain("Matching tables: 1");
+    expect(renderedText).toContain("customers");
+    expect(renderedText).toContain("restricted: permission denied");
+  });
+
+  it("reports no matches only when every searchable table query succeeds", async () => {
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "customers" }, { Table: "orders" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { tableName: "customers", name: "name", type: "varchar(255)" },
+        { tableName: "orders", name: "note", type: "text" },
+      ],
+    });
+    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.message.info).toHaveBeenCalledWith("No matching data found");
+    expect(mocks.message.warning).not.toHaveBeenCalled();
+    expect(mocks.message.error).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a failure outcome after cancellation", async () => {
+    let resolveQuery!: (value: unknown) => void;
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "customers" }, { Table: "orders" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { tableName: "customers", name: "name", type: "varchar(255)" },
+        { tableName: "orders", name: "note", type: "text" },
+      ],
+    });
+    mocks.dbQuery.mockReturnValue(new Promise((resolve) => {
+      resolveQuery = resolve;
+    }));
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      void searchButton?.props.onClick();
+      await Promise.resolve();
+    });
+    const cancelButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Cancel"));
+
+    await act(async () => {
+      cancelButton?.props.onClick();
+      resolveQuery({ success: false, message: "connection lost" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.message.error).not.toHaveBeenCalled();
+    expect(mocks.message.warning).not.toHaveBeenCalled();
+    expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
+    expect(textContent(renderer.toJSON())).not.toContain("connection lost");
   });
 
   it.each([
