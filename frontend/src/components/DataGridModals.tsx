@@ -242,36 +242,36 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
           {cellEditorMeta ? `${tableName || ''}${tableName ? '.' : ''}${cellEditorMeta.dataIndex}` : ''}
         </span>
         <span style={{ flex: 1 }} />
+        {cellEditorIsJson && (
+          <>
+            <Tooltip title={translate('data_grid.json_editor.format')}>
+              <Button
+                data-grid-cell-editor-format="true"
+                size="small"
+                icon={<FormatPainterOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.json_editor.format')}
+                disabled={cellEditorEscapeApplied}
+                onClick={onFormatJsonInEditor}
+              >
+                {translate('data_grid.json_editor.format')}
+              </Button>
+            </Tooltip>
+            <Tooltip title={translate('data_grid.json_editor.compact')}>
+              <Button
+                data-grid-cell-editor-compact-json="true"
+                size="small"
+                icon={<CompressOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.json_editor.compact')}
+                disabled={cellEditorEscapeApplied}
+                onClick={onCompactJsonInEditor}
+              >
+                {translate('data_grid.json_editor.compact')}
+              </Button>
+            </Tooltip>
+          </>
+        )}
         {!cellEditorReadOnly && (
           <>
-            {cellEditorIsJson && (
-              <>
-                <Tooltip title={translate('data_grid.json_editor.format')}>
-                  <Button
-                    data-grid-cell-editor-format="true"
-                    size="small"
-                    icon={<FormatPainterOutlined aria-hidden="true" />}
-                    aria-label={translate('data_grid.json_editor.format')}
-                    disabled={cellEditorEscapeApplied}
-                    onClick={onFormatJsonInEditor}
-                  >
-                    {translate('data_grid.json_editor.format')}
-                  </Button>
-                </Tooltip>
-                <Tooltip title={translate('data_grid.json_editor.compact')}>
-                  <Button
-                    data-grid-cell-editor-compact-json="true"
-                    size="small"
-                    icon={<CompressOutlined aria-hidden="true" />}
-                    aria-label={translate('data_grid.json_editor.compact')}
-                    disabled={cellEditorEscapeApplied}
-                    onClick={onCompactJsonInEditor}
-                  >
-                    {translate('data_grid.json_editor.compact')}
-                  </Button>
-                </Tooltip>
-              </>
-            )}
             <Tooltip title={translate('data_grid.cell_editor.escape')}>
               <Button
                 data-grid-cell-editor-escape="true"

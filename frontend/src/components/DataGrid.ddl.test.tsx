@@ -2597,6 +2597,58 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('formats JSON in a protected read-only cell viewer without enabling save', async () => {
+    const compactJson = '{"billType":"YDApp","data":{"items":[{"count":100}]}}';
+    const formattedJson = JSON.stringify(JSON.parse(compactJson), null, 2);
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: compactJson }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'payload']}
+          loading={false}
+          tableName="orders"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+          readOnly
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const doubleClickSurface = renderer!.root.findAll(
+      (node) => typeof node.props.onDoubleClickCapture === 'function',
+    )[0];
+    await act(async () => {
+      doubleClickSurface.props.onDoubleClickCapture({
+        target: createRenderedCellTarget('row-1', 'payload'),
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+
+    const viewer = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_viewer.title_with_column', { column: 'payload' }),
+    });
+    const formatButton = viewer.findByProps({ 'data-grid-cell-editor-format': 'true' });
+    expect(viewer.findByProps({ 'data-monaco-editor': 'true' }).props['data-read-only']).toBe('true');
+    expect(viewer.findByProps({ 'data-grid-cell-editor-compact-json': 'true' })).toBeTruthy();
+    expect(viewer.findAllByProps({ 'data-grid-cell-editor-escape': 'true' })).toHaveLength(0);
+    expect(viewer.findAllByProps({ 'data-grid-cell-editor-unescape': 'true' })).toHaveLength(0);
+    expect(viewer.findAll((node) => node.type === 'button' && textContent(node).includes(t('common.save')))).toHaveLength(0);
+
+    await act(async () => {
+      formatButton.props.onClick();
+    });
+
+    expect(textContent(viewer.findByProps({ 'data-monaco-editor': 'true' }))).toBe(formattedJson);
+    expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(compactJson);
+    renderer!.unmount();
+  });
+
   it('formats a writable JSON cell from the toolbar before saving the draft', async () => {
 
     const compactJson = '{"billType":"YDApp","data":{"items":[{"count":100}]}}';
