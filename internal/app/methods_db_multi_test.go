@@ -1205,7 +1205,7 @@ func TestDBQueryMultiTransactionalCancellationRollsBackWithoutLeavingPendingTran
 	statement := "UPDATE users SET active = 0 WHERE id = 1"
 	execStarted := make(chan string, 2)
 	fakeDB := &fakeBatchWriteDB{
-		execDelay: map[string]time.Duration{statement: 10 * time.Second},
+		execDelay:   map[string]time.Duration{statement: 10 * time.Second},
 		execStarted: execStarted,
 	}
 	newDatabaseFunc = func(dbType string) (db.Database, error) {
@@ -2916,6 +2916,30 @@ func TestDBQueryMultiNormalizesSQLServerSelectAffectedRowsPairsByStatement(t *te
 	for idx, want := range wantStatementIndexes {
 		if got := resultSets[idx].StatementIndex; got != want {
 			t.Fatalf("result set %d statementIndex = %d, want %d; all results: %#v", idx, got, want, resultSets)
+		}
+	}
+}
+
+func TestNormalizeNativeResultStatementIndexesAssignsMySQLSelectPrefix(t *testing.T) {
+	statements := []string{"SELECT phone AS mobile FROM users", "WITH active AS (SELECT phone FROM users) SELECT phone FROM active"}
+	results := []connection.ResultSetData{{Columns: []string{"mobile"}, Truncated: true}}
+
+	normalizeNativeResultStatementIndexes("mysql", statements, results)
+
+	if results[0].StatementIndex != 1 {
+		t.Fatalf("truncated MySQL prefix statementIndex = %d, want 1", results[0].StatementIndex)
+	}
+}
+
+func TestNormalizeNativeResultStatementIndexesDoesNotGuessMySQLProcedureResults(t *testing.T) {
+	statements := []string{"CALL get_users()", "SELECT phone AS mobile FROM users"}
+	results := []connection.ResultSetData{{Columns: []string{"id"}}, {Columns: []string{"mobile"}}}
+
+	normalizeNativeResultStatementIndexes("mysql", statements, results)
+
+	for idx, result := range results {
+		if result.StatementIndex != 0 {
+			t.Fatalf("ambiguous MySQL result set %d received guessed statementIndex=%d: %#v", idx, result.StatementIndex, results)
 		}
 	}
 }

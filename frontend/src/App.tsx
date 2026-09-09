@@ -30,10 +30,6 @@ import {
   isReleaseNotesRead,
   markReleaseNotesRead,
 } from './utils/updateReleaseNotesReadState';
-import {
-  shouldShowFooterReleaseNotesAction,
-  type AboutUpdateActionsSurface,
-} from './utils/aboutUpdateActions';
 import { type DataSyncEntryMode } from './components/dataSyncEntryMode';
 import LinuxCJKFontBanner from './components/LinuxCJKFontBanner';
 import LogPanel from './components/LogPanel';
@@ -896,14 +892,14 @@ function App() {
       [activeCustomTheme],
   );
   const [computedCustomThemeAntTokens, setComputedCustomThemeAntTokens] = useState<CustomThemeAntTokenSnapshot | null>(null);
-  const customThemeStyleContextKey = `${resolvedThemeMode}:${appearance.uiVersion}`;
+  const customThemeStyleContextKey = `${resolvedThemeMode}:v2`;
   const customThemeAntTokens = activeCustomTheme
       && computedCustomThemeAntTokens?.themeId === activeCustomTheme.id
       && computedCustomThemeAntTokens.themeRevision === activeCustomTheme.updatedAt
       && computedCustomThemeAntTokens.contextKey === customThemeStyleContextKey
       ? computedCustomThemeAntTokens.tokens
       : sourceCustomThemeAntTokens;
-  const isV2Ui = true;
+
   const effectiveUiScale = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, Number(uiScale) || DEFAULT_UI_SCALE));
   const effectiveFontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(Number(fontSize) || DEFAULT_FONT_SIZE)));
   const tokenFontSize = Math.round(effectiveFontSize * effectiveUiScale);
@@ -1249,7 +1245,6 @@ function App() {
   const titlebarRuntimePlatform = resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform);
   const isMacRuntime = titlebarRuntimePlatform === 'darwin';
   const shouldDockCollapsedSidebarActionsInTitlebar = resolveCollapsedSidebarDocking(
-      isV2Ui,
       runtimePlatform,
       navigatorPlatform,
       isWebRuntime,
@@ -1291,12 +1286,11 @@ function App() {
   }, [collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]);
   const titleBarLayout = resolveTitleBarLayout(
       effectiveUiScale,
-      isV2Ui,
       isCollapsedSidebarActionsDocked,
       effectiveSidebarRailScale,
   );
   const titleBarHeight = titleBarLayout.height;
-  const sidebarCollapsedWidth = isV2Ui && !shouldDockCollapsedSidebarActionsInTitlebar
+  const sidebarCollapsedWidth = !shouldDockCollapsedSidebarActionsInTitlebar
       ? 38 * effectiveUiScale * effectiveSidebarRailScale
       : 0;
   const renderedSidebarWidth = isSidebarCollapsed ? sidebarCollapsedWidth : sidebarWidth;
@@ -2645,7 +2639,7 @@ function App() {
   }, []);
 
   const {
-      bgContent, bgMain,
+      bgContent,
       floatingLogButtonBgColor, floatingLogButtonBorderColor, floatingLogButtonShadow, floatingLogButtonTextColor,
       isSidebarNarrow, isSidebarUltraCompact,
       overlayTheme, renderUtilityModalTitle,
@@ -2659,7 +2653,6 @@ function App() {
       darkMode,
       effectiveOpacity,
       effectiveUiScale,
-      isV2Ui,
       resolvedAppearance,
       sidebarWidth,
   });
@@ -3011,7 +3004,6 @@ function App() {
       formatBytes,
       handleInstallFromProgress,
       hideUpdateDownloadProgress,
-      isAboutOpen,
       isBackgroundProgressForLatestUpdate,
       isCheckingForUpdates,
       isLatestUpdateDownloaded,
@@ -3023,7 +3015,6 @@ function App() {
       muteLatestUpdate,
       openDownloadedUpdateDirectory,
       prepareAboutSurface,
-      setIsAboutOpen,
       showUpdateDownloadProgress,
       updateChannel,
       updateDownloadProgress,
@@ -3940,7 +3931,6 @@ function App() {
   const directorySettingsApplying = dataRootApplying || logDirectoryApplying || savedQueryDirectoryApplying;
 
   const aiPanelOverlayActive = aiPanelVisible && shouldOverlayAIPanel({
-      isV2Ui,
       viewportWidth,
       sidebarWidth: renderedSidebarWidth,
       panelWidth: DEFAULT_AI_PANEL_WIDTH,
@@ -4866,18 +4856,13 @@ function App() {
   const {
       handleCloseLogPanel: handleCloseAppLogPanel,
       handleLogResizeStart,
-      handleToggleLogPanel: toggleAppLogPanel,
       isLogPanelOpen,
       logGhostRef,
       logPanelHeight,
   } = useAppLogPanelResize();
   const handleToggleLogPanel = useCallback(() => {
-      if (isV2Ui) {
-          window.dispatchEvent(new CustomEvent('gonavi:show-sql-execution-log', { detail: { mode: 'open' } }));
-          return;
-      }
-      toggleAppLogPanel();
-  }, [isV2Ui, toggleAppLogPanel]);
+      window.dispatchEvent(new CustomEvent('gonavi:show-sql-execution-log', { detail: { mode: 'open' } }));
+  }, []);
   const handleCloseLogPanel = useCallback(() => {
       handleCloseAppLogPanel();
   }, [handleCloseAppLogPanel]);
@@ -5565,9 +5550,7 @@ function App() {
   } as any;
 
   const showLinuxResizeHandles = isLinuxRuntime;
-  const resizeGuideColor = isV2Ui
-      ? 'var(--gn-accent, #16a34a)'
-      : (darkMode ? 'rgba(246, 196, 83, 0.55)' : 'rgba(24, 144, 255, 0.5)');
+  const resizeGuideColor = 'var(--gn-accent, #16a34a)';
   const v2AntPrimaryColor = customThemeAntTokens.primary ?? (darkMode ? '#22c55e' : '#16a34a');
   const v2AntPrimaryContrastColor = customThemeAntTokens.primaryContrast ?? '#ffffff';
   const v2AntPrimaryHoverColor = customThemeAntTokens.primaryHover ?? (darkMode ? '#4ade80' : '#15803d');
@@ -5600,36 +5583,36 @@ function App() {
           controlHeightSM: tokenControlHeightSM,
           controlHeightLG: tokenControlHeightLG,
           colorBgLayout: 'transparent',
-          colorBgContainer: (isV2Ui ? v2AntBgContainer : undefined) ?? (darkMode
+          colorBgContainer: v2AntBgContainer ?? (darkMode
               ? `rgba(29, 29, 29, ${effectiveOpacity})`
               : `rgba(255, 255, 255, ${effectiveOpacity})`),
-          colorBgElevated: (isV2Ui ? v2AntBgElevated : undefined) ?? (darkMode
+          colorBgElevated: v2AntBgElevated ?? (darkMode
               ? '#1f1f1f'
               : '#ffffff'),
-          colorFillAlter: (isV2Ui ? v2AntFillAlter : undefined) ?? (darkMode
+          colorFillAlter: v2AntFillAlter ?? (darkMode
               ? `rgba(38, 38, 38, ${effectiveOpacity})`
               : `rgba(250, 250, 250, ${effectiveOpacity})`),
-          ...(isV2Ui && v2AntTextPrimary ? { colorText: v2AntTextPrimary } : {}),
-          ...(isV2Ui && v2AntTextSecondary ? { colorTextSecondary: v2AntTextSecondary } : {}),
-          ...(isV2Ui && v2AntBorder ? {
+          ...(v2AntTextPrimary ? { colorText: v2AntTextPrimary } : {}),
+          ...(v2AntTextSecondary ? { colorTextSecondary: v2AntTextSecondary } : {}),
+          ...(v2AntBorder ? {
               colorBorder: v2AntBorder,
               colorBorderSecondary: v2AntBorder,
           } : {}),
-          colorPrimary: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#f6c453' : '#1677ff'),
-          colorTextLightSolid: isV2Ui ? v2AntPrimaryContrastColor : '#ffffff',
-          colorPrimaryHover: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffd666' : '#4096ff'),
-          colorPrimaryActive: isV2Ui ? v2AntPrimaryActiveColor : (darkMode ? '#d8a93b' : '#0958d9'),
-          colorInfo: isV2Ui ? v2AntInfoColor : (darkMode ? '#f6c453' : '#1677ff'),
-          colorLink: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
-          colorLinkHover: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffe58f' : '#4096ff'),
-          colorLinkActive: isV2Ui ? v2AntPrimaryActiveColor : (darkMode ? '#d8a93b' : '#0958d9'),
-          colorPrimaryBg: isV2Ui ? v2AntPrimaryBgColor : (darkMode ? 'rgba(246, 196, 83, 0.22)' : '#e6f4ff'),
-          colorPrimaryBgHover: isV2Ui ? v2AntPrimaryBgHoverColor : (darkMode ? 'rgba(246, 196, 83, 0.30)' : '#bae0ff'),
-          colorPrimaryBorder: isV2Ui ? v2AntPrimaryBorderColor : (darkMode ? 'rgba(246, 196, 83, 0.45)' : '#91caff'),
-          colorPrimaryBorderHover: isV2Ui ? v2AntPrimaryBorderHoverColor : (darkMode ? 'rgba(246, 196, 83, 0.60)' : '#69b1ff'),
-          controlItemBgActive: isV2Ui ? v2AntControlActiveBg : (darkMode ? 'rgba(246, 196, 83, 0.20)' : 'rgba(22, 119, 255, 0.12)'),
-          controlItemBgActiveHover: isV2Ui ? v2AntControlActiveHoverBg : (darkMode ? 'rgba(246, 196, 83, 0.28)' : 'rgba(22, 119, 255, 0.18)'),
-          controlOutline: isV2Ui ? v2AntControlOutline : (darkMode ? 'rgba(246, 196, 83, 0.50)' : 'rgba(5, 145, 255, 0.24)'),
+          colorPrimary: v2AntPrimaryColor,
+          colorTextLightSolid: v2AntPrimaryContrastColor,
+          colorPrimaryHover: v2AntPrimaryHoverColor,
+          colorPrimaryActive: v2AntPrimaryActiveColor,
+          colorInfo: v2AntInfoColor,
+          colorLink: v2AntPrimaryColor,
+          colorLinkHover: v2AntPrimaryHoverColor,
+          colorLinkActive: v2AntPrimaryActiveColor,
+          colorPrimaryBg: v2AntPrimaryBgColor,
+          colorPrimaryBgHover: v2AntPrimaryBgHoverColor,
+          colorPrimaryBorder: v2AntPrimaryBorderColor,
+          colorPrimaryBorderHover: v2AntPrimaryBorderHoverColor,
+          controlItemBgActive: v2AntControlActiveBg,
+          controlItemBgActiveHover: v2AntControlActiveHoverBg,
+          controlOutline: v2AntControlOutline,
       },
       components: {
           Layout: {
@@ -5640,21 +5623,20 @@ function App() {
           },
           Table: {
               headerBg: 'transparent',
-              rowHoverBg: (isV2Ui ? v2AntRowHoverBg : undefined)
+              rowHoverBg: v2AntRowHoverBg
                   ?? (darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'),
           },
           Tabs: {
               cardBg: 'transparent',
-              itemActiveColor: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffd666' : '#1890ff'),
-              itemHoverColor: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffe58f' : '#40a9ff'),
-              itemSelectedColor: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
-              inkBarColor: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
+              itemActiveColor: v2AntPrimaryHoverColor,
+              itemHoverColor: v2AntPrimaryHoverColor,
+              itemSelectedColor: v2AntPrimaryColor,
+              inkBarColor: v2AntPrimaryColor,
           }
       }
   }), [
       darkMode,
       effectiveOpacity,
-      isV2Ui,
       v2AntBgContainer,
       v2AntBgElevated,
       v2AntBorder,
@@ -6401,43 +6383,13 @@ function App() {
       : (lastUpdateInfo?.packageType === 'portable'
           ? t('app.about.action.download_portable_update')
           : t('app.about.action.download_update'));
-  const renderReleaseNotesActionButton = (key = 'release-notes') => (
-      lastUpdateInfo ? (
-          <Button
-              key={key}
-              icon={<FileTextOutlined />}
-              onClick={openReleaseNotesModal}
-          >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {t('app.about.release_notes.action.view')}
-                  {hasUnreadReleaseNotes ? (
-                      <span
-                          aria-label={t('app.about.release_notes.unread_badge')}
-                          style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: 999,
-                              background: darkMode ? '#4ade80' : '#16a34a',
-                              boxShadow: darkMode ? '0 0 0 2px rgba(15,23,42,0.35)' : '0 0 0 2px rgba(255,255,255,0.9)',
-                          }}
-                      />
-                  ) : null}
-              </span>
-          </Button>
-      ) : null
-  );
-
-  const renderAboutUpdateActions = (
-      surface: AboutUpdateActionsSurface,
-      closeAction?: React.ReactNode,
-  ) => [
+  const renderAboutUpdateActions = () => [
       isBackgroundProgressForLatestUpdate && !isLatestUpdateDownloaded ? (
           <Button key="progress" icon={<DownloadOutlined />} onClick={showUpdateDownloadProgress}>{t('app.about.action.download_progress')}</Button>
       ) : null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="mute" onClick={muteLatestUpdate}>{t('app.about.action.mute_this_version')}</Button>
       ) : null,
-      shouldShowFooterReleaseNotesAction(surface) ? renderReleaseNotesActionButton() : null,
       <Button
           key="check"
           icon={<CloudDownloadOutlined />}
@@ -6446,7 +6398,6 @@ function App() {
       >
           {t('app.about.action.check_updates')}
       </Button>,
-      closeAction ?? null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={handleDownloadUpdateWithNotes}>{updateDownloadActionLabel}</Button>
       ) : null,
@@ -6835,7 +6786,7 @@ function App() {
 
   const renderSettingsCenterAboutFooter = () => (
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginLeft: 'auto' }}>
-          {renderAboutUpdateActions('settings-center')}
+          {renderAboutUpdateActions()}
       </div>
   );
 
@@ -7380,14 +7331,12 @@ function App() {
                                                       borderRadius: 0,
                                                       border: 'none',
                                                       borderLeft: `3px solid ${isFocused
-                                                          ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
+                                                          ? (v2AntPrimaryColor)
                                                           : 'transparent'}`,
                                                       borderBottom: `1px solid ${overlayTheme.divider}`,
                                                       boxShadow: 'none',
                                                       background: isFocused
-                                                          ? (isV2Ui
-                                                              ? v2AntPrimaryBgColor
-                                                              : (darkMode ? 'rgba(255,214,102,0.10)' : 'rgba(24,144,255,0.08)'))
+                                                          ? (v2AntPrimaryBgColor)
                                                           : 'transparent',
                                                       cursor: 'pointer',
                                                       transition: 'border-color 140ms ease, background-color 140ms ease',
@@ -7407,7 +7356,7 @@ function App() {
                                                           fontWeight: 600,
                                                           background: 'transparent',
                                                           color: isFocused
-                                                              ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
+                                                              ? (v2AntPrimaryColor)
                                                               : (darkMode ? 'rgba(255,255,255,0.56)' : 'rgba(16,24,40,0.5)'),
                                                       }}>
                                                           {checked && indexInRow >= 0 ? indexInRow + 1 : '-'}
@@ -7427,8 +7376,8 @@ function App() {
                                                                       lineHeight: '16px',
                                                                       padding: '0 6px',
                                                                       borderRadius: 999,
-                                                                      background: isV2Ui ? v2AntPrimaryBgColor : (darkMode ? 'rgba(255,214,102,0.16)' : 'rgba(24,144,255,0.10)'),
-                                                                      color: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
+                                                                      background: v2AntPrimaryBgColor,
+                                                                      color: v2AntPrimaryColor,
                                                                   }}>
                                                                       {t('app.theme.tab_display.badge.current')}
                                                                   </span>
@@ -7884,7 +7833,7 @@ function App() {
   ];
   const isSettingsCenterContainedScrollPane =
       activeSettingsCenterPane?.key === 'theme' || activeSettingsCenterPane?.key === 'ai';
-  const isV2ThemeSettingsPane = isV2Ui && activeSettingsCenterPane?.key === 'theme';
+  const isV2ThemeSettingsPane = activeSettingsCenterPane?.key === 'theme';
   const activeSettingsCenterDetailPanelStyle: React.CSSProperties = {
       ...toolCenterDetailPanelStyle,
       padding: '0 4px 0 0',
@@ -8043,9 +7992,9 @@ function App() {
         />
         <ToolbarAppearanceStyleHost />
         <Layout
-          className={isV2Ui ? 'gn-v2-app-root' : undefined}
+          className="gn-v2-app-root"
           data-gonavi-close-shortcut-scope="workspace"
-          data-empty-workbench={isV2Ui && tabs.length === 0 ? 'true' : 'false'}
+          data-empty-workbench={tabs.length === 0 ? 'true' : 'false'}
           data-collapsed-sidebar-actions-docked={
               isCollapsedSidebarActionsDocked ? 'true' : 'false'
           }
@@ -8073,8 +8022,8 @@ function App() {
           {/* Custom Title Bar */}
           <div
             className={[
-              isV2Ui ? 'gn-v2-titlebar' : 'gonavi-titlebar',
-              isV2Ui && useNativeMacWindowControls ? 'gn-v2-titlebar-native-mac' : '',
+              'gn-v2-titlebar',
+              useNativeMacWindowControls ? 'gn-v2-titlebar-native-mac' : '',
               isCollapsedSidebarActionsDocked ? 'gn-v2-titlebar-collapsed-docked' : '',
             ].filter(Boolean).join(' ')}
             onDoubleClick={handleTitleBarDoubleClick}
@@ -8083,9 +8032,9 @@ function App() {
                 flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: isV2Ui ? 'flex-start' : 'space-between',
+                justifyContent: 'flex-start',
                 // Match the titlebar to the adjacent theme surface with its compensated opacity.
-                background: isV2Ui ? 'var(--gn-bg-titlebar)' : bgMain,
+                background: 'var(--gn-bg-titlebar)',
                 borderBottom: 'none',
                 userSelect: 'none',
                 WebkitAppRegion: isWebRuntime ? 'no-drag' : 'drag',
@@ -8094,7 +8043,7 @@ function App() {
                 '--gn-titlebar-divider-height': `${titleBarLayout.dividerHeight}px`,
                 '--gn-titlebar-collapsed-upper-height': `${titleBarLayout.upperBandHeight}px`,
                 '--gn-titlebar-window-controls-width': `${isWebRuntime ? titleBarButtonWidth : (useNativeMacWindowControls ? 0 : titleBarButtonWidth * 3)}px`,
-                '--gn-titlebar-native-content-offset': `${getMacNativeTitlebarContentOffset(titleBarHeight, isV2Ui && useNativeMacWindowControls)}px`,
+                '--gn-titlebar-native-content-offset': `${getMacNativeTitlebarContentOffset(titleBarHeight, useNativeMacWindowControls)}px`,
                 paddingLeft: getMacNativeTitlebarPaddingLeft(effectiveUiScale, useNativeMacWindowControls),
                 paddingRight: getMacNativeTitlebarPaddingRight(effectiveUiScale, useNativeMacWindowControls),
                 fontSize: tokenFontSize
@@ -8119,7 +8068,7 @@ function App() {
                     connectionGroupLabel={t('connection.sidebar.management.title')}
                     onConnectionGroupManagement={() => setIsConnectionGroupManagementOpen(true)}
                   />
-                  {isV2Ui && <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />}
+                  <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />
               </div>
               {isCollapsedSidebarActionsDocked && (
                   <div
@@ -8133,16 +8082,14 @@ function App() {
                   />
               )}
               {/* Collapsed sidebar titlebar actions end */}
-              <div className={isV2Ui ? 'gn-v2-titlebar-right' : undefined}>
-                  {isV2Ui && (
-                      <TitleBarSystemActions
-                        aiAssistantLabel={t('app.sidebar.ai_assistant')}
-                        settingsLabel={t('app.sidebar.settings')}
-                        aiActive={aiPanelVisible}
-                        onToggleAI={handleToggleOrFocusAIPanel}
-                        onOpenSettings={handleOpenSettingsModal}
-                      />
-                  )}
+              <div className="gn-v2-titlebar-right">
+                  <TitleBarSystemActions
+                    aiAssistantLabel={t('app.sidebar.ai_assistant')}
+                    settingsLabel={t('app.sidebar.settings')}
+                    aiActive={aiPanelVisible}
+                    onToggleAI={handleToggleOrFocusAIPanel}
+                    onOpenSettings={handleOpenSettingsModal}
+                  />
                   {isWebRuntime ? (
                       <div
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -8215,19 +8162,18 @@ function App() {
             data-sidebar-panel="true"
             data-sidebar-collapsed={isSidebarCollapsed}
             data-sidebar-actions-placement={isCollapsedSidebarActionsDocked ? 'titlebar' : 'fixed-rail'}
-            className={isV2Ui ? 'gn-v2-app-sider' : undefined}
+            className="gn-v2-app-sider"
             style={{
-                borderRight: isV2Ui ? 'none' : '1px solid rgba(128,128,128,0.2)',
+                borderRight: 'none',
                 position: 'relative',
-                background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgMain,
+                background: 'var(--gn-bg-panel-2)',
                 ['--gonavi-sidebar-collapsed-width' as any]: `${sidebarCollapsedWidth}px`,
             }}
           >
             <div
                 ref={sidebarContentRef}
-                id={isV2Ui ? undefined : 'gonavi-sidebar-tree-panel'}
                 data-sidebar-content="true"
-                aria-hidden={isV2Ui ? (isCollapsedSidebarActionsDocked ? true : undefined) : isSidebarCollapsed}
+                aria-hidden={isCollapsedSidebarActionsDocked ? true : undefined}
                 style={{
                     height: '100%',
                     display: 'flex',
@@ -8235,7 +8181,7 @@ function App() {
                     overflow: 'hidden',
                 }}
             >
-                <div style={{ flex: 1, overflow: 'hidden', paddingBottom: isV2Ui ? 0 : 58, paddingRight: isV2Ui || isSidebarCollapsed ? 0 : sidebarResizeHandleWidth, position: 'relative' }}>
+                <div style={{ flex: 1, overflow: 'hidden', paddingBottom: 0, paddingRight: 0, position: 'relative' }}>
                     <div style={{ height: '100%', opacity: connectionWorkbenchState.ready ? 1 : 0.72, pointerEvents: connectionWorkbenchState.ready ? 'auto' : 'none' }}>
                         <Sidebar
                             onCreateConnection={handleCreateConnection}
@@ -8247,17 +8193,16 @@ function App() {
                             onOpenDataSyncWorkbench={handleOpenDataSyncWorkbench}
                             onToggleAI={handleToggleOrFocusAIPanel}
                             onToggleLogPanel={handleToggleLogPanel}
-                            uiVersion={appearance.uiVersion}
                             v2ExplorerContext={v2ExplorerContext}
                             collapsedSidebarActionsTarget={collapsedSidebarActionsTarget}
                             onFocusCommandSearch={handleFocusSidebarSearch}
-                            onCollapseSidebar={isV2Ui ? handleCollapseSidebarPanel : undefined}
-                            onExpandSidebar={isV2Ui ? handleExpandSidebarPanel : undefined}
+                            onCollapseSidebar={handleCollapseSidebarPanel}
+                            onExpandSidebar={handleExpandSidebarPanel}
                             onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}
                             onTitlebarSnapshotChange={setSidebarTitlebarSnapshot}
-                            collapseSidebarLabel={isV2Ui ? sidebarPanelCollapseLabel : undefined}
+                            collapseSidebarLabel={sidebarPanelCollapseLabel}
                             collapseSidebarButtonRef={sidebarExplorerToggleRef}
-                            expandSidebarLabel={isV2Ui ? sidebarPanelExpandLabel : undefined}
+                            expandSidebarLabel={sidebarPanelExpandLabel}
                             expandSidebarButtonRef={sidebarCollapsedToggleRef}
                         />
                     </div>
@@ -8324,7 +8269,7 @@ function App() {
             </div>
           </Sider>
            <Content
-             style={{ background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgContent, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
+             style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
            >
              {isSecurityUpdateBannerVisible && (
                 <SecurityUpdateBanner
@@ -8342,7 +8287,7 @@ function App() {
                 />
              )}
              <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
-               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: isV2Ui ? 'transparent' : bgContent, marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
+               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent', marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
                   <TabManager onFocusSidebarSearch={handleFocusSidebarSearch} />
                   <FloatingWorkbenchWindows />
                   <FloatingQueryResultWindows />
@@ -9180,19 +9125,6 @@ function App() {
             }}
             onCancel={closeConnectionPackageDialog}
           />
-          <Modal
-            title={renderUtilityModalTitle(<InfoCircleOutlined />, t('app.about.title'), t('app.about.description'))}
-            open={isAboutOpen}
-            onCancel={() => setIsAboutOpen(false)}
-            styles={{ content: utilityModalShellStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' } }}
-            footer={renderAboutUpdateActions(
-                'legacy-modal',
-                <Button key="close" onClick={() => setIsAboutOpen(false)}>{t('common.close')}</Button>,
-            )}
-          >
-            {renderAboutSettingsContent()}
-          </Modal>
-
           <UpdateReleaseNotesModal
               open={releaseNotesModalVisible}
               onClose={closeReleaseNotesModal}

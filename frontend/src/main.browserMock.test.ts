@@ -164,6 +164,23 @@ describe('main browser mock', () => {
     });
   });
 
+  it('normalizes result masking with Unicode case-fold and full-mask precedence', async () => {
+    await importMain();
+    const service = (globalThis as any).window.go.aiservice.Service;
+
+    await service.AISaveResultMaskingSettings({
+      enabled: true,
+      fullMaskFields: [' Σ ', 'ς'],
+      partialMaskFields: ['σ', 'email', 'EMAIL'],
+    });
+
+    await expect(service.AIGetResultMaskingSettings()).resolves.toEqual({
+      enabled: true,
+      fullMaskFields: ['Σ'],
+      partialMaskFields: ['email'],
+    });
+  });
+
   it('uses the real distinct immutable brand assets in browser and Playwright harnesses', async () => {
     const app = await importMain();
 

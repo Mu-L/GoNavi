@@ -97,6 +97,15 @@ describe('reverseOrderBySQL', () => {
 });
 
 describe('quoteQualifiedIdent', () => {
+  it.each([
+    ['public.users', 'public.users'],
+    ['"Sales"."User Accounts"', '"Sales"."User Accounts"'],
+    ['"audit.log"', '"audit.log"'],
+    ['"Orders"."User""s"', '"Orders"."User""s"'],
+  ])('quotes PostgreSQL metadata name %s without changing its segments', (input, expected) => {
+    expect(quoteQualifiedIdent('postgres', input)).toBe(expected);
+  });
+
   it('keeps the Apache IoTDB root node bare while quoting child path segments', () => {
     expect(quoteQualifiedIdent('iotdb', 'root.sg.d1'))
       .toBe('root.`sg`.`d1`');

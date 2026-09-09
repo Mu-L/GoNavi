@@ -90,6 +90,10 @@ export function AIGetSafetyLevel() {
   return window['go']['aiservice']['Service']['AIGetSafetyLevel']();
 }
 
+export function AIGetResultMaskingSettings() {
+  return window['go']['aiservice']['Service']['AIGetResultMaskingSettings']();
+}
+
 export function AIGetSkills() {
   return window['go']['aiservice']['Service']['AIGetSkills']();
 }
@@ -184,6 +188,10 @@ export function AISaveSkill(arg1) {
 
 export function AISaveUserPromptSettings(arg1) {
   return window['go']['aiservice']['Service']['AISaveUserPromptSettings'](arg1);
+}
+
+export function AISaveResultMaskingSettings(arg1) {
+  return window['go']['aiservice']['Service']['AISaveResultMaskingSettings'](arg1);
 }
 
 export function AISelectAgentDataDirectory(arg1) {

@@ -12,7 +12,6 @@ interface AIChatProviderModelSelectProps {
   activeProvider?: AIProviderConfig | null;
   dynamicModels: string[];
   loadingModels: boolean;
-  variant: 'legacy' | 'v2';
   onModelChange: (value: string) => void;
   onFetchModels: () => void;
 }
@@ -21,7 +20,6 @@ const AIChatProviderModelSelect: React.FC<AIChatProviderModelSelectProps> = ({
   activeProvider,
   dynamicModels,
   loadingModels,
-  variant,
   onModelChange,
   onFetchModels,
 }) => {
@@ -48,24 +46,6 @@ const AIChatProviderModelSelect: React.FC<AIChatProviderModelSelectProps> = ({
   const modelPlaceholder = usesLocalCLI
     ? t('ai_settings.provider.auto_model')
     : t('ai_chat.input.model.placeholder');
-
-  if (variant === 'legacy') {
-    return (
-      <Select
-        size="small"
-        variant="filled"
-        value={activeProvider.model || undefined}
-        onChange={onModelChange}
-        onOpenChange={handleOpenChange}
-        loading={loadingModels}
-        options={options}
-        style={{ width: 130, fontSize: 11, background: 'transparent' }}
-        styles={{ popup: { root: { minWidth: 200 } } }}
-        showSearch
-        placeholder={modelPlaceholder}
-      />
-    );
-  }
 
   return (
     <Select

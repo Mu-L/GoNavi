@@ -134,7 +134,7 @@ index c760819..c7a7c29 100644
      return /*#__PURE__*/React.createElement(VirtualCell, {
        key: colIndex,
        component: cellComponent,
-@@ -90,7 +90,60 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -90,7 +90,62 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
        inverse: extra,
        getHeight: getHeight
      });
@@ -198,7 +198,7 @@ index c760819..c7a7c29 100644
    if (rowSupportExpand) {
      return /*#__PURE__*/React.createElement("div", {
        ref: ref
-@@ -98,7 +151,26 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -98,7 +153,26 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
    }
    return rowNode;
  });
@@ -407,7 +407,7 @@ index e1275fb..374781d 100644
      return /*#__PURE__*/React.createElement(_VirtualCell.default, {
        key: colIndex,
        component: cellComponent,
-@@ -100,7 +100,60 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -100,7 +100,62 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
        inverse: extra,
        getHeight: getHeight
      });
@@ -471,7 +471,7 @@ index e1275fb..374781d 100644
    if (rowSupportExpand) {
      return /*#__PURE__*/React.createElement("div", {
        ref: ref
-@@ -108,7 +161,26 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -108,7 +163,26 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
    }
    return rowNode;
  });

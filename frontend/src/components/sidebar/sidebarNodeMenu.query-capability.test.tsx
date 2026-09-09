@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { t } from '../../i18n';
 import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchConsole';
-import { buildSidebarLegacyNodeMenuItems } from './sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 const buildConnectionRootItems = (
   connection: any,
   connectionTags: any[] = [],
   overrides: Record<string, any> = {},
 ) =>
-  buildSidebarLegacyNodeMenuItems({
+  buildSidebarNodeMenuItems({
     key: connection.id,
     type: 'connection',
     dataRef: connection,
@@ -27,7 +27,7 @@ const itemKeys = (items: any[]) => items.map((item) => item?.key);
 
 describe('connection root menu query entry gating', () => {
   it('offers new query from a PostgreSQL-compatible schema node', () => {
-    const items = buildSidebarLegacyNodeMenuItems({
+    const items = buildSidebarNodeMenuItems({
       key: 'conn-1-app-schema-sales',
       type: 'object-group',
       dataRef: {

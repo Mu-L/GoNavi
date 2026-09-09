@@ -57,7 +57,8 @@ describe('TitleBarSystemActions', () => {
 
     expect(actionsIndex).toBeGreaterThanOrEqual(0);
     expect(controlsIndex).toBeGreaterThan(actionsIndex);
-    expect(appSource).toContain('{isV2Ui && (');
+    expect(appSource).toContain('<div className="gn-v2-titlebar-right">');
+    expect(appSource).not.toContain('{isV2Ui && (');
     expect(appCss).toMatch(
       /body\[data-ui-version="v2"\] \.gn-v2-titlebar-system-actions\s*\{[^}]*display: inline-flex;[^}]*-webkit-app-region: no-drag;/s,
     );

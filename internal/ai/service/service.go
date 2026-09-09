@@ -37,6 +37,7 @@ type Service struct {
 	mcpServers         []ai.MCPServerConfig
 	mcpHTTPConfig      ai.MCPHTTPServerConfig
 	skills             []ai.SkillConfig
+	resultMasking      ai.ResultMaskingSettings
 	guard              *safety.Guard
 	configDir          string // 配置存储目录
 	secretStore        secretstore.SecretStore
@@ -1522,6 +1523,28 @@ func (s *Service) AISetSafetyLevel(level string) {
 	_ = s.saveConfig()
 }
 
+// AIGetResultMaskingSettings returns the global rules applied only to built-in
+// execute_sql responses.
+func (s *Service) AIGetResultMaskingSettings() ai.ResultMaskingSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return ai.NormalizeResultMaskingSettings(s.resultMasking)
+}
+
+// AISaveResultMaskingSettings validates and persists the global masking rules.
+func (s *Service) AISaveResultMaskingSettings(settings ai.ResultMaskingSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	previous := s.resultMasking
+	s.resultMasking = ai.NormalizeResultMaskingSettings(settings)
+	if err := s.saveConfig(); err != nil {
+		s.resultMasking = previous
+		return err
+	}
+	return nil
+}
+
 // --- 上下文控制 ---
 
 // AIGetContextLevel 获取上下文传递级别
@@ -1646,6 +1669,7 @@ func (s *Service) loadConfig() {
 	s.mcpServers = normalizeMCPServerConfigs(snapshot.MCPServers)
 	s.mcpHTTPConfig = normalizeMCPHTTPServerConfig(snapshot.MCPHTTPServer)
 	s.skills = normalizeSkillConfigs(snapshot.Skills, s.serviceLocalizerForLanguage())
+	s.resultMasking = ai.NormalizeResultMaskingSettings(snapshot.ResultMasking)
 
 	status := mcpHTTPStatusFromConfig(s.mcpHTTPConfig, s.serviceText("ai_settings.mcp_http.status.not_running", nil))
 	s.mcpHTTPMu.Lock()
@@ -1665,6 +1689,7 @@ func (s *Service) saveConfig() error {
 		MCPServers:         s.mcpServers,
 		MCPHTTPServer:      s.mcpHTTPConfig,
 		Skills:             s.skills,
+		ResultMasking:      s.resultMasking,
 	})
 	if err == nil && s.configChanged != nil {
 		s.configChanged()
