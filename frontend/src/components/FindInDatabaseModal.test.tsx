@@ -6,7 +6,8 @@ import { I18nProvider } from "../i18n/provider";
 import FindInDatabaseModal from "./FindInDatabaseModal";
 
 const mocks = vi.hoisted(() => ({
-  dbQuery: vi.fn(),
+  cancelQuery: vi.fn(),
+  dbQueryApplicationWithCancel: vi.fn(),
   dbGetTables: vi.fn(),
   dbGetAllColumns: vi.fn(),
   message: {
@@ -42,7 +43,8 @@ vi.mock("../i18n/runtime", () => ({
 }));
 
 vi.mock("../../wailsjs/go/app/App", () => ({
-  DBQuery: mocks.dbQuery,
+  CancelQuery: mocks.cancelQuery,
+  DBQueryApplicationWithCancel: mocks.dbQueryApplicationWithCancel,
   DBGetTables: mocks.dbGetTables,
   DBGetAllColumns: mocks.dbGetAllColumns,
 }));
@@ -152,10 +154,41 @@ const renderFindModal = () => {
   return renderer;
 };
 
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
+const flushPromises = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+const enterKeywordAndSearch = async (renderer: ReactTestRenderer, keyword = "alice") => {
+  const input = renderer.root.findByType("input");
+  await act(async () => {
+    input.props.onChange({ target: { value: keyword } });
+  });
+  const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+  expect(searchButton).toBeTruthy();
+  await act(async () => {
+    searchButton?.props.onClick();
+    await flushPromises();
+  });
+};
+
 describe("FindInDatabaseModal i18n", () => {
   beforeEach(() => {
     mocks.storeState.connections[0].config.type = "mysql";
-    mocks.dbQuery.mockReset();
+    mocks.cancelQuery.mockReset();
+    mocks.cancelQuery.mockResolvedValue({ success: true });
+    mocks.dbQueryApplicationWithCancel.mockReset();
     mocks.dbGetTables.mockReset();
     mocks.dbGetAllColumns.mockReset();
     mocks.message.warning.mockClear();
@@ -220,7 +253,7 @@ describe("FindInDatabaseModal i18n", () => {
       "Failed to get table list: Redis key scan truncated after 2 keys: cursor loop detected",
     );
     expect(mocks.dbGetAllColumns).not.toHaveBeenCalled();
-    expect(mocks.dbQuery).not.toHaveBeenCalled();
+    expect(mocks.dbQueryApplicationWithCancel).not.toHaveBeenCalled();
   });
 
   it("warns about an incomplete column summary but searches available columns", async () => {
@@ -232,7 +265,7 @@ describe("FindInDatabaseModal i18n", () => {
       warnings: ["Failed to read column metadata for restricted: permission denied"],
       data: [{ tableName: "healthy", name: "email", type: "varchar(255)" }],
     });
-    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    mocks.dbQueryApplicationWithCancel.mockResolvedValue({ success: true, data: [] });
     const renderer = renderFindModal();
 
     const input = renderer.root.findByType("input");
@@ -248,7 +281,7 @@ describe("FindInDatabaseModal i18n", () => {
     });
 
     expect(mocks.message.warning).toHaveBeenCalledWith("Column summary is incomplete");
-    expect(mocks.dbQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(1);
   });
 
   it("reports a failed column summary instead of presenting no matches", async () => {
@@ -270,7 +303,7 @@ describe("FindInDatabaseModal i18n", () => {
 
     expect(mocks.message.error).toHaveBeenCalledWith("Failed to get column summary: metadata permission denied");
     expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
-    expect(mocks.dbQuery).not.toHaveBeenCalled();
+    expect(mocks.dbQueryApplicationWithCancel).not.toHaveBeenCalled();
   });
 
   it("reports returned and rejected query failures without counting skipped tables", async () => {
@@ -429,7 +462,7 @@ describe("FindInDatabaseModal i18n", () => {
       success: true,
       data: [{ tableName: columnTableName, name: "name", type: "text" }],
     });
-    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    mocks.dbQueryApplicationWithCancel.mockResolvedValue({ success: true, data: [] });
     const renderer = renderFindModal();
 
     const input = renderer.root.findByType("input");
@@ -444,13 +477,14 @@ describe("FindInDatabaseModal i18n", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.dbQuery).toHaveBeenCalledWith(
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledWith(
       expect.anything(),
       "app_db",
       expect.stringContaining(expectedFrom),
+      expect.stringMatching(/^database-search-[0-9a-f-]+-0$/),
     );
     if (tableName === "public.users") {
-      expect(mocks.dbQuery.mock.calls[0][2]).not.toContain('FROM "public.users"');
+      expect(mocks.dbQueryApplicationWithCancel.mock.calls[0][2]).not.toContain('FROM "public.users"');
     }
   });
 
@@ -461,7 +495,7 @@ describe("FindInDatabaseModal i18n", () => {
       success: true,
       data: [{ tableName: "audit.log", name: "name", type: "varchar(255)" }],
     });
-    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    mocks.dbQueryApplicationWithCancel.mockResolvedValue({ success: true, data: [] });
     const renderer = renderFindModal();
 
     const input = renderer.root.findByType("input");
@@ -476,10 +510,93 @@ describe("FindInDatabaseModal i18n", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.dbQuery).toHaveBeenCalledWith(
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledWith(
       expect.anything(),
       "app_db",
       expect.stringContaining("FROM `audit.log`"),
+      expect.stringMatching(/^database-search-[0-9a-f-]+-0$/),
     );
+  });
+
+  it("cancels the active table query and ignores its late response", async () => {
+    const inFlight = deferred<{ success: boolean; data: Array<Record<string, unknown>> }>();
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "users" }, { Table: "orders" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { tableName: "users", name: "name", type: "varchar(255)" },
+        { tableName: "orders", name: "note", type: "text" },
+      ],
+    });
+    mocks.dbQueryApplicationWithCancel.mockReturnValueOnce(inFlight.promise);
+    const renderer = renderFindModal();
+
+    await enterKeywordAndSearch(renderer);
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(1);
+    const queryId = mocks.dbQueryApplicationWithCancel.mock.calls[0][3];
+
+    const cancelButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Cancel"));
+    expect(cancelButton).toBeTruthy();
+    await act(async () => {
+      cancelButton?.props.onClick();
+      await flushPromises();
+    });
+
+    expect(mocks.cancelQuery).toHaveBeenCalledWith(queryId);
+    expect(textContent(renderer.toJSON())).toContain("Search");
+
+    await act(async () => {
+      inFlight.resolve({ success: true, data: [{ name: "alice-late" }] });
+      await flushPromises();
+    });
+
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(1);
+    expect(textContent(renderer.toJSON())).not.toContain("alice-late");
+    expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
+  });
+
+  it("uses independent query IDs when a new search starts after cancellation", async () => {
+    const firstQuery = deferred<{ success: boolean; data: Array<Record<string, unknown>> }>();
+    const secondQuery = deferred<{ success: boolean; data: Array<Record<string, unknown>> }>();
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "users" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [{ tableName: "users", name: "name", type: "varchar(255)" }],
+    });
+    mocks.dbQueryApplicationWithCancel
+      .mockReturnValueOnce(firstQuery.promise)
+      .mockReturnValueOnce(secondQuery.promise);
+    const renderer = renderFindModal();
+
+    await enterKeywordAndSearch(renderer);
+    const firstId = mocks.dbQueryApplicationWithCancel.mock.calls[0][3];
+    const cancelButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Cancel"));
+    await act(async () => {
+      cancelButton?.props.onClick();
+      await flushPromises();
+    });
+
+    await enterKeywordAndSearch(renderer, "bob");
+    const secondId = mocks.dbQueryApplicationWithCancel.mock.calls[1][3];
+    expect(secondId).not.toBe(firstId);
+
+    await act(async () => {
+      firstQuery.resolve({ success: true, data: [{ name: "alice-late" }] });
+      await flushPromises();
+    });
+    expect(textContent(renderer.toJSON())).not.toContain("alice-late");
+
+    const secondCancelButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Cancel"));
+    await act(async () => {
+      secondCancelButton?.props.onClick();
+      await flushPromises();
+    });
+    expect(mocks.cancelQuery).toHaveBeenNthCalledWith(2, secondId);
+
+    await act(async () => {
+      secondQuery.resolve({ success: true, data: [{ name: "bob-late" }] });
+      await flushPromises();
+    });
+    expect(textContent(renderer.toJSON())).not.toContain("bob-late");
   });
 });
