@@ -55,16 +55,7 @@ var (
 		proc.Call(hwnd, uintptr(int64(index)), icon)
 	}
 	windowsApplicationIconSetTaskbarProperties = setWindowsTaskbarProperties
-
-	windowsApplicationShortcutMu      sync.Mutex
-	windowsApplicationShortcutRunning bool
-	windowsApplicationShortcutPending windowsApplicationShortcutRequest
-	windowsApplicationShortcutUpdate  = updateCurrentWindowsApplicationShortcuts
 )
-
-type windowsApplicationShortcutRequest struct {
-	iconPath string
-}
 
 func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext context.Context) error {
 	if len(pngBytes) == 0 {
@@ -77,11 +68,12 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	if err != nil {
 		return err
 	}
-	mainWindow, err := setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
-	if mainWindow != 0 {
-		// Shortcut updates keep existing pins aligned with the window identity.
-		queueCurrentWindowsApplicationShortcutUpdate(iconPath)
+	// Migrate existing taskbar pins before assigning the explicit window AUMID.
+	// The update is synchronous so quitting cannot leave a half-written pin.
+	if err := updateCurrentWindowsApplicationShortcuts(iconPath); err != nil {
+		logger.Warnf("更新 Windows 应用快捷方式图标失败：%v", err)
 	}
+	_, err = setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
 	if err != nil {
 		return err
 	}
@@ -187,42 +179,6 @@ func applyWindowsApplicationIcon(hwnd uintptr, iconPath string, small, large uin
 		return fmt.Errorf("set Windows taskbar icon properties: %w", err)
 	}
 	return nil
-}
-
-// Shortcut discovery can traverse both user and system Start Menu trees. It
-// must not hold the synchronous brand-icon RPC or make rapid selections queue
-// behind stale PowerShell work. The worker serialises updates and coalesces any
-// pending paths so the last selected icon always wins.
-func queueCurrentWindowsApplicationShortcutUpdate(iconPath string) {
-	windowsApplicationShortcutMu.Lock()
-	windowsApplicationShortcutPending = windowsApplicationShortcutRequest{iconPath: iconPath}
-	if windowsApplicationShortcutRunning {
-		windowsApplicationShortcutMu.Unlock()
-		return
-	}
-	windowsApplicationShortcutRunning = true
-	windowsApplicationShortcutMu.Unlock()
-
-	go drainCurrentWindowsApplicationShortcutUpdates()
-}
-
-func drainCurrentWindowsApplicationShortcutUpdates() {
-	for {
-		windowsApplicationShortcutMu.Lock()
-		request := windowsApplicationShortcutPending
-		windowsApplicationShortcutPending = windowsApplicationShortcutRequest{}
-		if request.iconPath == "" {
-			windowsApplicationShortcutRunning = false
-			windowsApplicationShortcutMu.Unlock()
-			return
-		}
-		windowsApplicationShortcutMu.Unlock()
-
-		if err := windowsApplicationShortcutUpdate(request.iconPath); err != nil {
-			logger.Warnf("后台更新 Windows 应用快捷方式图标失败：%v", err)
-			continue
-		}
-	}
 }
 
 func loadWindowsApplicationIcon(iconPath string, size int) (uintptr, error) {
