@@ -1,6 +1,6 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useState, useRef, useCallback, useMemo } from 'react';
-import { Input, Button, Table, Progress, Space, Tag, message, Tooltip, Select, Empty } from 'antd';
+import { Alert, Input, Button, Table, Progress, Space, Tag, message, Tooltip, Select, Empty } from 'antd';
 import { SearchOutlined, StopOutlined, EyeOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { DBQuery, DBGetTables, DBGetAllColumns } from '../../wailsjs/go/app/App';
 import { quoteIdentPart, quoteQualifiedIdent, escapeLiteral } from '../utils/sql';
@@ -26,6 +26,16 @@ interface SearchResultItem {
     matchCount: number;
     rows: Record<string, any>[];
     columns: string[];
+}
+
+interface TableQueryFailure {
+    tableName: string;
+    detail: string;
+}
+
+interface TableQueryFailureSummary {
+    attemptedCount: number;
+    failures: TableQueryFailure[];
 }
 
 /** Returns whether a database column type is searchable as text. */
@@ -72,6 +82,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
     const [matchMode, setMatchMode] = useState<'contains' | 'exact'>('contains');
     const [searching, setSearching] = useState(false);
     const [results, setResults] = useState<SearchResultItem[]>([]);
+    const [queryFailureSummary, setQueryFailureSummary] = useState<TableQueryFailureSummary | null>(null);
     const [progress, setProgress] = useState({ current: 0, total: 0, tableName: '' });
     const [expandedTable, setExpandedTable] = useState<string | null>(null);
     const cancelledRef = useRef(false);
@@ -114,6 +125,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
 
         setSearching(true);
         setResults([]);
+        setQueryFailureSummary(null);
         setExpandedTable(null);
         cancelledRef.current = false;
 
@@ -156,6 +168,8 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
             });
 
             const searchResults: SearchResultItem[] = [];
+            const queryFailures: TableQueryFailure[] = [];
+            let attemptedTableCount = 0;
             const escapedKeyword = escapeLiteral(searchKeyword);
 
             for (let i = 0; i < tableNames.length; i++) {
@@ -186,9 +200,17 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     : quoteQualifiedIdent(dbType, tableName);
                 const baseSql = `SELECT * FROM ${quotedTable} WHERE ${whereConditions.join(' OR ')}`;
                 const sql = buildLimitedSelectSQL(dbType, baseSql, MAX_MATCH_ROWS_PER_TABLE);
+                attemptedTableCount += 1;
 
                 try {
                     const res = await DBQuery(buildRpcConnectionConfig(config) as any, dbName, sql);
+                    if (!res.success) {
+                        queryFailures.push({
+                            tableName,
+                            detail: String(res.message || t('common.unknown')),
+                        });
+                        continue;
+                    }
                     if (res.success && Array.isArray(res.data) && res.data.length > 0) {
                         const matchedCols = new Set<string>();
                         const lowerKeyword = searchKeyword.toLowerCase();
@@ -216,14 +238,33 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                             setResults([...searchResults]);
                         }
                     }
-                } catch {
-                    // Per-table query failures should not stop the whole search.
+                } catch (error: any) {
+                    queryFailures.push({
+                        tableName,
+                        detail: String(error?.message || error || t('common.unknown')),
+                    });
                 }
             }
 
             if (!cancelledRef.current) {
                 setResults([...searchResults]);
-                if (searchResults.length === 0) {
+                if (queryFailures.length > 0) {
+                    setQueryFailureSummary({
+                        attemptedCount: attemptedTableCount,
+                        failures: queryFailures,
+                    });
+                    const allFailed = queryFailures.length === attemptedTableCount;
+                    const summary = t(
+                        allFailed
+                            ? 'find_in_database.message.all_table_queries_failed'
+                            : 'find_in_database.message.partial_table_queries_failed',
+                        {
+                            failed: queryFailures.length,
+                            attempted: attemptedTableCount,
+                        },
+                    );
+                    (allFailed ? message.error : message.warning)(summary);
+                } else if (searchResults.length === 0) {
                     message.info(t('find_in_database.message.no_matches'));
                 }
             }
@@ -241,6 +282,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
     const handleClose = useCallback(() => {
         cancelledRef.current = true;
         setResults([]);
+        setQueryFailureSummary(null);
         setExpandedTable(null);
         setProgress({ current: 0, total: 0, tableName: '' });
         onClose();
@@ -409,6 +451,31 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     </div>
                 )}
 
+                {queryFailureSummary && (
+                    <Alert
+                        type={queryFailureSummary.failures.length === queryFailureSummary.attemptedCount ? 'error' : 'warning'}
+                        showIcon
+                        message={t(
+                            queryFailureSummary.failures.length === queryFailureSummary.attemptedCount
+                                ? 'find_in_database.message.all_table_queries_failed'
+                                : 'find_in_database.message.partial_table_queries_failed',
+                            {
+                                failed: queryFailureSummary.failures.length,
+                                attempted: queryFailureSummary.attemptedCount,
+                            },
+                        )}
+                        description={(
+                            <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                {queryFailureSummary.failures.map(failure => (
+                                    <li key={failure.tableName}>
+                                        <strong>{failure.tableName}</strong>: {failure.detail}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    />
+                )}
+
                 {results.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ fontSize: 13, color: wt.mutedText, fontWeight: 500 }}>
@@ -469,7 +536,7 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
                     </div>
                 )}
 
-                {!searching && results.length === 0 && progress.total > 0 && (
+                {!searching && results.length === 0 && progress.total > 0 && !queryFailureSummary && (
                     <Empty description={t('find_in_database.message.no_matches')} style={{ margin: '24px 0' }} />
                 )}
             </div>
