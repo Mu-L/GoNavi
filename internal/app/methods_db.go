@@ -1414,7 +1414,12 @@ func (a *App) dbQueryWithCancel(
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -1673,7 +1678,12 @@ func (a *App) dbQueryMulti(
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -1698,10 +1708,9 @@ func (a *App) dbQueryMulti(
 	}()
 	legacyCancellationUnsupported := false
 
-	// 尝试使用驱动原生多结果集支持。
-	// 注意：原生 conn.Query() 执行写操作（UPDATE/INSERT/DELETE）时，
-	// sql.Rows 不暴露 RowsAffected，导致影响行数丢失。
-	// 因此仅在全部语句皆为读操作时才使用原生路径。
+	// 尝试使用驱动原生多结果集支持。普通 database/sql 驱动仅在安全的
+	// 读取场景使用该路径；Navicat ntunnel_mysql.php 则可用一个请求的
+	// 多个 q[] 同时保留会话状态和每条写语句的 affectedRows。
 	statements := splitSQLStatementsForDialect(resolvedDBType, query)
 	statementCount := 0
 	for _, statement := range statements {
@@ -1755,9 +1764,24 @@ func (a *App) dbQueryMulti(
 			break
 		}
 	}
-	useNativeMultiResult := shouldUseNativeMultiResultBatch(resolvedDBType, statements, allReadOnly)
+	supportsStatementBatch := func(inst db.Database) bool {
+		querier, ok := inst.(db.StatementBatchMultiResultQuerierContext)
+		return ok && querier.SupportsStatementBatchMultiResult()
+	}
+	useNativeMultiResult := shouldUseNativeMultiResultBatch(resolvedDBType, statements, allReadOnly) || supportsStatementBatch(dbInst)
 
 	runMultiQuery := func(inst db.Database) ([]connection.ResultSetData, []string, error) {
+		if q, ok := inst.(db.StatementBatchMultiResultQuerierContext); ok && q.SupportsStatementBatchMultiResult() {
+			setRunningQueryCancellable(true)
+			var (
+				results []connection.ResultSetData
+				err     error
+			)
+			measureQueryExecution(func() {
+				results, err = q.QueryStatementsMultiContext(ctx, statements)
+			})
+			return results, nil, err
+		}
 		if !useNativeMultiResult {
 			return nil, nil, nil // 包含写操作，走逐条执行路径
 		}
@@ -1908,7 +1932,7 @@ func (a *App) dbQueryMulti(
 	var sessionExecTarget db.StatementExecer
 	var sessionBatchTarget db.BatchWriteExecer
 	closeExecTarget := func() {}
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		setRunningQueryCancellable(true)
 		sessionExecer, sessionErr := provider.OpenSessionExecer(ctx)
 		if sessionErr != nil {

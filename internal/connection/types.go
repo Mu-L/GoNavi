@@ -194,12 +194,14 @@ type ProxyConfig struct {
 	Password string `json:"password,omitempty"`
 }
 
-// HTTPTunnelConfig 存储 HTTP CONNECT 隧道配置。
+// HTTPTunnelConfig 存储 HTTP 隧道配置。Host 为完整 http(s) URL 时使用
+// Navicat 风格脚本隧道；否则保留为旧版 HTTP CONNECT 配置。
 type HTTPTunnelConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	User         string `json:"user,omitempty"`
+	Password     string `json:"password,omitempty"`
+	EncodeBase64 *bool  `json:"encodeBase64,omitempty"`
 }
 
 // JVMJMXConfig 存储 JVM JMX 连接配置。

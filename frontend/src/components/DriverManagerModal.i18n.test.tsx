@@ -1,6 +1,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { Modal, type ModalFuncProps } from 'antd';
 import { t } from '../i18n';
 
 const storeState = {
@@ -127,8 +128,8 @@ vi.mock('antd', () => {
     </button>
   );
   const Dropdown: any = ({ children }: any) => <>{children}</>;
-  Dropdown.Button = ({ children, disabled, loading, onClick }: any) => (
-    <button type="button" disabled={disabled || loading} onClick={onClick}>
+  Dropdown.Button = ({ children, disabled, loading, onClick, ...rest }: any) => (
+    <button type="button" disabled={disabled || loading} onClick={onClick} {...rest}>
       {children}
     </button>
   );
@@ -445,6 +446,66 @@ describe('DriverManagerModal i18n', () => {
     expect(content).not.toContain('expected revision rev-new');
     expect(content).toContain('raw runtime reason: checksum mismatch abc123');
     expect(content).not.toContain('驱动代理需要重装');
+  });
+
+  it('requires confirmation before reinstalling a driver with active connections', async () => {
+    backendApp.GetDriverStatusList.mockResolvedValue({
+      success: true,
+      data: {
+        downloadDir: 'D:/drivers',
+        drivers: [
+          {
+            type: 'sqlserver',
+            name: 'SQL Server',
+            builtIn: false,
+            pinnedVersion: 'v1.9.6',
+            installedVersion: 'v1.9.5',
+            runtimeAvailable: true,
+            packageInstalled: true,
+            connectable: true,
+            needsUpdate: true,
+            activeConnections: 2,
+            installDir: 'D:/drivers/sqlserver',
+            executablePath: 'D:/drivers/sqlserver/sqlserver-driver-agent.exe',
+          },
+        ],
+      },
+    });
+    const confirmMock = vi.mocked(Modal.confirm);
+    confirmMock.mockReset();
+    confirmMock.mockReturnValue({ update: vi.fn(), destroy: vi.fn() } as any);
+    const { setCurrentLanguage } = await import('../i18n');
+    setCurrentLanguage('zh-CN');
+    const { default: DriverManagerModal } = await import('./DriverManagerModal');
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+
+    await act(async () => {
+      findButton(renderer!, '重装驱动').props.onClick();
+    });
+
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(backendApp.StartDriverPackageDownload).not.toHaveBeenCalled();
+    const confirm = confirmMock.mock.calls[0][0] as ModalFuncProps;
+    expect(confirm.title).toBe('关闭正在使用的驱动并重装？');
+    expect(confirm.content).toBe(
+      '检测到该驱动有 2 个活动连接。继续重装会自动断开这些连接、终止正在执行的查询，并回滚尚未提交的事务；已保存的连接配置不会删除，重装后需要重新连接。',
+    );
+
+    await act(async () => {
+      await confirm.onOk?.();
+    });
+
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledTimes(1);
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
+      'sqlserver',
+      'v1.9.6',
+      '',
+      'D:/drivers',
+    );
   });
 
   it('renders en-US network summary from structured fields instead of backend Chinese summary', async () => {

@@ -3,24 +3,26 @@ import {
   calculateMacOSDockCornerRadius,
   calculateMacOSDockImageRect,
   composeMacOSDockIconBase64,
-  shouldSyncMacOSDockIcon,
+  shouldSyncApplicationBrandIcon,
 } from './macDockIcon';
 
-describe('shouldSyncMacOSDockIcon', () => {
+describe('shouldSyncApplicationBrandIcon', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('only allows the native macOS runtime', () => {
-    expect(shouldSyncMacOSDockIcon({ platform: 'darwin', buildType: 'production' })).toBe(true);
-    expect(shouldSyncMacOSDockIcon({ platform: 'DARWIN', buildType: 'debug' })).toBe(true);
+  it('allows native macOS and Windows runtimes', () => {
+    expect(shouldSyncApplicationBrandIcon({ platform: 'darwin', buildType: 'production' })).toBe(true);
+    expect(shouldSyncApplicationBrandIcon({ platform: 'DARWIN', buildType: 'debug' })).toBe(true);
+    expect(shouldSyncApplicationBrandIcon({ platform: 'windows', buildType: 'production' })).toBe(true);
+    expect(shouldSyncApplicationBrandIcon({ platform: 'WINDOWS', buildType: 'debug' })).toBe(true);
   });
 
-  it('skips browser and non-macOS runtimes before image composition', () => {
-    expect(shouldSyncMacOSDockIcon({ platform: 'darwin', buildType: 'web' })).toBe(false);
-    expect(shouldSyncMacOSDockIcon({ platform: 'windows', buildType: 'production' })).toBe(false);
-    expect(shouldSyncMacOSDockIcon({ platform: 'linux', buildType: 'production' })).toBe(false);
-    expect(shouldSyncMacOSDockIcon()).toBe(false);
+  it('skips browser and unsupported desktop runtimes before image composition', () => {
+    expect(shouldSyncApplicationBrandIcon({ platform: 'darwin', buildType: 'web' })).toBe(false);
+    expect(shouldSyncApplicationBrandIcon({ platform: 'windows', buildType: 'web' })).toBe(false);
+    expect(shouldSyncApplicationBrandIcon({ platform: 'linux', buildType: 'production' })).toBe(false);
+    expect(shouldSyncApplicationBrandIcon()).toBe(false);
   });
 
   it('fills the Dock canvas so GoNavi matches neighboring macOS app icons', () => {

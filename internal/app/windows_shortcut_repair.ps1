@@ -297,3 +297,68 @@ function Repair-LegacyGoNaviTaskbarPins {
     }
     return $repairCount
 }
+
+function Set-GoNaviShortcutBrandIcon {
+    param(
+        [string]$TargetPath,
+        [string]$IconPath,
+        [string[]]$ShortcutDirectories
+    )
+
+    $updatedCount = 0
+    try {
+        $normalizedTargetPath = Get-NormalizedFilePath $TargetPath
+        $normalizedIconPath = Get-NormalizedFilePath $IconPath
+        if ([string]::IsNullOrWhiteSpace($normalizedTargetPath) -or
+            [string]::IsNullOrWhiteSpace($normalizedIconPath) -or
+            -not (Test-Path -LiteralPath $normalizedTargetPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $normalizedIconPath -PathType Leaf)) {
+            return $updatedCount
+        }
+
+        if ($null -eq $ShortcutDirectories -or $ShortcutDirectories.Count -eq 0) {
+            $applicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+            $ShortcutDirectories = @(
+                [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory),
+                [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory),
+                [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs),
+                [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonPrograms),
+                (Join-Path $applicationData 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar')
+            )
+        }
+
+        $shell = New-Object -ComObject WScript.Shell
+        $visitedDirectories = @{}
+        foreach ($directory in $ShortcutDirectories) {
+            $normalizedDirectory = Get-NormalizedFilePath $directory
+            if ([string]::IsNullOrWhiteSpace($normalizedDirectory) -or
+                $visitedDirectories.ContainsKey($normalizedDirectory) -or
+                -not (Test-Path -LiteralPath $normalizedDirectory -PathType Container)) {
+                continue
+            }
+            $visitedDirectories[$normalizedDirectory] = $true
+            $shortcuts = Get-ChildItem -LiteralPath $normalizedDirectory -Filter '*.lnk' -File -Recurse -Force -ErrorAction SilentlyContinue
+            foreach ($shortcutFile in $shortcuts) {
+                try {
+                    $shortcut = $shell.CreateShortcut($shortcutFile.FullName)
+                    if (-not (Test-SameFilePath $shortcut.TargetPath $normalizedTargetPath)) {
+                        continue
+                    }
+                    $wantedIconLocation = $normalizedIconPath + ',0'
+                    if (-not [string]::Equals([string]$shortcut.IconLocation, $wantedIconLocation, [StringComparison]::OrdinalIgnoreCase)) {
+                        $shortcut.IconLocation = $wantedIconLocation
+                        $shortcut.Save()
+                        $updatedCount++
+                    }
+                    Send-ShellItemUpdatedNotification $shortcutFile.FullName
+                } catch {
+                    Write-ShortcutRepairLog ("brand icon update failed for " + $shortcutFile.FullName + ": " + $_.Exception.Message)
+                }
+            }
+        }
+        Send-ShellItemUpdatedNotification $normalizedIconPath
+    } catch {
+        Write-ShortcutRepairLog ("brand icon shortcut update failed: " + $_.Exception.Message)
+    }
+    return $updatedCount
+}

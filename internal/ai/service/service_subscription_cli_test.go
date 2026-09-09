@@ -195,7 +195,10 @@ func TestLocalCLITestRestoresHiddenEnvironmentWithoutAPISecrets(t *testing.T) {
 	service.configDir = t.TempDir()
 	if err := service.AISaveProvider(ai.ProviderConfig{
 		ID: "provider-codex", Type: "custom", AuthMode: "local-cli", APIFormat: "codex-cli",
-		CLIEnv: map[string]string{"CODEX_HOME": "/private/codex-home"},
+		CLIEnv: map[string]string{
+			"CODEX_HOME":     "/private/codex-home",
+			"OPENAI_API_KEY": "cli-managed-key",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +208,9 @@ func TestLocalCLITestRestoresHiddenEnvironmentWithoutAPISecrets(t *testing.T) {
 	}
 	if received.CLIEnv["CODEX_HOME"] != "/private/codex-home" {
 		t.Fatalf("hidden CLI environment was not restored: %#v", received.CLIEnv)
+	}
+	if received.CLIEnv["OPENAI_API_KEY"] != "cli-managed-key" {
+		t.Fatalf("CLI API key environment was not restored: %#v", received.CLIEnv)
 	}
 	if received.APIKey != "" || received.BaseURL != "" || len(received.Headers) != 0 {
 		t.Fatalf("API secrets reached subscription test: %#v", received)

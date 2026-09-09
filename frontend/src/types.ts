@@ -21,6 +21,7 @@ export interface HTTPTunnelConfig {
   port: number;
   user?: string;
   password?: string;
+  encodeBase64?: boolean;
 }
 
 export interface ConnectionProtectionConfig {

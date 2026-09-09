@@ -3,7 +3,7 @@ import { registerWorkbenchTabCloseGuard } from '../utils/workbenchTabCloseProtec
 // cspell:ignore anticon sqls uuidv uuidv4 hscroll
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Tooltip, Popover, DatePicker, TimePicker } from 'antd';
+import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Popover, DatePicker, TimePicker } from 'antd';
 import type { InputRef } from 'antd';
 import dayjs from 'dayjs';
 import type { SortOrder, ColumnType } from 'antd/es/table/interface';
@@ -355,6 +355,10 @@ export const buildDataGridPaginationPageSizeOptions = (queryMaxRows?: number): s
 // Native scroll events can outlive a pointer gesture on macOS. Wait for a brief
 // idle window before the virtual table performs its final visual correction.
 const EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS = 80;
+// rc-table keeps 320px of offscreen columns on each side. Refresh the virtual
+// column range at half that distance so visual-only horizontal movement never
+// outruns the mounted cells before the next React commit.
+const VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX = 160;
 
 const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, columnPinScope, objectType = 'table', exportScope = 'table', dbName, schemaName, ddlDbName, ddlTableName, connectionId, connectionParamsOverride, pkColumns = [], editLocator, readOnly = false,
@@ -3727,28 +3731,27 @@ const DataGrid: React.FC<DataGridProps> = ({
           const pageSize = Math.max(1, Number(pagination?.pageSize) || 0);
           const offset = pageSize > 0 ? (currentPage - 1) * pageSize : 0;
           return (
-              <Tooltip title={translateDataGrid('data_grid.row_number.double_click_to_view')}>
-                  <span
-                      className="data-grid-row-number"
-                      data-grid-row-number="true"
-                      style={{
-                          display: 'flex',
-                          width: '100%',
-                          height: '100%',
-                          minHeight: 24,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                      }}
-                      onDoubleClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          handleRowNumberDoubleClick(index);
-                      }}
-                  >
-                      {offset + index + 1}
-                  </span>
-              </Tooltip>
+              <span
+                  className="data-grid-row-number"
+                  data-grid-row-number="true"
+                  title={translateDataGrid('data_grid.row_number.double_click_to_view')}
+                  style={{
+                      display: 'flex',
+                      width: '100%',
+                      height: '100%',
+                      minHeight: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                  }}
+                  onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleRowNumberDoubleClick(index);
+                  }}
+              >
+                  {offset + index + 1}
+              </span>
           );
       },
   }), [handleResizeAutoFit, handleResizeStart, handleRowNumberClick, handleRowNumberDoubleClick, pagination?.current, pagination?.pageSize, rowNumberColumnWidth, translateDataGrid]);
@@ -4714,7 +4717,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (
           virtualListItemColumnVirtual
           && Math.abs(nextScrollLeft - lastCommittedVirtualHorizontalOffsetRef.current)
-              >= Math.max(320, visual.holderEl.clientWidth)
+              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
       ) {
           applyVirtualHorizontalOffset(tableContainer, nextScrollLeft, { forceInternalScroll: true });
       }
@@ -5173,7 +5176,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                       if (
                           virtualListItemColumnVirtual
                           && Math.abs(visual.clampedOffset - lastCommittedVirtualHorizontalOffsetRef.current)
-                              >= Math.max(320, visual.holderEl.clientWidth)
+                              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
                       ) {
                           applyVirtualHorizontalOffset(tableContainer, visual.clampedOffset, { forceInternalScroll: true });
                       }

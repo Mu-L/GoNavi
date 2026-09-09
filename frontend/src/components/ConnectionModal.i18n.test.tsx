@@ -1820,6 +1820,19 @@ describe("ConnectionModal i18n", () => {
     expect(combinedConnectionModalSource).not.toContain("SelectSSHKnownHostsFile");
   });
 
+  it("uses a complete Navicat tunnel URL and exposes base64 encoding without a form port", () => {
+    expect(networkSecuritySource).toContain('name="httpTunnelHost"');
+    expect(networkSecuritySource).toContain(
+      '"connection.modal.network.httpTunnel.urlPlaceholder"',
+    );
+    expect(networkSecuritySource).toContain(
+      'name="httpTunnelEncodeBase64"',
+    );
+    expect(networkSecuritySource).not.toContain('name="httpTunnelPort"');
+    expect(step2Source).toContain("httpTunnelEncodeBase64: true");
+    expect(source).toContain("config.httpTunnel?.encodeBase64 !== false");
+  });
+
   it("renders English URI feedback and file picker error shell while preserving raw detail", async () => {
 
     setCurrentLanguage("en-US");

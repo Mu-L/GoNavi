@@ -326,18 +326,18 @@ export namespace ai {
 }
 
 export namespace aiservice {
-
+	
 	export class AgentDataDirectoryInfo {
 	    directory: string;
 	    defaultDirectory: string;
 	    source: string;
 	    restartRequired: boolean;
 	    stats: runharness.LedgerStorageStats;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentDataDirectoryInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.directory = source["directory"];
@@ -346,7 +346,7 @@ export namespace aiservice {
 	        this.restartRequired = source["restartRequired"];
 	        this.stats = this.convertValues(source["stats"], runharness.LedgerStorageStats);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -368,17 +368,17 @@ export namespace aiservice {
 	export class AgentDataMaintenanceResult {
 	    info: AgentDataDirectoryInfo;
 	    maintenance: runharness.LedgerMaintenanceResult;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentDataMaintenanceResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.info = this.convertValues(source["info"], AgentDataDirectoryInfo);
 	        this.maintenance = this.convertValues(source["maintenance"], runharness.LedgerMaintenanceResult);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1977,6 +1977,7 @@ export namespace connection {
 	    port: number;
 	    user?: string;
 	    password?: string;
+	    encodeBase64?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new HTTPTunnelConfig(source);
@@ -1988,6 +1989,7 @@ export namespace connection {
 	        this.port = source["port"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.encodeBase64 = source["encodeBase64"];
 	    }
 	}
 	export class ProxyConfig {
@@ -3364,11 +3366,11 @@ export namespace runharness {
 	    runCount: number;
 	    snapshotCount: number;
 	    activeRunCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LedgerStorageStats(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.fileBytes = source["fileBytes"];
@@ -3386,11 +3388,11 @@ export namespace runharness {
 	    after: LedgerStorageStats;
 	    removedSnapshots: number;
 	    removedSessions: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LedgerMaintenanceResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.before = this.convertValues(source["before"], LedgerStorageStats);
@@ -3398,7 +3400,7 @@ export namespace runharness {
 	        this.removedSnapshots = source["removedSnapshots"];
 	        this.removedSessions = source["removedSessions"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3431,6 +3433,7 @@ export namespace runharness {
 	        this.message = source["message"];
 	    }
 	}
+	
 	export class Message {
 	    id: string;
 	    sessionId: string;

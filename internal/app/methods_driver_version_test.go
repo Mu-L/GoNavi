@@ -2326,7 +2326,7 @@ func TestInstallOptionalDriverAgentFromLocalPathSupportsMongoV1DirectoryImport(t
 	writeSelfExecutable(t, filepath.Join(platformDir, assetName))
 
 	installRoot := filepath.Join(t.TempDir(), "drivers")
-	meta, err := installOptionalDriverAgentFromLocalPath(definition, packageRoot, installRoot, "1.17.4")
+	meta, err := installOptionalDriverAgentFromLocalPath(nil, definition, packageRoot, installRoot, "1.17.4")
 	if err != nil {
 		t.Fatalf("expected mongodb v1 directory import to succeed, got %v", err)
 	}
@@ -2355,7 +2355,7 @@ func TestInstallOptionalDriverAgentFromLocalPathSupportsMongoV1ZipImport(t *test
 	writeZipWithSelfExecutable(t, zipPath, filepath.ToSlash(filepath.Join(optionalDriverBundlePlatformDir(runtime.GOOS), assetName)))
 
 	installRoot := filepath.Join(t.TempDir(), "drivers")
-	meta, err := installOptionalDriverAgentFromLocalPath(definition, zipPath, installRoot, "1.17.4")
+	meta, err := installOptionalDriverAgentFromLocalPath(nil, definition, zipPath, installRoot, "1.17.4")
 	if err != nil {
 		t.Fatalf("expected mongodb v1 zip import to succeed, got %v", err)
 	}

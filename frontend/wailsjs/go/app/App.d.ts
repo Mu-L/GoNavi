@@ -313,6 +313,8 @@ export function GenerateQueryID():Promise<string>;
 
 export function GetAppInfo():Promise<connection.QueryResult>;
 
+export function GetBrandIconDataURL(arg1:string):Promise<string>;
+
 export function GetDataRootDirectoryInfo():Promise<connection.QueryResult>;
 
 export function GetDatabaseDiagnosticPackagePreview():Promise<connection.QueryResult>;
@@ -692,8 +694,6 @@ export function SelectSSHKnownHostsFile(arg1:string):Promise<connection.QueryRes
 export function SelectSavedQueryDirectory(arg1:string):Promise<connection.QueryResult>;
 
 export function SetApplicationBrandIcon(arg1:string):Promise<connection.QueryResult>;
-
-export function GetBrandIconDataURL(arg1:string):Promise<string>;
 
 export function SetLanguage(arg1:string):Promise<void>;
 

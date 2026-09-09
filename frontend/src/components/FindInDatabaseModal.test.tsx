@@ -147,6 +147,7 @@ const renderFindModal = () => {
 
 describe("FindInDatabaseModal i18n", () => {
   beforeEach(() => {
+    mocks.storeState.connections[0].config.type = "mysql";
     mocks.dbQuery.mockReset();
     mocks.dbGetTables.mockReset();
     mocks.dbGetAllColumns.mockReset();
@@ -263,5 +264,71 @@ describe("FindInDatabaseModal i18n", () => {
     expect(mocks.message.error).toHaveBeenCalledWith("Failed to get column summary: metadata permission denied");
     expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
     expect(mocks.dbQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["public.users", "public.users", "FROM public.users"],
+    ['public."audit.log"', "public.audit.log", 'FROM public."audit.log"'],
+    ['public."User""s"', 'public.User"s', 'FROM public."User""s"'],
+    ["Sales.User Accounts", "Sales.User Accounts", 'FROM "Sales"."User Accounts"'],
+  ])("quotes schema-qualified table %s by segment and matches its column metadata", async (tableName, columnTableName, expectedFrom) => {
+    mocks.storeState.connections[0].config.type = "postgres";
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: tableName }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [{ tableName: columnTableName, name: "name", type: "text" }],
+    });
+    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      "app_db",
+      expect.stringContaining(expectedFrom),
+    );
+    if (tableName === "public.users") {
+      expect(mocks.dbQuery.mock.calls[0][2]).not.toContain('FROM "public.users"');
+    }
+  });
+
+  it("keeps dots inside a MySQL single-part table name", async () => {
+    mocks.storeState.connections[0].config.type = "mysql";
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "audit.log" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      data: [{ tableName: "audit.log", name: "name", type: "varchar(255)" }],
+    });
+    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      "app_db",
+      expect.stringContaining("FROM `audit.log`"),
+    );
   });
 });

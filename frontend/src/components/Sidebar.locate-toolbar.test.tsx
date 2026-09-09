@@ -1669,10 +1669,11 @@ describe('Sidebar locate toolbar', () => {
     const css = readV2ThemeCss();
     const source = readSourceFile('./Sidebar.tsx');
 
-    expect(source).toContain("isTreeScrolling ? ' is-vertical-scrolling' : ''");
+    expect(source).toContain("classList.add('is-vertical-scrolling')");
     expect(source).toContain('onWheelCapture={handleTreeWheel}');
     expect(source).toContain('onTouchMoveCapture={markTreeScrollActivity}');
-    expect(source).toContain('setIsTreeScrolling(false)');
+    expect(source).toContain("classList.remove('is-vertical-scrolling')");
+    expect(source).not.toContain('setIsTreeScrolling');
     expect(source).toContain('SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS = 2000');
     expect(source).toContain('}, SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS);');
 
@@ -1682,6 +1683,7 @@ describe('Sidebar locate toolbar', () => {
     );
     expect(idleScrollbarCss).toContain('visibility: hidden !important;');
     expect(idleScrollbarCss).toContain('pointer-events: none;');
+    expect(idleScrollbarCss).toContain('z-index: 4;');
 
     const activeScrollbarCss = readCssRuleBlock(
       css,
@@ -1696,6 +1698,20 @@ describe('Sidebar locate toolbar', () => {
     );
     expect(movingScrollbarCss).toContain('visibility: visible !important;');
     expect(movingScrollbarCss).toContain('pointer-events: auto;');
+  });
+
+  it('uses exact row geometry for the V2 tree virtual scrolling fast path', () => {
+    const source = readSourceFile('./Sidebar.tsx');
+    const treePatch = readSourceFile('../../patches/rc-tree+5.13.1.patch');
+    const virtualListPatch = readSourceFile('../../patches/rc-virtual-list+3.19.2.patch');
+
+    expect(source).toContain('itemHeight={30}');
+    expect(source).toContain('itemHeightResolver={resolveSidebarTreeRowHeight}');
+    expect(treePatch).toContain('itemHeightResolver: itemHeightResolver');
+    expect(treePatch).toContain('itemHeightResolver?: (item: TreeDataType, index: number) => number;');
+    expect(virtualListPatch).toContain('fixedItemOffsets[startMid + 1] >= fixedOffsetTop');
+    expect(virtualListPatch).toContain('useScrollTo(componentRef, mergedData, heights, itemHeight');
+    expect(virtualListPatch).toContain('fixedItemOffsets, itemHeightFixed');
   });
 
   it('estimates a v2 tree scroll width only when content is wider than the viewport', () => {
@@ -3293,6 +3309,11 @@ describe('Sidebar locate toolbar', () => {
 
     const treeTitleSource = readSourceFile('./sidebar/SidebarTreeTitle.tsx');
     const sidebarHelpersSource = readSourceFile('./sidebar/sidebarHelpers.ts');
+
+    expect(treeTitleSource).toContain('title={renderHoverInfo}');
+    expect(treeTitleSource).toContain('const renderHoverInfo = React.useCallback(');
+    expect(treeTitleSource).not.toContain('title={<SidebarTableHoverInfo');
+    expect(treeTitleSource).toContain("node.type === 'table' && sidebarTableMetadataFields.length > 0");
 
     const css = readV2ThemeCss();
     expect(css).toMatch(/\.gn-v2-tree-table-comment \{[^}]*max-width: 24em;[^}]*text-overflow: ellipsis;/s);

@@ -5,6 +5,7 @@ import {
   resolveBrandDockSrc,
   resolveBrandFullSrc,
   resolveBrandIconSrc,
+  resolveBrandIconRemoteSrc,
   resolveBrandTitlebarSrc,
   BRAND_ICON_FALLBACK_SRC,
   setLoadedBrandIconSources,
@@ -35,6 +36,13 @@ describe('brand icon asset resolution', () => {
     setLoadedBrandIconSources({ '03': 'data:image/svg+xml;base64,remote' });
     expect(resolveBrandIconSrc('03')).toBe('data:image/svg+xml;base64,remote');
     expect(resolveBrandTitlebarSrc('03')).toBe('data:image/svg+xml;base64,remote');
+  });
+
+  it('gives browser harnesses six distinct immutable remote assets', () => {
+    const sources = BRAND_ICONS.map((icon) => resolveBrandIconRemoteSrc(icon.id));
+    expect(new Set(sources).size).toBe(BRAND_ICONS.length);
+    expect(sources[0]).toBe('https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/01-ribbon-graphite-air.svg');
+    expect(resolveBrandIconRemoteSrc('unknown')).toBe('');
   });
 
   it('falls back to the default about lockup for invalid selections', () => {
