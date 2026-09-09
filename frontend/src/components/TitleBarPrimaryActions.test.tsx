@@ -27,12 +27,12 @@ vi.mock('@ant-design/icons', () => {
 describe('TitleBarPrimaryActions', () => {
   it('keeps the original shared capsule treatment for every primary action', () => {
     const match = appCss.match(/\.gonavi-titlebar-primary-action\s*\{(?<body>[^}]*)\}/s);
-    expect(match?.groups?.body).toContain('height: 26px;');
+    expect(match?.groups?.body).toContain('height: var(--gn-titlebar-action-height, 30px);');
     expect(match?.groups?.body).toContain('border: 0.5px solid color-mix');
-    expect(match?.groups?.body).toContain('border-radius: 7px;');
+    expect(match?.groups?.body).toContain('border-radius: 8px;');
     expect(match?.groups?.body).toContain('font-weight: 600;');
     expect(match?.groups?.body).toContain('background: color-mix');
-    expect(match?.groups?.body).toContain('font-size: 11px;');
+    expect(match?.groups?.body).toContain('font-size: 12px;');
     expect(match?.groups?.body).toContain('-webkit-app-region: no-drag;');
     expect(appCss).not.toContain('.gonavi-titlebar-primary-action[data-titlebar-action-kind=');
     expect(appCss).not.toMatch(

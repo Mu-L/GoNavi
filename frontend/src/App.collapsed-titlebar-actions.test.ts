@@ -184,7 +184,7 @@ describe('collapsed V2 sidebar actions', () => {
     );
     expect(v2ThemeCss).not.toContain('.gn-v2-collapsed-titlebar-tool');
     expect(appCss).toContain('gn-v2-titlebar-collapsed-docked:not(.gn-v2-titlebar-native-mac)');
-    expect(appCss).toContain('height: var(--gn-titlebar-collapsed-upper-height, 29px);');
+    expect(appCss).toContain('height: var(--gn-titlebar-collapsed-upper-height, 31px);');
     expect(appCss).toContain('font-size: 10px !important;');
     expect(appCss).not.toContain('font-size: 0 !important;');
   });
@@ -255,7 +255,7 @@ describe('collapsed V2 sidebar actions', () => {
     const enlarged = resolveTitleBarLayout(1, true, true, 1.8);
 
     expect(enlarged.height).toBeGreaterThan(normal.height);
-    expect(enlarged.height - enlarged.emptyWorkbenchTopOffset).toBe(32);
+    expect(enlarged.height - enlarged.emptyWorkbenchTopOffset).toBe(36);
   });
 
   it.each([0.8, 0.9, 0.95, 1, 1.1, 1.25])(
