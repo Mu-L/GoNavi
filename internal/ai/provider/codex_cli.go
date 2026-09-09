@@ -410,7 +410,8 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest, onChunk 
 		if result.Content != "" {
 			onChunk(ai.StreamChunk{Content: result.Content})
 		}
-		onChunk(ai.StreamChunk{Done: true})
+		usage := result.Usage
+		onChunk(ai.StreamChunk{Done: true, Usage: &usage})
 	}
 	return result, nil
 }
@@ -429,6 +430,10 @@ func buildCodexCLIArgs(config ai.ProviderConfig, routing codexCLIProviderRouting
 		"-c", "mcp_servers={}",
 		"-c", "skills.include_instructions=false",
 		"-c", "skills.bundled.enabled=false",
+		// --ignore-user-config also drops the user's reasoning-summary preference.
+		// Request the model-provided summary so the chat can render its existing
+		// collapsible thinking block without exposing raw private reasoning.
+		"-c", `model_reasoning_summary="auto"`,
 		"--color", "never",
 		"--json",
 	}
@@ -827,12 +832,14 @@ func consumeCodexCLIEvent(result *codexCLIResult, event codexCLIEvent) codexCLIS
 	case "turn.completed":
 		result.Completed = true
 		result.TerminalError = ""
+		cached := event.Usage.CachedInputTokens
 		result.Usage = ai.TokenUsage{
 			PromptTokens: event.Usage.InputTokens,
 			// Codex reports reasoning_output_tokens as a breakdown of output_tokens,
 			// not an additional token bucket.
 			CompletionTokens: event.Usage.OutputTokens,
 			TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
+			CachedTokens:     &cached,
 		}
 	case "turn.failed":
 		result.TerminalError = strings.TrimSpace(event.Error.Message)

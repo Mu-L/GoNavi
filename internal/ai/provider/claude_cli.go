@@ -227,7 +227,7 @@ func (p *ClaudeCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.C
 		return nil, requestErr
 	}
 
-	return &ai.ChatResponse{Content: result.Result}, nil
+	return &ai.ChatResponse{Content: result.Result, TokensUsed: normalizeClaudeCLIUsage(result.Usage)}, nil
 }
 
 // ChatStream 流式聊天：调用 claude -p "prompt" --output-format stream-json
@@ -366,7 +366,12 @@ func (p *ClaudeCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 				return nil
 			}
 			// 最终结果事件 — 不发送 content（assistant 事件已包含），只标记完成
-			callback(ai.StreamChunk{Done: true})
+			var usage *ai.TokenUsage
+			if event.Usage != nil {
+				normalized := normalizeClaudeCLIUsage(event.Usage)
+				usage = &normalized
+			}
+			callback(ai.StreamChunk{Done: true, Usage: usage})
 			_ = cmd.Wait()
 			return nil
 		case "error":
@@ -887,7 +892,38 @@ type cliStreamEvent struct {
 		Thinking string `json:"thinking"`
 	} `json:"delta,omitempty"`
 	Result string              `json:"result,omitempty"`
+	Usage  *claudeCLIUsage     `json:"usage,omitempty"`
 	Error  cliStreamEventError `json:"error,omitempty"`
+}
+
+type claudeCLIUsage struct {
+	InputTokens              int  `json:"input_tokens"`
+	OutputTokens             int  `json:"output_tokens"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens,omitempty"`
+}
+
+func normalizeClaudeCLIUsage(usage *claudeCLIUsage) ai.TokenUsage {
+	if usage == nil {
+		return ai.TokenUsage{}
+	}
+	promptTokens := usage.InputTokens
+	if usage.CacheCreationInputTokens != nil {
+		promptTokens += *usage.CacheCreationInputTokens
+	}
+	if usage.CacheReadInputTokens != nil {
+		promptTokens += *usage.CacheReadInputTokens
+	}
+	result := ai.TokenUsage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      promptTokens + usage.OutputTokens,
+	}
+	if usage.CacheReadInputTokens != nil {
+		cached := *usage.CacheReadInputTokens
+		result.CachedTokens = &cached
+	}
+	return result
 }
 
 type cliStreamEventError struct {

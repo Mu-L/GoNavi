@@ -60,6 +60,12 @@ func TestBuildCodexCLIArgsUsesIsolatedReadOnlyExecutionAndStdin(t *testing.T) {
 			t.Fatalf("expected skill isolation override %q, got %#v", configOverride, args)
 		}
 	}
+	if !hasArgSequence(args, "-c", `model_reasoning_summary="auto"`) {
+		t.Fatalf("expected displayable reasoning summaries to be enabled, got %#v", args)
+	}
+	if strings.Contains(strings.Join(args, " "), "show_raw_agent_reasoning") {
+		t.Fatalf("raw private reasoning must remain disabled, got %#v", args)
+	}
 	if !hasArgSequence(args, "-m", "gpt-5-codex") {
 		t.Fatalf("expected explicit model, got %#v", args)
 	}
@@ -112,7 +118,7 @@ func TestConsumeCodexCLIEventKeepsFinalMessageAndIgnoresRetryErrorAfterSuccess(t
 	consumeCodexCLIEvent(&result, codexCLIEvent{Type: "item.completed", Item: codexCLIItem{Type: "reasoning", Text: "summary"}})
 	consumeCodexCLIEvent(&result, codexCLIEvent{
 		Type:  "turn.completed",
-		Usage: codexCLIUsage{InputTokens: 10, OutputTokens: 4, ReasoningOutputTokens: 2},
+		Usage: codexCLIUsage{InputTokens: 10, CachedInputTokens: 3, OutputTokens: 4, ReasoningOutputTokens: 2},
 	})
 
 	if !result.Completed || result.Content != "final answer" || result.Thinking != "summary" {
@@ -123,6 +129,9 @@ func TestConsumeCodexCLIEventKeepsFinalMessageAndIgnoresRetryErrorAfterSuccess(t
 	}
 	if result.Usage.CompletionTokens != 4 || result.Usage.TotalTokens != 14 {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
+	}
+	if result.Usage.CachedTokens == nil || *result.Usage.CachedTokens != 3 {
+		t.Fatalf("unexpected cached usage: %#v", result.Usage.CachedTokens)
 	}
 }
 
@@ -148,6 +157,9 @@ func TestCodexCLIProviderChatReadsPromptFromStdinAndParsesJSONL(t *testing.T) {
 	}
 	if resp.TokensUsed.CompletionTokens != 3 || resp.TokensUsed.TotalTokens != 8 {
 		t.Fatalf("unexpected usage: %#v", resp.TokensUsed)
+	}
+	if resp.TokensUsed.CachedTokens == nil || *resp.TokensUsed.CachedTokens != 1 {
+		t.Fatalf("unexpected cached usage: %#v", resp.TokensUsed.CachedTokens)
 	}
 }
 

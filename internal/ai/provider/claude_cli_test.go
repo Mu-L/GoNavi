@@ -1116,3 +1116,19 @@ func TestValidateClaudeCLILocalAuthAcceptsOAuthAndAPIKeyPayloads(t *testing.T) {
 		t.Fatalf("API key 认证来源应通过：%v", err)
 	}
 }
+
+func TestNormalizeClaudeCLIUsageIncludesCacheBreakdown(t *testing.T) {
+	created := 3
+	read := 12
+	usage := normalizeClaudeCLIUsage(&claudeCLIUsage{
+		InputTokens: 5, OutputTokens: 4,
+		CacheCreationInputTokens: &created,
+		CacheReadInputTokens:     &read,
+	})
+	if usage.PromptTokens != 20 || usage.CompletionTokens != 4 || usage.TotalTokens != 24 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 12 {
+		t.Fatalf("cached usage = %#v", usage.CachedTokens)
+	}
+}
