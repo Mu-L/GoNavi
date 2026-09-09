@@ -167,6 +167,13 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.service.AIGetMCPClientInstallStatuses).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the requested provider editor when launched from Manage models', async () => {
+    await mount(true, 'b');
+    expect(mocks.service.AIGetEditableProvider).toHaveBeenCalledWith('b');
+    expect(mocks.providerProps.editingProvider).toEqual(expect.objectContaining({ id: 'b' }));
+    expect(mocks.providerProps.isEditing).toBe(true);
+  });
+
   it('loads result masking without silently replacing a failed read with empty rules', async () => {
     mocks.service.AIGetResultMaskingSettings.mockRejectedValueOnce(new Error('invalid ai_config.json'));
     await act(async () => {

@@ -12,19 +12,19 @@ vi.mock('../../i18n/runtime', () => ({
 vi.mock('antd', async () => {
   const React = await import('react');
   return {
-    Select: ({
+    Dropdown: ({
       className,
-      placeholder,
+      children,
+      menu,
     }: {
       className?: string;
-      placeholder?: string;
+      children?: React.ReactNode;
+      menu?: { items?: Array<{ label?: React.ReactNode; children?: Array<{ label?: React.ReactNode }> }> };
     }) => React.createElement(
       'div',
-      {
-        className,
-        'data-placeholder': placeholder,
-      },
-      placeholder,
+      { className },
+      children,
+      menu?.items?.flatMap((item) => [item?.label, ...(item?.children?.map((child) => child.label) || [])]),
     ),
   };
 });
@@ -32,7 +32,10 @@ vi.mock('antd', async () => {
 vi.mock('@ant-design/icons', async () => {
   const React = await import('react');
   return {
+    CheckOutlined: () => React.createElement('span', { 'data-icon': 'check' }),
     DownOutlined: () => React.createElement('span', { 'data-icon': 'down' }),
+    LoadingOutlined: () => React.createElement('span', { 'data-icon': 'loading' }),
+    SettingOutlined: () => React.createElement('span', { 'data-icon': 'settings' }),
   };
 });
 

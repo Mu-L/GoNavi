@@ -6,20 +6,25 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import type { AIProviderConfig } from '../../types';
 import {
-  resolveThinkingIntensityOptions,
-  resolveThinkingIntensityProfile,
+  resolveProviderThinkingIntensityControl,
 } from '../../utils/aiThinkingIntensity';
+import type { CLIModelCatalog } from '../../utils/aiProviderManagement';
+import type { CLIThinkingCapability } from './useAIChatRuntimeResources';
 
 interface AIChatThinkingIntensitySelectProps {
   activeProvider?: AIProviderConfig | null;
   value: string;
   onChange: (value: string) => void;
+  cliCapability?: CLIThinkingCapability;
+  cliCatalog?: CLIModelCatalog;
 }
 
 const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps> = ({
   activeProvider,
   value,
   onChange,
+  cliCapability,
+  cliCatalog,
 }) => {
   const i18n = useOptionalI18n();
   const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -29,13 +34,8 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
     return null;
   }
 
-  const profile = resolveThinkingIntensityProfile({
-    type: activeProvider.type,
-    apiFormat: activeProvider.apiFormat,
-    baseUrl: activeProvider.baseUrl,
-    model: activeProvider.model,
-  });
-  const options = resolveThinkingIntensityOptions(profile).map((item) => ({
+  const control = resolveProviderThinkingIntensityControl(activeProvider, cliCapability, cliCatalog);
+  const options = control.options.map((item) => ({
     value: item.value,
     label: t(item.labelKey),
   }));
@@ -43,7 +43,7 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
   return (
     <Select
       size="small"
-      value={value || undefined}
+      value={value || control.defaultValue || undefined}
       onChange={onChange}
       options={options}
       styles={{ popup: { root: { minWidth: 160 } } }}

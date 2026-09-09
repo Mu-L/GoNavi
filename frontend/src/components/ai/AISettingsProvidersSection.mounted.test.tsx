@@ -60,6 +60,7 @@ const presets = [
 ];
 const capability = { apiFormat: 'grok-cli', command: 'grok', supportsModelDiscovery: true, supportsEffort: true, effortValues: ['low', 'high'], effortValuesVerified: true, defaultModel: 'configured-model', defaultEffort: 'high' };
 const claudeCapability = { ...capability, apiFormat: 'claude-cli', command: 'claude' };
+const codexCapability = { ...capability, apiFormat: 'codex-cli', command: 'codex', effortValues: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] };
 const renderedText = (node: any): string => typeof node === 'string' ? node
   : Array.isArray(node) ? node.map(renderedText).join(' ') : renderedText(node?.children || []);
 const elementText = (node: any): string => node === null || node === undefined || node === false || node === true ? ''
@@ -88,7 +89,7 @@ describe('provider settings mounted controls', () => {
     vi.resetAllMocks();
     stored = new Map();
     vi.stubGlobal('window', { localStorage: { getItem: (key: string) => stored.get(key) || null, setItem: (key: string, value: string) => stored.set(key, value) } });
-    bridge.capabilities.mockResolvedValue([capability, claudeCapability]);
+    bridge.capabilities.mockResolvedValue([capability, claudeCapability, codexCapability]);
     bridge.models.mockResolvedValue({ models: ['discovered-model'], source: 'cli', stale: false });
     values = { model: 'typed-model', models: ['my-model'], effort: 'low' };
     props = {
@@ -285,6 +286,28 @@ describe('provider settings mounted controls', () => {
     expect(props.onCLIDefaults).toHaveBeenCalledWith(capability);
   });
 
+  it('uses the live Codex catalog without mixing in the OpenAI API preset model', async () => {
+    values = { model: 'gpt-5.6-sol', models: [], effort: 'ultra', authMode: 'local-cli', type: 'custom' };
+    bridge.models.mockResolvedValue({
+      models: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'], source: 'app-server', stale: false,
+      defaultModel: 'gpt-5.6-sol',
+      modelCapabilities: { 'gpt-5.6-sol': { effortValues: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultEffort: 'low' } },
+    });
+    await render({
+      isEditing: true, editingProvider: { id: 'b' }, watchedPresetKey: 'openai', watchedApiFormat: 'codex-cli',
+      providerPresets: [{ ...presets[0], defaultModel: 'gpt-5.6' }, ...presets.slice(1)],
+    });
+    expect(modelPickers()[0].props.options).toEqual(expect.arrayContaining([
+      { value: 'gpt-5.6-sol', label: 'gpt-5.6-sol' },
+      { value: 'gpt-5.6-terra', label: 'gpt-5.6-terra' },
+      { value: 'gpt-5.6-luna', label: 'gpt-5.6-luna' },
+      { value: 'gpt-5.5', label: 'gpt-5.5' },
+    ]));
+    expect(modelPickers()[0].props.options).not.toContainEqual({ value: 'gpt-5.6', label: 'gpt-5.6' });
+    const effortSelect = renderer!.root.findByProps({ 'data-field': 'effort' }).findByType('select');
+    expect(effortSelect.props.options.map((option: any) => option.value)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+  });
+
   it('explains automatic and manual program paths for every CLI subscription mode', async () => {
     await render({ isEditing: true, editingProvider: { id: 'a' } });
     let pathField = renderer!.root.findByProps({ 'data-field': 'cliPath' });
@@ -358,7 +381,7 @@ describe('provider settings mounted controls', () => {
   });
 
   it('reuses the cached CLI catalog on entry and only refetches from the enabled count', async () => {
-    stored.set('gonavi.ai.providers.modelCatalog.v1', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: 1 } }));
+    stored.set('gonavi.ai.providers.modelCatalog.v2', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: Date.now() } }));
     await render({ isEditing: true, providers: [], editingProvider: { id: '' } });
     expect(bridge.models).not.toHaveBeenCalled();
     expect(modelPickers()[0].props.options).toContainEqual({ value: 'cached-grok', label: 'cached-grok' });
@@ -368,7 +391,7 @@ describe('provider settings mounted controls', () => {
   });
 
   it('bypasses the shared catalog cache and sends custom CLI execution settings', async () => {
-    stored.set('gonavi.ai.providers.modelCatalog.v1', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: 1 } }));
+    stored.set('gonavi.ai.providers.modelCatalog.v2', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: Date.now() } }));
     values.cliPath = '/custom/bin/grok';
     values.cliEnvRows = [{ id: '1', name: 'GROK_HOME', value: '/custom/home' }];
     await render({ isEditing: true, providers: [], editingProvider: { id: 'custom-grok' } });
@@ -376,7 +399,7 @@ describe('provider settings mounted controls', () => {
       id: 'custom-grok', apiFormat: 'grok-cli', cliPath: '/custom/bin/grok', cliEnv: { GROK_HOME: '/custom/home' },
     }));
     expect(modelPickers()[0].props.options).toContainEqual({ value: 'discovered-model', label: 'discovered-model' });
-    expect(JSON.parse(stored.get('gonavi.ai.providers.modelCatalog.v1') || '{}')['grok-cli'].catalog.models).toEqual(['cached-grok']);
+    expect(JSON.parse(stored.get('gonavi.ai.providers.modelCatalog.v2') || '{}')['grok-cli'].catalog.models).toEqual(['cached-grok']);
   });
 
   it('does not reuse the prior editor session defaults while fresh capabilities are loading', async () => {

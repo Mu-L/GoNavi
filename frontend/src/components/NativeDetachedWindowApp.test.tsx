@@ -225,7 +225,7 @@ vi.mock('./AIChatPanel', () => ({
     presentation?: string;
     onAttach?: () => void;
     onClose?: () => void;
-    onOpenSettings?: () => void;
+    onOpenSettings?: (providerId?: string) => void;
     onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;
     interactionDisabled?: boolean;
   }) => {
@@ -238,7 +238,8 @@ vi.mock('./AIChatPanel', () => ({
       >
         <button data-ai-chat-attach type="button" onClick={onAttach} />
         <button data-ai-chat-close type="button" onClick={onClose} />
-        <button data-ai-chat-settings type="button" onClick={onOpenSettings} />
+        <button data-ai-chat-settings type="button" onClick={() => onOpenSettings?.()} />
+        <button data-ai-chat-provider-settings type="button" onClick={() => onOpenSettings?.('provider-grok')} />
       </div>
     );
   },
@@ -1072,7 +1073,7 @@ describe('NativeDetachedWindowApp', () => {
     }
   });
 
-  it('parks the native AI window before opening settings in the main window', async () => {
+  it('parks the native AI window before opening the focused provider in main settings', async () => {
     const bootstrap: NativeDetachedWindowBootstrap = {
       id: 'ai-chat',
       kind: 'ai-chat',
@@ -1098,13 +1099,13 @@ describe('NativeDetachedWindowApp', () => {
     });
 
     await act(async () => {
-      renderer!.root.findByProps({ 'data-ai-chat-settings': true }).props.onClick();
+      renderer!.root.findByProps({ 'data-ai-chat-provider-settings': true }).props.onClick();
       await flushEffects();
       await flushEffects();
     });
 
     expect(client.hide).toHaveBeenCalledOnce();
-    expect(client.openAISettings).toHaveBeenCalledWith(9);
+    expect(client.openAISettings).toHaveBeenCalledWith(9, 'provider-grok');
     expect(client.hide.mock.invocationCallOrder[0]).toBeLessThan(
       client.openAISettings.mock.invocationCallOrder[0],
     );

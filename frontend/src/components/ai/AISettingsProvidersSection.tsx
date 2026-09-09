@@ -356,6 +356,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const supportsAdvancedEndpoint = presetKeyFromForm === 'custom' || presetKeyFromForm === 'ollama' || presetKeyFromForm === 'codebuddy' || presetKeyFromForm === 'cursor';
   const codeBuddyUsesOptionalSecret = presetKeyFromForm === 'codebuddy';
   const watchedModel = Form.useWatch('model', form);
+  const watchedEffort = Form.useWatch('effort', { form, preserve: true });
   const watchedInlineCompletionModel = Form.useWatch('inlineCompletionModel', form);
   const watchedDisabledModels = Form.useWatch('disabledModels', { form, preserve: true }) || [];
   const watchedCustomModels = Form.useWatch('customModels', { form, preserve: true }) || [];
@@ -396,13 +397,25 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const modelOptions = buildProviderModelOptions(
     modelCatalog?.models,
     upstreamModels,
-    [watchedModel, watchedInlineCompletionModel, activeCLICapability?.defaultModel, activePresetConnection?.defaultModel],
-    activePresetConnection?.models,
+    [watchedModel, watchedInlineCompletionModel, activeCLICapability?.defaultModel,
+      ...(usesLocalCLI ? [] : [activePresetConnection?.defaultModel])],
+    usesLocalCLI ? [] : activePresetConnection?.models,
     watchedCustomModels,
     watchedDisabledModels,
   );
   const disabledModels = new Set<string>(watchedDisabledModels);
   const enabledModelOptions = modelOptions.filter((option) => !disabledModels.has(option.value));
+  const activeCatalogModel = String(watchedModel || modelCatalog?.defaultModel || '').trim();
+  const activeModelCapability = activeCatalogModel ? modelCatalog?.modelCapabilities?.[activeCatalogModel] : undefined;
+  const activeEffortValues = activeModelCapability?.effortValues?.length
+    ? activeModelCapability.effortValues
+    : (activeCLICapability?.effortValues || []);
+  React.useEffect(() => {
+    const effort = String(watchedEffort || '').trim().toLowerCase();
+    if (!usesLocalCLI || !activeModelCapability || !effort || activeEffortValues.includes(effort)) return;
+    form.setFieldValue('effort', undefined);
+    onValuesChange?.({ effort: undefined });
+  }, [activeEffortValues, activeModelCapability, form, onValuesChange, usesLocalCLI, watchedEffort]);
   const patchModels = (patch: Record<string, string[]>) => { form.setFieldsValue(patch); onValuesChange?.(patch); };
   const modelSourceKey = modelCatalog?.stale ? 'ai_settings.form.model_catalog.stale'
     : modelDiscoveryError ? 'ai_settings.form.models_manual_fallback'
@@ -756,7 +769,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
               {usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.effort')} name="effort">
                 {activeCLICapability?.supportsEffort ? <Select allowClear size="middle" placeholder={copy('ai_settings.form.effort_placeholder_empty')}
                   popupMatchSelectWidth={false} classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}
-                  options={(activeCLICapability.effortValues || []).map((value) => ({ label: value, value }))} />
+                  options={activeEffortValues.map((value) => ({ label: value, value }))} />
                   : <Input size="middle" disabled placeholder={copy(activeCLICapability?.supportsEffort === false ? 'ai_settings.form.effort_unsupported' : 'ai_settings.form.effort_placeholder_empty')} />}
               </Form.Item>}
             </div>

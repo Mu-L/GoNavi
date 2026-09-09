@@ -51,7 +51,8 @@ func TestProviderManagementCLIModelCatalogRestoresHiddenExecutionEnvironment(t *
 	}
 	if err := service.AISaveProvider(ai.ProviderConfig{
 		ID: "codex-catalog", Type: "custom", AuthMode: "local-cli", APIFormat: "codex-cli",
-		CLIEnv: map[string]string{"CODEX_HOME": codexHome},
+		CLIPath: filepath.Join(t.TempDir(), "missing-codex"),
+		CLIEnv:  map[string]string{"CODEX_HOME": codexHome},
 	}); err != nil {
 		t.Fatal(err)
 	}

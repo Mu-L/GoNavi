@@ -1048,7 +1048,16 @@ func applyChatSendOptionsToProviderConfig(config ai.ProviderConfig, options ai.C
 	}
 	// 思考强度以聊天面板/会话级覆盖为准，不回写供应商配置。
 	if intensity := strings.TrimSpace(options.ThinkingIntensity); intensity != "" {
-		config.ThinkingIntensity = intensity
+		if isLocalCLIAuthProvider(config) {
+			switch strings.ToLower(intensity) {
+			case "off", "none", "disabled", "default":
+				config.Effort = ""
+			default:
+				config.Effort = intensity
+			}
+		} else {
+			config.ThinkingIntensity = intensity
+		}
 	}
 	return config
 }
@@ -1583,7 +1592,10 @@ func (s *Service) AIGetCLIModelCatalog(config ai.ProviderConfig) (map[string]int
 	if ok {
 		catalog, err = capability.ModelCatalogWithConfig(context.Background(), config)
 	}
-	return map[string]interface{}{"models": catalog.Models, "source": catalog.Source, "stale": catalog.Stale}, err
+	return map[string]interface{}{
+		"models": catalog.Models, "source": catalog.Source, "stale": catalog.Stale,
+		"defaultModel": catalog.DefaultModel, "modelCapabilities": catalog.ModelCapabilities,
+	}, err
 }
 
 // AISetContextLevel 设置上下文传递级别

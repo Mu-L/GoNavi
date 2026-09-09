@@ -125,11 +125,11 @@ type ProviderConfig struct {
 	CLIPath        string            `json:"cliPath,omitempty"`
 	CLIEnv         map[string]string `json:"cliEnv,omitempty"`
 	Temperature    float64           `json:"temperature"`
-	// ThinkingIntensity 可选：off/low/medium/high。空值表示沿用供应商默认（多数等价 medium）。
+	// ThinkingIntensity 是 API 供应商的会话级推理强度，合法值域由供应商 profile 决定。
 	ThinkingIntensity string `json:"thinkingIntensity,omitempty"`
 	// Effort 是本机 CLI 供应商的推理档位。它与 ThinkingIntensity 是两条独立的链：
 	// 后者面向 API 供应商，值域由 GoNavi 定义；Effort 的合法值域由目标 CLI 决定，
-	// 三个 CLI 两两不同（codex 6 / claude 5 / grok 4），因此不共用同一个枚举。
+	// 三个 CLI 两两不同，Codex 还会按模型变化，因此不共用同一个枚举。
 	// 空值表示沿用该 CLI 自身的默认档位，不下发任何档位参数。
 	Effort string `json:"effort,omitempty"`
 }

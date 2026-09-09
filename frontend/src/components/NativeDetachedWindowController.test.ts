@@ -682,6 +682,17 @@ describe('NativeDetachedWindowController', () => {
     expect(onOpenAISettings).toHaveBeenCalledOnce();
   });
 
+  it('routes the focused provider when a native AI child opens settings', () => {
+    const onOpenAISettings = vi.fn();
+    applyNativeDetachedWindowEvent({
+      id: 'ai-chat',
+      kind: 'ai-chat',
+      action: 'open-ai-settings',
+      payload: { visibilityRevision: 8, providerId: 'provider-grok' },
+    }, undefined, { onOpenAISettings });
+    expect(onOpenAISettings).toHaveBeenCalledWith('provider-grok');
+  });
+
   it('tracks AI context changes by immutable reference without serializing the context tree', () => {
     const aiContexts = {
       'conn-1:main': [{ dbName: 'main', tableName: 'users', ddl: 'create table users(id int)' }],

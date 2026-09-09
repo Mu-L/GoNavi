@@ -208,7 +208,7 @@ export const applyNativeDetachedWindowEvent = (
   event: NativeDetachedWindowEvent,
   currentWindowId?: string,
   callbacks: {
-    onOpenAISettings?: () => void;
+    onOpenAISettings?: (providerId?: string) => void;
     onToggleAI?: () => void;
     onHostEvent?: (event: NativeDetachedHostEvent) => void;
     aiContextSourceRef?: AIContextSourceRef;
@@ -270,7 +270,7 @@ export const applyNativeDetachedWindowEvent = (
         state.setAIPanelVisible(false);
       }
       showMainWindow();
-      callbacks.onOpenAISettings?.();
+      callbacks.onOpenAISettings?.(String(event.payload?.providerId || '').trim() || undefined);
     }
     return;
   }
@@ -581,7 +581,7 @@ const areNativeDetachedThemeContextsEqual = (
 
 export interface NativeDetachedWindowControllerProps {
   currentWindowId?: string;
-  onOpenAISettings?: () => void;
+  onOpenAISettings?: (providerId?: string) => void;
   onToggleAI?: () => void;
 }
 

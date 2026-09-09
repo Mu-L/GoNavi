@@ -764,7 +764,7 @@ export interface AIProviderConfig {
   cliPath?: string;
   cliEnv?: Record<string, string>;
   temperature: number;
-  /** 思考强度：off | low | medium | high；空表示供应商默认 */
+  /** API 供应商的思考强度；合法值域由供应商 profile 决定。 */
   thinkingIntensity?: string;
   /**
    * 本机 CLI 供应商的推理档位。合法值域由目标 CLI 决定，三个 CLI 两两不同，

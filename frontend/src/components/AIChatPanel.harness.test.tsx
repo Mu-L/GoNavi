@@ -148,9 +148,11 @@ vi.mock('./ai/useAIChatSessionState', () => ({
 vi.mock('../hooks/useWorkbenchTabs', () => ({ useWorkbenchTabs: () => [] }));
 vi.mock('../i18n/provider', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('../utils/aiThinkingIntensity', () => ({
-  coerceThinkingIntensityForProfile: (value: string) => value,
-  defaultThinkingIntensityForProfile: () => 'medium',
-  resolveThinkingIntensityProfile: () => ({}),
+  coerceThinkingIntensityForControl: (value: string) => value || 'medium',
+  resolveProviderThinkingIntensityControl: () => ({
+    options: [{ value: 'medium', labelKey: 'medium' }],
+    defaultValue: 'medium',
+  }),
 }));
 
 const originalStore = useStore.getState();
