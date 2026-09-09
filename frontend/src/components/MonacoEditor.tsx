@@ -939,7 +939,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 }) => {
   const [ready, setReady] = useState(isTestRuntime);
   const appTheme = useStore((state) => state.theme);
-  const uiVersion = useStore((state) => state.appearance.uiVersion);
   const dataTableFontSize = useStore((state) => state.appearance.dataTableFontSize);
   const dataTableFontSizeFollowGlobal = useStore((state) => state.appearance.dataTableFontSizeFollowGlobal);
   const sqlEditorFontSize = useStore((state) => state.appearance.sqlEditorFontSize);
@@ -1027,13 +1026,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }, [onMount, replaceClipboardPasteHandler]);
 
   const resolvedOptions = useMemo(() => {
-    if (uiVersion !== 'v2') {
-      return {
-        ...options,
-        editContext: false,
-      };
-    }
-
     const effectiveGlobalFontSize = Math.min(
       MAX_FONT_SIZE,
       Math.max(MIN_FONT_SIZE, Math.round(Number(globalFontSize) || DEFAULT_FONT_SIZE)),
@@ -1076,10 +1068,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     options,
     sqlEditorFontSize,
     sqlEditorFontSizeFollowGlobal,
-    uiVersion,
   ]);
 
-  const suggestionLayout = uiVersion === 'v2' && gonaviTypography === 'sql'
+  const suggestionLayout = gonaviTypography === 'sql'
     ? resolveSqlEditorSuggestionLayout(resolvedOptions.fontSize)
     : null;
 

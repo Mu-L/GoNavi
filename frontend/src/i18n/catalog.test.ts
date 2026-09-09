@@ -604,7 +604,11 @@ describe("i18n catalog", () => {
       "data_grid.row_editor.popup_edit",
       "data_grid.cell_editor.title",
       "data_grid.cell_editor.title_with_column",
+      "data_grid.cell_editor.escape",
+      "data_grid.cell_editor.unescape",
+      "data_grid.cell_editor.invalid_unescape",
       "data_grid.cell_viewer.title_with_column",
+      "data_grid.context_menu.edit_cell_in_editor",
       "data_grid.batch_fill.title",
       "data_grid.batch_fill.set_null",
       "data_grid.batch_fill.set_null_selected",
@@ -612,6 +616,7 @@ describe("i18n catalog", () => {
       "data_grid.json_editor.title",
       "data_grid.json_editor.description",
       "data_grid.json_editor.format",
+      "data_grid.json_editor.compact",
       "data_grid.json_editor.apply_changes",
       "data_grid.json_editor.invalid_format",
       "data_grid.ddl.layout_bottom",
@@ -694,8 +699,13 @@ describe("i18n catalog", () => {
     expect(t("en-US", "data_grid.json_editor.title")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.description")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.format")).toContain("JSON");
+    expect(t("zh-CN", "data_grid.json_editor.compact")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.invalid_format", { error: "<raw-json-error>" })).toContain("<raw-json-error>");
     expect(getPlaceholders(catalogs["en-US"]["data_grid.json_editor.invalid_format"])).toEqual(["error"]);
+    expect(t("zh-CN", "data_grid.cell_editor.escape")).toBe("转义");
+    expect(t("zh-CN", "data_grid.cell_editor.unescape")).toBe("去转义");
+    expect(t("en-US", "data_grid.cell_editor.invalid_unescape", { error: "<raw-unescape-error>" })).toContain("<raw-unescape-error>");
+    expect(getPlaceholders(catalogs["en-US"]["data_grid.cell_editor.invalid_unescape"])).toEqual(["error"]);
     assertSourceDoesNotInlineCatalogValues(detachedChromeSource, dataGridDetachedChromeKeys, { ignoreEnglishBaseline: true });
   });
 
@@ -1950,7 +1960,7 @@ describe("i18n catalog", () => {
     const source = readQueryEditorResultsPanelSource();
     const emptyStateSource = sliceBetween(
       source,
-      "<div className={isV2Ui ? 'gn-v2-query-empty' : undefined}",
+      '<div className="gn-v2-query-empty"',
       "                    </>",
     );
 
@@ -1959,9 +1969,6 @@ describe("i18n catalog", () => {
         expect(catalogs[language]).toHaveProperty(key);
         expect(catalogs[language][key]).toBeTruthy();
       }
-    }
-
-    for (const key of emptyStateKeys) {
     }
 
     assertSourceDoesNotInlineCatalogValues(emptyStateSource, emptyStateKeys);

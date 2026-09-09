@@ -2528,34 +2528,6 @@ body[data-ui-version="v2"] .gn-v2-table-row:last-child {
   background: rgba(22, 119, 255, 0.06) !important;
 }
 
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-scroll {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: #141414;
-}
-
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-header {
-  border-bottom-color: rgba(255, 255, 255, 0.14);
-  background: #1f1f1f;
-  color: rgba(255, 255, 255, 0.65);
-}
-
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-header > [role="columnheader"] {
-  border-right-color: rgba(255, 255, 255, 0.1);
-}
-
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-section {
-  border-bottom-color: rgba(255, 255, 255, 0.1);
-  background: #1f1f1f;
-}
-
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-sort-button:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-}
-
-body[data-ui-version="legacy"][data-theme="dark"] .gn-table-overview-compact-row:hover {
-  background: rgba(22, 119, 255, 0.16) !important;
-}
-
 /* 表格视图：贴边铺满内容区，背景全程跟主题 token */
 body[data-ui-version="v2"] .gn-table-overview-compact-scroll {
   flex: 1 1 auto !important;

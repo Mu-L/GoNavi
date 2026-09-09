@@ -29,10 +29,6 @@ import {
   isReleaseNotesRead,
   markReleaseNotesRead,
 } from './utils/updateReleaseNotesReadState';
-import {
-  shouldShowFooterReleaseNotesAction,
-  type AboutUpdateActionsSurface,
-} from './utils/aboutUpdateActions';
 import { type DataSyncEntryMode } from './components/dataSyncEntryMode';
 import LinuxCJKFontBanner from './components/LinuxCJKFontBanner';
 import LogPanel from './components/LogPanel';
@@ -53,12 +49,20 @@ import {
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
-import { composeMacOSDockIconBase64, shouldSyncMacOSDockIcon } from './brand/macDockIcon';
+import { composeMacOSDockIconBase64, shouldSyncApplicationBrandIcon } from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
 import SettingsCenterTreeNav, {
   findSettingsCenterTreeItem,
 } from './components/settings/SettingsCenterTreeNav';
+import {
+  DataDirectoryPage,
+  DirectoryChoice,
+  DirectoryMetaGrid,
+  DirectoryNote,
+  DirectoryPathDisplay,
+  DirectorySectionHeading,
+} from './components/settings/DataDirectorySettings';
 import { AI_SETTINGS_NAV_ITEMS, type AISettingsSectionKey } from './components/ai/AISettingsSidebar';
 import CustomThemeStyleHost, {
   type CustomThemeAntTokenSnapshot,
@@ -287,6 +291,7 @@ import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/
 import { useAppUtilityStyles } from './hooks/useAppUtilityStyles';
 import { useWorkbenchTabs } from './hooks/useWorkbenchTabs';
 import { useAIWorkspaceSnapshot } from './components/ai/useAIWorkspaceSnapshot';
+import AgentDataSettingsPanel from './components/ai/AgentDataSettingsPanel';
 import {
   ApplyDataRootDirectory,
   ApplyLogDirectory,
@@ -614,6 +619,9 @@ type ToolCenterGroupKey = 'config' | 'workflow' | 'workspace';
 type ToolCenterPaneKey =
   | 'connection-package'
   | 'data-root'
+  | 'data-root-application'
+  | 'data-root-agent'
+  | 'data-root-saved-queries'
   | 'security-update'
   | 'drivers'
   | 'snippet-settings'
@@ -649,7 +657,7 @@ const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): S
     case 'services':
       return { key: 'proxy', group };
     case 'config':
-      return { key: 'data-root', group };
+      return { key: 'data-root-application', group };
     case 'workspace':
       return { key: 'snippet-settings', group };
     case 'about':
@@ -883,14 +891,14 @@ function App() {
       [activeCustomTheme],
   );
   const [computedCustomThemeAntTokens, setComputedCustomThemeAntTokens] = useState<CustomThemeAntTokenSnapshot | null>(null);
-  const customThemeStyleContextKey = `${resolvedThemeMode}:${appearance.uiVersion}`;
+  const customThemeStyleContextKey = `${resolvedThemeMode}:v2`;
   const customThemeAntTokens = activeCustomTheme
       && computedCustomThemeAntTokens?.themeId === activeCustomTheme.id
       && computedCustomThemeAntTokens.themeRevision === activeCustomTheme.updatedAt
       && computedCustomThemeAntTokens.contextKey === customThemeStyleContextKey
       ? computedCustomThemeAntTokens.tokens
       : sourceCustomThemeAntTokens;
-  const isV2Ui = true;
+
   const effectiveUiScale = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, Number(uiScale) || DEFAULT_UI_SCALE));
   const effectiveFontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(Number(fontSize) || DEFAULT_FONT_SIZE)));
   const tokenFontSize = Math.round(effectiveFontSize * effectiveUiScale);
@@ -1003,7 +1011,7 @@ function App() {
       void safeWindowRuntimeCall(() => WindowSetLightTheme(), undefined);
   }, [effectiveThemePreference, resolvedThemeMode, setTheme, themeMode]);
 
-  // Apply selected brand mascot to favicon + native macOS Dock icon.
+  // Apply the selected brand mascot to the favicon and supported native OS surfaces.
   useEffect(() => {
       if (typeof document === 'undefined') return;
       const href = resolveBrandIconSrc(brandIconId);
@@ -1018,10 +1026,10 @@ function App() {
       link.href = href;
 
       let cancelled = false;
-      const applyDockIcon = async () => {
+      const applyNativeIcon = async () => {
           try {
               const environment = await Environment();
-              if (cancelled || !shouldSyncMacOSDockIcon(environment)) {
+              if (cancelled || !shouldSyncApplicationBrandIcon(environment)) {
                   return;
               }
               const dockHref = resolveBrandDockSrc(brandIconId);
@@ -1029,17 +1037,17 @@ function App() {
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);
               if (!result.success && !cancelled) {
-                  console.warn('Failed to update the macOS Dock icon:', result.message);
-                  message.warning(t('app.settings.entry.brand_icon.dock_sync_failed'));
+                  console.warn('Failed to update the native application icon:', result.message);
+                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
               }
           } catch (error) {
               if (!cancelled) {
-                  console.warn('Failed to update the macOS Dock icon:', error);
-                  message.warning(t('app.settings.entry.brand_icon.dock_sync_failed'));
+                  console.warn('Failed to update the native application icon:', error);
+                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
               }
           }
       };
-      void applyDockIcon();
+      void applyNativeIcon();
       return () => {
           cancelled = true;
       };
@@ -1236,7 +1244,6 @@ function App() {
   const titlebarRuntimePlatform = resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform);
   const isMacRuntime = titlebarRuntimePlatform === 'darwin';
   const shouldDockCollapsedSidebarActionsInTitlebar = resolveCollapsedSidebarDocking(
-      isV2Ui,
       runtimePlatform,
       navigatorPlatform,
       isWebRuntime,
@@ -1278,12 +1285,11 @@ function App() {
   }, [collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]);
   const titleBarLayout = resolveTitleBarLayout(
       effectiveUiScale,
-      isV2Ui,
       isCollapsedSidebarActionsDocked,
       effectiveSidebarRailScale,
   );
   const titleBarHeight = titleBarLayout.height;
-  const sidebarCollapsedWidth = isV2Ui && !shouldDockCollapsedSidebarActionsInTitlebar
+  const sidebarCollapsedWidth = !shouldDockCollapsedSidebarActionsInTitlebar
       ? 38 * effectiveUiScale * effectiveSidebarRailScale
       : 0;
   const renderedSidebarWidth = isSidebarCollapsed ? sidebarCollapsedWidth : sidebarWidth;
@@ -2632,7 +2638,7 @@ function App() {
   }, []);
 
   const {
-      bgContent, bgMain,
+      bgContent,
       floatingLogButtonBgColor, floatingLogButtonBorderColor, floatingLogButtonShadow, floatingLogButtonTextColor,
       isSidebarNarrow, isSidebarUltraCompact,
       overlayTheme, renderUtilityModalTitle,
@@ -2646,7 +2652,6 @@ function App() {
       darkMode,
       effectiveOpacity,
       effectiveUiScale,
-      isV2Ui,
       resolvedAppearance,
       sidebarWidth,
   });
@@ -2998,7 +3003,6 @@ function App() {
       formatBytes,
       handleInstallFromProgress,
       hideUpdateDownloadProgress,
-      isAboutOpen,
       isBackgroundProgressForLatestUpdate,
       isCheckingForUpdates,
       isLatestUpdateDownloaded,
@@ -3010,7 +3014,6 @@ function App() {
       muteLatestUpdate,
       openDownloadedUpdateDirectory,
       prepareAboutSurface,
-      setIsAboutOpen,
       showUpdateDownloadProgress,
       updateChannel,
       updateDownloadProgress,
@@ -3927,7 +3930,6 @@ function App() {
   const directorySettingsApplying = dataRootApplying || logDirectoryApplying || savedQueryDirectoryApplying;
 
   const aiPanelOverlayActive = aiPanelVisible && shouldOverlayAIPanel({
-      isV2Ui,
       viewportWidth,
       sidebarWidth: renderedSidebarWidth,
       panelWidth: DEFAULT_AI_PANEL_WIDTH,
@@ -4377,7 +4379,7 @@ function App() {
   }, [t]);
 
   useEffect(() => {
-      if (!isDataRootModalOpen && activeSettingsCenterPane?.key !== 'data-root') {
+      if (!isDataRootModalOpen && !activeSettingsCenterPane?.key.startsWith('data-root')) {
           return;
       }
       void loadDataRootInfo();
@@ -4573,134 +4575,278 @@ function App() {
   }, [t]);
 
   const renderSavedQueryDirectorySettings = (readOnly = false) => (
-      <div style={utilityPanelStyle} data-saved-query-directory-settings="true">
-          <div style={{ fontWeight: 600 }}>{t('app.data_root.saved_query_directory.title')}</div>
-          <div style={{ ...utilityMutedTextStyle, marginTop: 6 }}>
-              {t('app.data_root.saved_query_directory.description')}
-          </div>
-          <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-              <div>
-                  <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                      {t('app.data_root.saved_query_directory.current_directory')}
-                  </div>
-                  <Input
-                      readOnly
-                      value={selectedSavedQueryDirectoryPath}
-                      placeholder={t('app.data_root.saved_query_directory.placeholder')}
-                      aria-label={t('app.data_root.saved_query_directory.title')}
+      <DataDirectoryPage testId="saved-queries">
+          <section className="gn-storage-panel gn-storage-panel--current" data-saved-query-directory-settings="true">
+              <div className="gn-storage-panel__body">
+                  <DirectorySectionHeading
+                      title={t('app.data_root.current_location')}
+                      description={t('app.data_root.saved_query_directory.current_description')}
                   />
+                  <DirectoryPathDisplay
+                      label={t('app.data_root.saved_query_directory.current_directory')}
+                      path={dataRootInfo?.savedQueryDirectory || selectedSavedQueryDirectoryPath}
+                      action={!readOnly ? (
+                          <Button onClick={() => void handleOpenSavedQueryDirectory()}>
+                              {t('app.data_root.action.open_current')}
+                          </Button>
+                      ) : undefined}
+                  />
+                  <DirectoryMetaGrid items={[{
+                      label: t('app.data_root.saved_query_directory.default_directory'),
+                      value: dataRootInfo?.defaultSavedQueryDirectory || '-',
+                  }]} />
               </div>
-              {!readOnly && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                          icon={<FolderOpenOutlined />}
-                          disabled={directorySettingsApplying}
-                          onClick={() => void handleSelectSavedQueryDirectory()}
-                      >
-                          {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenSavedQueryDirectory()}>
-                          {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                          disabled={directorySettingsApplying}
-                          loading={savedQueryDirectoryApplying}
-                          onClick={() => void handleApplySavedQueryDirectory(true)}
-                      >
-                          {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                      <Button
-                          type="primary"
-                          disabled={directorySettingsApplying}
-                          loading={savedQueryDirectoryApplying}
-                          onClick={() => void handleApplySavedQueryDirectory(false)}
-                      >
-                          {t('common.save')}
-                      </Button>
+          </section>
+
+          {!readOnly && (
+              <section className="gn-storage-panel">
+                  <div className="gn-storage-panel__body">
+                      <DirectorySectionHeading
+                          title={t('app.data_root.change_location')}
+                          description={t('app.data_root.saved_query_directory.change_description')}
+                      />
+                      <div className="gn-storage-path-editor">
+                          <Input
+                              readOnly
+                              value={selectedSavedQueryDirectoryPath}
+                              placeholder={t('app.data_root.saved_query_directory.placeholder')}
+                              aria-label={t('app.data_root.saved_query_directory.title')}
+                          />
+                          <div className="gn-storage-path-editor__actions">
+                              <Button
+                                  icon={<FolderOpenOutlined />}
+                                  disabled={directorySettingsApplying}
+                                  onClick={() => void handleSelectSavedQueryDirectory()}
+                              >
+                                  {t('app.data_root.action.select')}
+                              </Button>
+                              <Button
+                                  disabled={directorySettingsApplying}
+                                  loading={savedQueryDirectoryApplying}
+                                  onClick={() => void handleApplySavedQueryDirectory(true)}
+                              >
+                                  {t('app.data_root.action.restore_default_directory')}
+                              </Button>
+                          </div>
+                      </div>
+                      <DirectoryChoice
+                          recommended
+                          badge={t('app.data_root.recommended')}
+                          title={t('app.data_root.saved_query_directory.apply_title')}
+                          description={t('app.data_root.saved_query_directory.apply_description')}
+                          action={(
+                              <Button
+                                  type="primary"
+                                  disabled={directorySettingsApplying}
+                                  loading={savedQueryDirectoryApplying}
+                                  onClick={() => void handleApplySavedQueryDirectory(false)}
+                              >
+                                  {t('app.data_root.action.use_selected_directory')}
+                              </Button>
+                          )}
+                      />
                   </div>
-              )}
-              <div>
-                  <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                      {t('app.data_root.saved_query_directory.default_directory')}
-                  </div>
-                  <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                      {dataRootInfo?.defaultSavedQueryDirectory || '-'}
-                  </div>
-              </div>
-          </div>
-      </div>
+              </section>
+          )}
+      </DataDirectoryPage>
   );
 
-  const renderLogDirectorySettings = () => {
+  const renderLogDirectorySettings = (readOnly = false) => {
       const editable = dataRootInfo?.logDirectoryEditable !== false;
       const managedByEnvironment = dataRootInfo?.logDirectorySource === 'environment';
       const restartRequired = dataRootInfo?.logDirectoryRestartRequired === true;
       return (
-          <div style={utilityPanelStyle} data-log-directory-settings="true">
-              <div style={utilityMutedTextStyle}>
-                  {t('app.data_root.log_directory.description')}
-              </div>
-              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-                  <Input
-                      readOnly
-                      disabled={!editable}
-                      value={selectedLogDirectoryPath}
-                      placeholder={t('app.data_root.log_directory.placeholder')}
-                      aria-label={t('app.data_root.log_directory.title')}
-                  />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                          icon={<FolderOpenOutlined />}
-                          disabled={!editable || directorySettingsApplying}
-                          onClick={() => void handleSelectLogDirectory()}
-                      >
-                          {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenLogDirectory()}>
-                          {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                          disabled={!editable || directorySettingsApplying}
-                          loading={logDirectoryApplying}
-                          onClick={() => void handleApplyLogDirectory(true)}
-                      >
-                          {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                      <Button
-                          type="primary"
-                          disabled={!editable || directorySettingsApplying}
-                          loading={logDirectoryApplying}
-                          onClick={() => void handleApplyLogDirectory(false)}
-                      >
-                          {t('common.save')}
-                      </Button>
+          <section className="gn-storage-panel" data-log-directory-settings="true">
+              <div className="gn-storage-panel__body">
+                  <div className="gn-storage-panel__header">
+                      <DirectorySectionHeading
+                          title={t('app.data_root.log_directory.title')}
+                          description={t('app.data_root.log_directory.description')}
+                      />
+                      {!readOnly && (
+                          <Button onClick={() => void handleOpenLogDirectory()}>
+                              {t('app.data_root.action.open_current')}
+                          </Button>
+                      )}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                      <div>
-                          <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                              {t('app.data_root.log_directory.current_file')}
+                  <div className="gn-storage-path-editor">
+                      <Input
+                          readOnly
+                          disabled={!editable}
+                          value={selectedLogDirectoryPath}
+                          placeholder={t('app.data_root.log_directory.placeholder')}
+                          aria-label={t('app.data_root.log_directory.title')}
+                      />
+                      {!readOnly && (
+                          <div className="gn-storage-path-editor__actions">
+                              <Button
+                                  icon={<FolderOpenOutlined />}
+                                  disabled={!editable || directorySettingsApplying}
+                                  onClick={() => void handleSelectLogDirectory()}
+                              >
+                                  {t('app.data_root.action.select')}
+                              </Button>
+                              <Button
+                                  disabled={!editable || directorySettingsApplying}
+                                  loading={logDirectoryApplying}
+                                  onClick={() => void handleApplyLogDirectory(true)}
+                              >
+                                  {t('app.data_root.action.restore_default_directory')}
+                              </Button>
+                              <Button
+                                  type="primary"
+                                  disabled={!editable || directorySettingsApplying}
+                                  loading={logDirectoryApplying}
+                                  onClick={() => void handleApplyLogDirectory(false)}
+                              >
+                                  {t('app.data_root.log_directory.action.save')}
+                              </Button>
                           </div>
-                          <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                              {dataRootInfo?.logFilePath || '-'}
-                          </div>
-                      </div>
-                      <div>
-                          <div style={{ marginBottom: 6, fontWeight: 500 }}>
-                              {t('app.data_root.log_directory.default_directory')}
-                          </div>
-                          <div style={{ ...utilityMutedTextStyle, overflowWrap: 'anywhere' }}>
-                              {dataRootInfo?.defaultLogDirectory || '-'}
-                          </div>
-                      </div>
+                      )}
                   </div>
+                  <DirectoryMetaGrid items={[
+                      { label: t('app.data_root.log_directory.current_file'), value: dataRootInfo?.logFilePath || '-' },
+                      { label: t('app.data_root.log_directory.default_directory'), value: dataRootInfo?.defaultLogDirectory || '-' },
+                  ]} />
                   {managedByEnvironment ? (
                       <Alert type="warning" showIcon message={t('app.data_root.log_directory.environment_hint')} />
                   ) : restartRequired ? (
                       <Alert type="info" showIcon message={t('app.data_root.log_directory.pending_restart')} />
                   ) : (
-                      <div style={utilityMutedTextStyle}>{t('app.data_root.log_directory.restart_hint')}</div>
+                      <DirectoryNote>{t('app.data_root.log_directory.restart_hint')}</DirectoryNote>
                   )}
               </div>
+          </section>
+      );
+  };
+
+  const renderDataDirectorySettings = (
+      section: 'all' | 'application' | 'agent' | 'saved-queries' = 'all',
+      readOnly = false,
+  ) => {
+      if (dataRootLoading) {
+          return (
+              <div style={{ padding: '28px 0', textAlign: 'center' }}>
+                  <Spin />
+              </div>
+          );
+      }
+      return (
+          <div
+              style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 0' }}
+              data-data-directory-layout="true"
+          >
+              {(section === 'all' || section === 'application') && (
+              <DataDirectoryPage testId="application">
+                  <section
+                      className="gn-storage-panel gn-storage-panel--current"
+                      data-data-directory-section="application"
+                  >
+                      <div className="gn-storage-panel__body">
+                          <DirectorySectionHeading
+                              title={t('app.data_root.current_location')}
+                              description={t('app.data_root.application.current_description')}
+                          />
+                          <DirectoryPathDisplay
+                              label={t('app.data_root.current_directory')}
+                              path={dataRootInfo?.path || ''}
+                              action={!readOnly ? (
+                                  <Button onClick={() => void handleOpenDataRoot()}>
+                                      {t('app.data_root.action.open_current')}
+                                  </Button>
+                              ) : undefined}
+                          />
+                          <div>
+                              <div className="gn-storage-field-label">{t('app.data_root.application.stores')}</div>
+                              <div className="gn-storage-tags">
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.connections')}</span>
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.ai_config')}</span>
+                                  <span className="gn-storage-tag">{t('app.data_root.application.content.drivers')}</span>
+                              </div>
+                          </div>
+                          <DirectoryMetaGrid items={[
+                              { label: t('app.data_root.default_directory'), value: dataRootInfo?.defaultPath || '-' },
+                              { label: t('app.data_root.driver_directory'), value: dataRootInfo?.driverPath || '-' },
+                          ]} />
+                      </div>
+                  </section>
+
+                  {!readOnly && (
+                      <section className="gn-storage-panel">
+                          <div className="gn-storage-panel__body">
+                              <DirectorySectionHeading
+                                  title={t('app.data_root.change_location')}
+                                  description={t('app.data_root.change_location_description')}
+                              />
+                              <div className="gn-storage-path-editor">
+                                  <Input
+                                      readOnly
+                                      value={selectedDataRootPath}
+                                      placeholder={t('app.data_root.placeholder.select_new_directory')}
+                                      aria-label={t('app.data_root.switch_target')}
+                                  />
+                                  <div className="gn-storage-path-editor__actions">
+                                      <Button
+                                          icon={<FolderOpenOutlined />}
+                                          disabled={directorySettingsApplying}
+                                          onClick={() => void handleSelectDataRoot()}
+                                      >
+                                          {t('app.data_root.action.select')}
+                                      </Button>
+                                      <Button
+                                          disabled={directorySettingsApplying}
+                                          loading={dataRootApplying}
+                                          onClick={() => void handleApplyDataRoot(false, true)}
+                                      >
+                                          {t('app.data_root.action.restore_default_directory')}
+                                      </Button>
+                                  </div>
+                              </div>
+                              <div className="gn-storage-choice-grid">
+                                  <DirectoryChoice
+                                      title={t('app.data_root.action.switch_now')}
+                                      description={t('app.data_root.switch_only_hint')}
+                                      action={(
+                                          <Button
+                                              disabled={directorySettingsApplying}
+                                              loading={dataRootApplying}
+                                              onClick={() => void handleApplyDataRoot(false)}
+                                          >
+                                              {t('app.data_root.action.switch_now')}
+                                          </Button>
+                                      )}
+                                  />
+                                  <DirectoryChoice
+                                      recommended
+                                      badge={t('app.data_root.recommended')}
+                                      title={t('app.data_root.action.migrate_now')}
+                                      description={t('app.data_root.migrate_hint')}
+                                      action={(
+                                          <Button
+                                              type="primary"
+                                              disabled={directorySettingsApplying}
+                                              loading={dataRootApplying}
+                                              onClick={() => void handleApplyDataRoot(true)}
+                                          >
+                                              {t('app.data_root.action.migrate_now')}
+                                          </Button>
+                                      )}
+                                  />
+                              </div>
+                              <DirectoryNote>{t('app.data_root.restart_hint')}</DirectoryNote>
+                          </div>
+                      </section>
+                  )}
+
+                  {renderLogDirectorySettings(readOnly)}
+              </DataDirectoryPage>
+              )}
+
+              {(section === 'all' || section === 'agent') && <AgentDataSettingsPanel
+                  readOnly={readOnly}
+              />}
+
+              {(section === 'all' || section === 'saved-queries') && renderSavedQueryDirectorySettings(readOnly)}
           </div>
       );
   };
@@ -4709,18 +4855,13 @@ function App() {
   const {
       handleCloseLogPanel: handleCloseAppLogPanel,
       handleLogResizeStart,
-      handleToggleLogPanel: toggleAppLogPanel,
       isLogPanelOpen,
       logGhostRef,
       logPanelHeight,
   } = useAppLogPanelResize();
   const handleToggleLogPanel = useCallback(() => {
-      if (isV2Ui) {
-          window.dispatchEvent(new CustomEvent('gonavi:show-sql-execution-log', { detail: { mode: 'open' } }));
-          return;
-      }
-      toggleAppLogPanel();
-  }, [isV2Ui, toggleAppLogPanel]);
+      window.dispatchEvent(new CustomEvent('gonavi:show-sql-execution-log', { detail: { mode: 'open' } }));
+  }, []);
   const handleCloseLogPanel = useCallback(() => {
       handleCloseAppLogPanel();
   }, [handleCloseAppLogPanel]);
@@ -5408,9 +5549,7 @@ function App() {
   } as any;
 
   const showLinuxResizeHandles = isLinuxRuntime;
-  const resizeGuideColor = isV2Ui
-      ? 'var(--gn-accent, #16a34a)'
-      : (darkMode ? 'rgba(246, 196, 83, 0.55)' : 'rgba(24, 144, 255, 0.5)');
+  const resizeGuideColor = 'var(--gn-accent, #16a34a)';
   const v2AntPrimaryColor = customThemeAntTokens.primary ?? (darkMode ? '#22c55e' : '#16a34a');
   const v2AntPrimaryContrastColor = customThemeAntTokens.primaryContrast ?? '#ffffff';
   const v2AntPrimaryHoverColor = customThemeAntTokens.primaryHover ?? (darkMode ? '#4ade80' : '#15803d');
@@ -5443,36 +5582,36 @@ function App() {
           controlHeightSM: tokenControlHeightSM,
           controlHeightLG: tokenControlHeightLG,
           colorBgLayout: 'transparent',
-          colorBgContainer: (isV2Ui ? v2AntBgContainer : undefined) ?? (darkMode
+          colorBgContainer: v2AntBgContainer ?? (darkMode
               ? `rgba(29, 29, 29, ${effectiveOpacity})`
               : `rgba(255, 255, 255, ${effectiveOpacity})`),
-          colorBgElevated: (isV2Ui ? v2AntBgElevated : undefined) ?? (darkMode
+          colorBgElevated: v2AntBgElevated ?? (darkMode
               ? '#1f1f1f'
               : '#ffffff'),
-          colorFillAlter: (isV2Ui ? v2AntFillAlter : undefined) ?? (darkMode
+          colorFillAlter: v2AntFillAlter ?? (darkMode
               ? `rgba(38, 38, 38, ${effectiveOpacity})`
               : `rgba(250, 250, 250, ${effectiveOpacity})`),
-          ...(isV2Ui && v2AntTextPrimary ? { colorText: v2AntTextPrimary } : {}),
-          ...(isV2Ui && v2AntTextSecondary ? { colorTextSecondary: v2AntTextSecondary } : {}),
-          ...(isV2Ui && v2AntBorder ? {
+          ...(v2AntTextPrimary ? { colorText: v2AntTextPrimary } : {}),
+          ...(v2AntTextSecondary ? { colorTextSecondary: v2AntTextSecondary } : {}),
+          ...(v2AntBorder ? {
               colorBorder: v2AntBorder,
               colorBorderSecondary: v2AntBorder,
           } : {}),
-          colorPrimary: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#f6c453' : '#1677ff'),
-          colorTextLightSolid: isV2Ui ? v2AntPrimaryContrastColor : '#ffffff',
-          colorPrimaryHover: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffd666' : '#4096ff'),
-          colorPrimaryActive: isV2Ui ? v2AntPrimaryActiveColor : (darkMode ? '#d8a93b' : '#0958d9'),
-          colorInfo: isV2Ui ? v2AntInfoColor : (darkMode ? '#f6c453' : '#1677ff'),
-          colorLink: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
-          colorLinkHover: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffe58f' : '#4096ff'),
-          colorLinkActive: isV2Ui ? v2AntPrimaryActiveColor : (darkMode ? '#d8a93b' : '#0958d9'),
-          colorPrimaryBg: isV2Ui ? v2AntPrimaryBgColor : (darkMode ? 'rgba(246, 196, 83, 0.22)' : '#e6f4ff'),
-          colorPrimaryBgHover: isV2Ui ? v2AntPrimaryBgHoverColor : (darkMode ? 'rgba(246, 196, 83, 0.30)' : '#bae0ff'),
-          colorPrimaryBorder: isV2Ui ? v2AntPrimaryBorderColor : (darkMode ? 'rgba(246, 196, 83, 0.45)' : '#91caff'),
-          colorPrimaryBorderHover: isV2Ui ? v2AntPrimaryBorderHoverColor : (darkMode ? 'rgba(246, 196, 83, 0.60)' : '#69b1ff'),
-          controlItemBgActive: isV2Ui ? v2AntControlActiveBg : (darkMode ? 'rgba(246, 196, 83, 0.20)' : 'rgba(22, 119, 255, 0.12)'),
-          controlItemBgActiveHover: isV2Ui ? v2AntControlActiveHoverBg : (darkMode ? 'rgba(246, 196, 83, 0.28)' : 'rgba(22, 119, 255, 0.18)'),
-          controlOutline: isV2Ui ? v2AntControlOutline : (darkMode ? 'rgba(246, 196, 83, 0.50)' : 'rgba(5, 145, 255, 0.24)'),
+          colorPrimary: v2AntPrimaryColor,
+          colorTextLightSolid: v2AntPrimaryContrastColor,
+          colorPrimaryHover: v2AntPrimaryHoverColor,
+          colorPrimaryActive: v2AntPrimaryActiveColor,
+          colorInfo: v2AntInfoColor,
+          colorLink: v2AntPrimaryColor,
+          colorLinkHover: v2AntPrimaryHoverColor,
+          colorLinkActive: v2AntPrimaryActiveColor,
+          colorPrimaryBg: v2AntPrimaryBgColor,
+          colorPrimaryBgHover: v2AntPrimaryBgHoverColor,
+          colorPrimaryBorder: v2AntPrimaryBorderColor,
+          colorPrimaryBorderHover: v2AntPrimaryBorderHoverColor,
+          controlItemBgActive: v2AntControlActiveBg,
+          controlItemBgActiveHover: v2AntControlActiveHoverBg,
+          controlOutline: v2AntControlOutline,
       },
       components: {
           Layout: {
@@ -5483,21 +5622,20 @@ function App() {
           },
           Table: {
               headerBg: 'transparent',
-              rowHoverBg: (isV2Ui ? v2AntRowHoverBg : undefined)
+              rowHoverBg: v2AntRowHoverBg
                   ?? (darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'),
           },
           Tabs: {
               cardBg: 'transparent',
-              itemActiveColor: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffd666' : '#1890ff'),
-              itemHoverColor: isV2Ui ? v2AntPrimaryHoverColor : (darkMode ? '#ffe58f' : '#40a9ff'),
-              itemSelectedColor: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
-              inkBarColor: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
+              itemActiveColor: v2AntPrimaryHoverColor,
+              itemHoverColor: v2AntPrimaryHoverColor,
+              itemSelectedColor: v2AntPrimaryColor,
+              inkBarColor: v2AntPrimaryColor,
           }
       }
   }), [
       darkMode,
       effectiveOpacity,
-      isV2Ui,
       v2AntBgContainer,
       v2AntBgElevated,
       v2AntBorder,
@@ -6244,43 +6382,13 @@ function App() {
       : (lastUpdateInfo?.packageType === 'portable'
           ? t('app.about.action.download_portable_update')
           : t('app.about.action.download_update'));
-  const renderReleaseNotesActionButton = (key = 'release-notes') => (
-      lastUpdateInfo ? (
-          <Button
-              key={key}
-              icon={<FileTextOutlined />}
-              onClick={openReleaseNotesModal}
-          >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {t('app.about.release_notes.action.view')}
-                  {hasUnreadReleaseNotes ? (
-                      <span
-                          aria-label={t('app.about.release_notes.unread_badge')}
-                          style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: 999,
-                              background: darkMode ? '#4ade80' : '#16a34a',
-                              boxShadow: darkMode ? '0 0 0 2px rgba(15,23,42,0.35)' : '0 0 0 2px rgba(255,255,255,0.9)',
-                          }}
-                      />
-                  ) : null}
-              </span>
-          </Button>
-      ) : null
-  );
-
-  const renderAboutUpdateActions = (
-      surface: AboutUpdateActionsSurface,
-      closeAction?: React.ReactNode,
-  ) => [
+  const renderAboutUpdateActions = () => [
       isBackgroundProgressForLatestUpdate && !isLatestUpdateDownloaded ? (
           <Button key="progress" icon={<DownloadOutlined />} onClick={showUpdateDownloadProgress}>{t('app.about.action.download_progress')}</Button>
       ) : null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="mute" onClick={muteLatestUpdate}>{t('app.about.action.mute_this_version')}</Button>
       ) : null,
-      shouldShowFooterReleaseNotesAction(surface) ? renderReleaseNotesActionButton() : null,
       <Button
           key="check"
           icon={<CloudDownloadOutlined />}
@@ -6289,7 +6397,6 @@ function App() {
       >
           {t('app.about.action.check_updates')}
       </Button>,
-      closeAction ?? null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={handleDownloadUpdateWithNotes}>{updateDownloadActionLabel}</Button>
       ) : null,
@@ -6678,7 +6785,7 @@ function App() {
 
   const renderSettingsCenterAboutFooter = () => (
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginLeft: 'auto' }}>
-          {renderAboutUpdateActions('settings-center')}
+          {renderAboutUpdateActions()}
       </div>
   );
 
@@ -7223,14 +7330,12 @@ function App() {
                                                       borderRadius: 0,
                                                       border: 'none',
                                                       borderLeft: `3px solid ${isFocused
-                                                          ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
+                                                          ? (v2AntPrimaryColor)
                                                           : 'transparent'}`,
                                                       borderBottom: `1px solid ${overlayTheme.divider}`,
                                                       boxShadow: 'none',
                                                       background: isFocused
-                                                          ? (isV2Ui
-                                                              ? v2AntPrimaryBgColor
-                                                              : (darkMode ? 'rgba(255,214,102,0.10)' : 'rgba(24,144,255,0.08)'))
+                                                          ? (v2AntPrimaryBgColor)
                                                           : 'transparent',
                                                       cursor: 'pointer',
                                                       transition: 'border-color 140ms ease, background-color 140ms ease',
@@ -7250,7 +7355,7 @@ function App() {
                                                           fontWeight: 600,
                                                           background: 'transparent',
                                                           color: isFocused
-                                                              ? (isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'))
+                                                              ? (v2AntPrimaryColor)
                                                               : (darkMode ? 'rgba(255,255,255,0.56)' : 'rgba(16,24,40,0.5)'),
                                                       }}>
                                                           {checked && indexInRow >= 0 ? indexInRow + 1 : '-'}
@@ -7270,8 +7375,8 @@ function App() {
                                                                       lineHeight: '16px',
                                                                       padding: '0 6px',
                                                                       borderRadius: 999,
-                                                                      background: isV2Ui ? v2AntPrimaryBgColor : (darkMode ? 'rgba(255,214,102,0.16)' : 'rgba(24,144,255,0.10)'),
-                                                                      color: isV2Ui ? v2AntPrimaryColor : (darkMode ? '#ffd666' : '#1677ff'),
+                                                                      background: v2AntPrimaryBgColor,
+                                                                      color: v2AntPrimaryColor,
                                                                   }}>
                                                                       {t('app.theme.tab_display.badge.current')}
                                                                   </span>
@@ -7727,7 +7832,7 @@ function App() {
   ];
   const isSettingsCenterContainedScrollPane =
       activeSettingsCenterPane?.key === 'theme' || activeSettingsCenterPane?.key === 'ai';
-  const isV2ThemeSettingsPane = isV2Ui && activeSettingsCenterPane?.key === 'theme';
+  const isV2ThemeSettingsPane = activeSettingsCenterPane?.key === 'theme';
   const activeSettingsCenterDetailPanelStyle: React.CSSProperties = {
       ...toolCenterDetailPanelStyle,
       padding: '0 4px 0 0',
@@ -7886,9 +7991,9 @@ function App() {
         />
         <ToolbarAppearanceStyleHost />
         <Layout
-          className={isV2Ui ? 'gn-v2-app-root' : undefined}
+          className="gn-v2-app-root"
           data-gonavi-close-shortcut-scope="workspace"
-          data-empty-workbench={isV2Ui && tabs.length === 0 ? 'true' : 'false'}
+          data-empty-workbench={tabs.length === 0 ? 'true' : 'false'}
           data-collapsed-sidebar-actions-docked={
               isCollapsedSidebarActionsDocked ? 'true' : 'false'
           }
@@ -7916,8 +8021,8 @@ function App() {
           {/* Custom Title Bar */}
           <div
             className={[
-              isV2Ui ? 'gn-v2-titlebar' : 'gonavi-titlebar',
-              isV2Ui && useNativeMacWindowControls ? 'gn-v2-titlebar-native-mac' : '',
+              'gn-v2-titlebar',
+              useNativeMacWindowControls ? 'gn-v2-titlebar-native-mac' : '',
               isCollapsedSidebarActionsDocked ? 'gn-v2-titlebar-collapsed-docked' : '',
             ].filter(Boolean).join(' ')}
             onDoubleClick={handleTitleBarDoubleClick}
@@ -7926,9 +8031,9 @@ function App() {
                 flexShrink: 0,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: isV2Ui ? 'flex-start' : 'space-between',
+                justifyContent: 'flex-start',
                 // Match the titlebar to the adjacent theme surface with its compensated opacity.
-                background: isV2Ui ? 'var(--gn-bg-titlebar)' : bgMain,
+                background: 'var(--gn-bg-titlebar)',
                 borderBottom: 'none',
                 userSelect: 'none',
                 WebkitAppRegion: isWebRuntime ? 'no-drag' : 'drag',
@@ -7937,7 +8042,7 @@ function App() {
                 '--gn-titlebar-divider-height': `${titleBarLayout.dividerHeight}px`,
                 '--gn-titlebar-collapsed-upper-height': `${titleBarLayout.upperBandHeight}px`,
                 '--gn-titlebar-window-controls-width': `${isWebRuntime ? titleBarButtonWidth : (useNativeMacWindowControls ? 0 : titleBarButtonWidth * 3)}px`,
-                '--gn-titlebar-native-content-offset': `${getMacNativeTitlebarContentOffset(titleBarHeight, isV2Ui && useNativeMacWindowControls)}px`,
+                '--gn-titlebar-native-content-offset': `${getMacNativeTitlebarContentOffset(titleBarHeight, useNativeMacWindowControls)}px`,
                 paddingLeft: getMacNativeTitlebarPaddingLeft(effectiveUiScale, useNativeMacWindowControls),
                 paddingRight: getMacNativeTitlebarPaddingRight(effectiveUiScale, useNativeMacWindowControls),
                 fontSize: tokenFontSize
@@ -7962,7 +8067,7 @@ function App() {
                     connectionGroupLabel={t('connection.sidebar.management.title')}
                     onConnectionGroupManagement={() => setIsConnectionGroupManagementOpen(true)}
                   />
-                  {isV2Ui && <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />}
+                  <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />
               </div>
               {isCollapsedSidebarActionsDocked && (
                   <div
@@ -7976,7 +8081,7 @@ function App() {
                   />
               )}
               {/* Collapsed sidebar titlebar actions end */}
-              <div className={isV2Ui ? 'gn-v2-titlebar-right' : undefined}>
+              <div className="gn-v2-titlebar-right">
                   {isWebRuntime ? (
                       <div
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -8049,19 +8154,18 @@ function App() {
             data-sidebar-panel="true"
             data-sidebar-collapsed={isSidebarCollapsed}
             data-sidebar-actions-placement={isCollapsedSidebarActionsDocked ? 'titlebar' : 'fixed-rail'}
-            className={isV2Ui ? 'gn-v2-app-sider' : undefined}
+            className="gn-v2-app-sider"
             style={{
-                borderRight: isV2Ui ? 'none' : '1px solid rgba(128,128,128,0.2)',
+                borderRight: 'none',
                 position: 'relative',
-                background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgMain,
+                background: 'var(--gn-bg-panel-2)',
                 ['--gonavi-sidebar-collapsed-width' as any]: `${sidebarCollapsedWidth}px`,
             }}
           >
             <div
                 ref={sidebarContentRef}
-                id={isV2Ui ? undefined : 'gonavi-sidebar-tree-panel'}
                 data-sidebar-content="true"
-                aria-hidden={isV2Ui ? (isCollapsedSidebarActionsDocked ? true : undefined) : isSidebarCollapsed}
+                aria-hidden={isCollapsedSidebarActionsDocked ? true : undefined}
                 style={{
                     height: '100%',
                     display: 'flex',
@@ -8069,7 +8173,7 @@ function App() {
                     overflow: 'hidden',
                 }}
             >
-                <div style={{ flex: 1, overflow: 'hidden', paddingBottom: isV2Ui ? 0 : 58, paddingRight: isV2Ui || isSidebarCollapsed ? 0 : sidebarResizeHandleWidth, position: 'relative' }}>
+                <div style={{ flex: 1, overflow: 'hidden', paddingBottom: 0, paddingRight: 0, position: 'relative' }}>
                     <div style={{ height: '100%', opacity: connectionWorkbenchState.ready ? 1 : 0.72, pointerEvents: connectionWorkbenchState.ready ? 'auto' : 'none' }}>
                         <Sidebar
                             onCreateConnection={handleCreateConnection}
@@ -8081,17 +8185,16 @@ function App() {
                             onOpenDataSyncWorkbench={handleOpenDataSyncWorkbench}
                             onToggleAI={handleToggleOrFocusAIPanel}
                             onToggleLogPanel={handleToggleLogPanel}
-                            uiVersion={appearance.uiVersion}
                             v2ExplorerContext={v2ExplorerContext}
                             collapsedSidebarActionsTarget={collapsedSidebarActionsTarget}
                             onFocusCommandSearch={handleFocusSidebarSearch}
-                            onCollapseSidebar={isV2Ui ? handleCollapseSidebarPanel : undefined}
-                            onExpandSidebar={isV2Ui ? handleExpandSidebarPanel : undefined}
+                            onCollapseSidebar={handleCollapseSidebarPanel}
+                            onExpandSidebar={handleExpandSidebarPanel}
                             onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}
                             onTitlebarSnapshotChange={setSidebarTitlebarSnapshot}
-                            collapseSidebarLabel={isV2Ui ? sidebarPanelCollapseLabel : undefined}
+                            collapseSidebarLabel={sidebarPanelCollapseLabel}
                             collapseSidebarButtonRef={sidebarExplorerToggleRef}
-                            expandSidebarLabel={isV2Ui ? sidebarPanelExpandLabel : undefined}
+                            expandSidebarLabel={sidebarPanelExpandLabel}
                             expandSidebarButtonRef={sidebarCollapsedToggleRef}
                         />
                     </div>
@@ -8158,7 +8261,7 @@ function App() {
             </div>
           </Sider>
            <Content
-             style={{ background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgContent, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
+             style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
            >
              {isSecurityUpdateBannerVisible && (
                 <SecurityUpdateBanner
@@ -8176,7 +8279,7 @@ function App() {
                 />
              )}
              <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
-               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: isV2Ui ? 'transparent' : bgContent, marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
+               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'transparent', marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
                   <TabManager onFocusSidebarSearch={handleFocusSidebarSearch} />
                   <FloatingWorkbenchWindows />
                   <FloatingQueryResultWindows />
@@ -8405,8 +8508,31 @@ function App() {
                     title: t('app.tools.entry.data_root.title'),
                     description: t('app.tools.entry.data_root.description'),
                     onClick: () => {
-                      handleOpenToolCenterPane('config', 'data-root');
+                      handleOpenToolCenterPane('config', 'data-root-application');
                     },
+                    children: [
+                      {
+                        key: 'data-root-application',
+                        icon: <HddOutlined />,
+                        title: t('app.data_root.current_directory'),
+                        description: t('app.data_root.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-application'),
+                      },
+                      {
+                        key: 'data-root-agent',
+                        icon: <RobotOutlined />,
+                        title: t('app.data_root.agent_data.title'),
+                        description: t('app.data_root.agent_data.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-agent'),
+                      },
+                      {
+                        key: 'data-root-saved-queries',
+                        icon: <FileTextOutlined />,
+                        title: t('app.data_root.saved_query_directory.title'),
+                        description: t('app.data_root.saved_query_directory.description'),
+                        onClick: () => handleOpenToolCenterPane('config', 'data-root-saved-queries'),
+                      },
+                    ],
                   },
                   {
                     key: 'security-update',
@@ -8617,29 +8743,14 @@ function App() {
                 );
               }
 
-              if (activeSettingsCenterPane.key === 'data-root') {
+              if (activeSettingsCenterPane.key.startsWith('data-root')) {
+                const dataDirectorySection = activeSettingsCenterPane.key === 'data-root-agent'
+                  ? 'agent'
+                  : activeSettingsCenterPane.key === 'data-root-saved-queries'
+                    ? 'saved-queries'
+                    : 'application';
                 if (isWebRuntime) {
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                      <div style={utilityPanelStyle}>
-                        <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                        <div style={{ display: 'grid', gap: 10 }}>
-                          <Input readOnly value={dataRootInfo?.path || ''} />
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div>
-                              <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                              <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                            </div>
-                            <div>
-                              <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                              <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      {renderSavedQueryDirectorySettings(true)}
-                    </div>
-                  );
+                  return renderDataDirectorySettings(dataDirectorySection, true);
                 }
                 return (
                   <Modal
@@ -8659,84 +8770,7 @@ function App() {
                       footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 },
                     }}
                   >
-                    {dataRootLoading ? (
-                      <div style={{ padding: '16px 0', textAlign: 'center' }}>
-                        <Spin />
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            <Input readOnly value={dataRootInfo?.path || ''} />
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                              <div>
-                                <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                                <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                              </div>
-                              <div>
-                                <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                                <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.switch_target')}</div>
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            <Input
-                              readOnly
-                              value={selectedDataRootPath}
-                              placeholder={t('app.data_root.placeholder.select_new_directory')}
-                            />
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                              <Button
-                                icon={<FolderOpenOutlined />}
-                                disabled={directorySettingsApplying}
-                                onClick={() => void handleSelectDataRoot()}
-                              >
-                                {t('app.data_root.action.select')}
-                              </Button>
-                              <Button onClick={() => void handleOpenDataRoot()}>
-                                {t('app.data_root.action.open_current')}
-                              </Button>
-                              <Button
-                                disabled={directorySettingsApplying}
-                                loading={dataRootApplying}
-                                onClick={() => void handleApplyDataRoot(false, true)}
-                              >
-                                {t('app.data_root.action.restore_default_directory')}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                        <div style={utilityPanelStyle}>
-                          <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.apply_method')}</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                            <Button
-                              disabled={directorySettingsApplying}
-                              loading={dataRootApplying}
-                              onClick={() => void handleApplyDataRoot(false)}
-                            >
-                              {t('app.data_root.action.switch_only')}
-                            </Button>
-                            <Button
-                              type="primary"
-                              disabled={directorySettingsApplying}
-                              loading={dataRootApplying}
-                              onClick={() => void handleApplyDataRoot(true)}
-                            >
-                              {t('app.data_root.action.migrate_and_switch')}
-                            </Button>
-                          </div>
-                          <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                            {t('app.data_root.restart_hint')}
-                          </div>
-                        </div>
-                        {renderSavedQueryDirectorySettings()}
-                        {renderLogDirectorySettings()}
-                      </div>
-                    )}
+                    {renderDataDirectorySettings(dataDirectorySection)}
                   </Modal>
                 );
               }
@@ -9010,84 +9044,7 @@ function App() {
             width={720}
             styles={{ content: utilityModalShellStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 10 } }}
           >
-            {dataRootLoading ? (
-              <div style={{ padding: '16px 0', textAlign: 'center' }}>
-                <Spin />
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.current_directory')}</div>
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <Input readOnly value={dataRootInfo?.path || ''} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div>
-                        <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.default_directory')}</div>
-                        <div style={utilityMutedTextStyle}>{dataRootInfo?.defaultPath || '-'}</div>
-                      </div>
-                      <div>
-                        <div style={{ marginBottom: 6, fontWeight: 500 }}>{t('app.data_root.driver_directory')}</div>
-                        <div style={utilityMutedTextStyle}>{dataRootInfo?.driverPath || '-'}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.switch_target')}</div>
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <Input
-                      readOnly
-                      value={selectedDataRootPath}
-                      placeholder={t('app.data_root.placeholder.select_new_directory')}
-                    />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      <Button
-                        icon={<FolderOpenOutlined />}
-                        disabled={directorySettingsApplying}
-                        onClick={() => void handleSelectDataRoot()}
-                      >
-                        {t('app.data_root.action.select')}
-                      </Button>
-                      <Button onClick={() => void handleOpenDataRoot()}>
-                        {t('app.data_root.action.open_current')}
-                      </Button>
-                      <Button
-                        disabled={directorySettingsApplying}
-                        loading={dataRootApplying}
-                        onClick={() => void handleApplyDataRoot(false, true)}
-                      >
-                        {t('app.data_root.action.restore_default_directory')}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <div style={utilityPanelStyle}>
-                  <div style={{ marginBottom: 10, fontWeight: 600 }}>{t('app.data_root.apply_method')}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    <Button
-                      disabled={directorySettingsApplying}
-                      loading={dataRootApplying}
-                      onClick={() => void handleApplyDataRoot(false)}
-                    >
-                      {t('app.data_root.action.switch_only')}
-                    </Button>
-                    <Button
-                      type="primary"
-                      disabled={directorySettingsApplying}
-                      loading={dataRootApplying}
-                      onClick={() => void handleApplyDataRoot(true)}
-                    >
-                      {t('app.data_root.action.migrate_and_switch')}
-                    </Button>
-                  </div>
-                  <div style={{ ...utilityMutedTextStyle, marginTop: 10 }}>
-                    {t('app.data_root.restart_hint')}
-                  </div>
-                </div>
-                {renderSavedQueryDirectorySettings()}
-                {renderLogDirectorySettings()}
-              </div>
-            )}
+            {renderDataDirectorySettings()}
           </Modal>
           )}
           <SecurityUpdateIntroModal
@@ -9160,19 +9117,6 @@ function App() {
             }}
             onCancel={closeConnectionPackageDialog}
           />
-          <Modal
-            title={renderUtilityModalTitle(<InfoCircleOutlined />, t('app.about.title'), t('app.about.description'))}
-            open={isAboutOpen}
-            onCancel={() => setIsAboutOpen(false)}
-            styles={{ content: utilityModalShellStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' } }}
-            footer={renderAboutUpdateActions(
-                'legacy-modal',
-                <Button key="close" onClick={() => setIsAboutOpen(false)}>{t('common.close')}</Button>,
-            )}
-          >
-            {renderAboutSettingsContent()}
-          </Modal>
-
           <UpdateReleaseNotesModal
               open={releaseNotesModalVisible}
               onClose={closeReleaseNotesModal}

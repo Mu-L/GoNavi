@@ -130,6 +130,7 @@ type databaseConnectFlight struct {
 	groupKey        string
 	cacheKey        string
 	releaseMatchKey string
+	driverType      string
 	cancelErr       error
 }
 
@@ -144,6 +145,7 @@ type queryContext struct {
 	retainUntilDone         bool
 	cancellationUnsupported bool
 	registrationID          uint64
+	driverType              string
 }
 
 type managedSQLTransaction struct {
@@ -197,6 +199,8 @@ type App struct {
 	driverDownloadTasks           map[string]DriverDownloadTaskStatus
 	driverDownloadActiveTaskID    string
 	driverDownloadTaskRunner      func(string, string, string, string) connection.QueryResult
+	driverInstallMu               sync.Mutex
+	driverMaintenance             map[string]int
 	dataRootApplyMu               sync.Mutex
 	configDir                     string
 	downloadSourceMu              sync.RWMutex
@@ -317,6 +321,7 @@ func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 		connectionHealthRuns:          make(map[string]*connectionHealthRun),
 		importTasks:                   make(map[string]importTaskRegistration),
 		driverDownloadTasks:           make(map[string]DriverDownloadTaskStatus),
+		driverMaintenance:             make(map[string]int),
 		sqlTransactions:               make(map[string]*managedSQLTransaction),
 		requestTraceStore:             requesttrace.NewStore(requesttrace.DefaultCapacity),
 		configDir:                     resolveAppConfigDir(),
@@ -776,6 +781,11 @@ func (a *App) beginDatabaseConnectFlight(groupKey string, config connection.Conn
 	if a.dbShuttingDown {
 		return nil, errDatabaseConnectionShutdown
 	}
+	if driverType := optionalDriverTypeForConnectionConfig(config); driverType != "" && a.driverMaintenance[driverType] > 0 {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: driverType}),
+		}))
+	}
 	if a.dbConnectFlights == nil {
 		a.dbConnectFlights = make(map[uint64]*databaseConnectFlight)
 	}
@@ -787,6 +797,7 @@ func (a *App) beginDatabaseConnectFlight(groupKey string, config connection.Conn
 		groupKey:        groupKey,
 		cacheKey:        groupKey,
 		releaseMatchKey: getConnectionReleaseMatchKey(config),
+		driverType:      optionalDriverTypeForConnectionConfig(config),
 	}
 	a.dbConnectFlights[flight.id] = flight
 	return flight, nil
@@ -1304,7 +1315,7 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		}
 	}
 	if config.UseHTTPTunnel {
-		b.WriteString(fmt.Sprintf(" HTTP隧道=%s:%d", strings.TrimSpace(config.HTTPTunnel.Host), config.HTTPTunnel.Port))
+		b.WriteString(fmt.Sprintf(" HTTP隧道=%s", formatHTTPTunnelEndpointForLog(config.HTTPTunnel)))
 		if strings.TrimSpace(config.HTTPTunnel.User) != "" {
 			b.WriteString(" HTTP隧道认证=已配置")
 		}
@@ -1323,6 +1334,19 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	}
 
 	return b.String()
+}
+
+func formatHTTPTunnelEndpointForLog(config connection.HTTPTunnelConfig) string {
+	raw := strings.TrimSpace(config.Host)
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) {
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.ForceQuery = false
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	return fmt.Sprintf("%s:%d", raw, config.Port)
 }
 
 func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {
@@ -1422,15 +1446,22 @@ func (a *App) getDatabaseSynchronouslyWithContext(ctx context.Context, config co
 }
 
 func (a *App) openDatabaseIsolated(config connection.ConnectionConfig) (db.Database, error) {
+	effectiveConfig, err := a.resolveEffectiveConnectionConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	runtimeDriverType := optionalDriverTypeForConnectionConfig(effectiveConfig)
 	a.mu.RLock()
 	shuttingDown := a.dbShuttingDown
+	driverMaintenance := runtimeDriverType != "" && a.driverMaintenance[runtimeDriverType] > 0
 	a.mu.RUnlock()
 	if shuttingDown {
 		return nil, errDatabaseConnectionShutdown
 	}
-	effectiveConfig, err := a.resolveEffectiveConnectionConfig(config)
-	if err != nil {
-		return nil, err
+	if driverMaintenance {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: runtimeDriverType}),
+		}))
 	}
 	if supported, reason := driverRuntimeSupportStatusFunc(effectiveConfig.Type); !supported {
 		if strings.TrimSpace(reason) == "" {
@@ -1476,11 +1507,18 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 	if err != nil {
 		return nil, err
 	}
+	runtimeDriverType := optionalDriverTypeForConnectionConfig(effectiveConfig)
 	a.mu.RLock()
 	shuttingDown := a.dbShuttingDown
+	driverMaintenance := runtimeDriverType != "" && a.driverMaintenance[runtimeDriverType] > 0
 	a.mu.RUnlock()
 	if shuttingDown {
 		return nil, errDatabaseConnectionShutdown
+	}
+	if driverMaintenance {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: runtimeDriverType}),
+		}))
 	}
 	isFileDB := isFileDatabaseType(effectiveConfig.Type)
 
@@ -2001,12 +2039,16 @@ func generateQueryID() string {
 	return "query-" + uuid.New().String()
 }
 
-func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) func() {
-	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone)
+func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) func() {
+	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone, driverTypes...)
 	return cleanup
 }
 
-func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool) (func(), func(bool)) {
+func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) (func(), func(bool)) {
+	driverType := ""
+	if len(driverTypes) > 0 {
+		driverType = normalizeDriverType(driverTypes[0])
+	}
 	a.queryMu.Lock()
 	if a.runningQueries == nil {
 		a.runningQueries = make(map[string]queryContext)
@@ -2021,6 +2063,7 @@ func (a *App) registerRunningQueryWithCancellationCapability(queryID string, can
 		started:         time.Now(),
 		retainUntilDone: retainUntilDone,
 		registrationID:  registrationID,
+		driverType:      driverType,
 	}
 	a.queryMu.Unlock()
 

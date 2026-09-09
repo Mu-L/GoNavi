@@ -105,13 +105,11 @@ export const resolveDocumentPlatform = (
  * reported its platform.
  */
 export const shouldDockCollapsedSidebarActionsInTitlebar = (
-  isV2Ui: boolean,
   runtimePlatform: string,
   navigatorPlatform: string,
   isWebRuntime = false,
 ): boolean => {
   return !isWebRuntime
-    && isV2Ui
     && resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform) !== null;
 };
 
@@ -134,7 +132,6 @@ const resolveSidebarButtonScale = (sidebarButtonScale: number): number => {
 /** Keep the normal titlebar compact; only reserve a second band for docked collapsed-sidebar actions. */
 export const resolveTitleBarLayout = (
   uiScale: number,
-  isV2Ui: boolean,
   reserveCollapsedActionBand = false,
   sidebarButtonScale = 1,
 ): TitleBarLayout => {
@@ -148,7 +145,7 @@ export const resolveTitleBarLayout = (
     emptyWorkbenchTopOffset: 0,
   };
 
-  if (!isV2Ui || !reserveCollapsedActionBand) {
+  if (!reserveCollapsedActionBand) {
     return compactLayout;
   }
 

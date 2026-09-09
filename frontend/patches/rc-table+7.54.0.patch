@@ -144,7 +144,9 @@ index c760819..c7a7c29 100644
 +  if (listItemColumnVirtual && direction !== 'rtl' && !extra && columnsOffset && columnsOffset.length === flattenColumns.length) {
 +    var mergedOffsetX = Math.max(0, offsetX || 0);
 +    var viewportWidth = Math.max(0, componentWidth || 0);
-+    var overscanWidth = Math.max(320, viewportWidth);
++    // Keep a small fixed horizontal buffer. Using a whole extra viewport on
++    // both sides multiplies every vertical row mount on wide screens.
++    var overscanWidth = 320;
 +    var visibleStart = Math.max(0, mergedOffsetX - overscanWidth);
 +    var visibleEnd = mergedOffsetX + viewportWidth + overscanWidth;
 +    var nodes = [];
@@ -415,7 +417,9 @@ index e1275fb..374781d 100644
 +  if (listItemColumnVirtual && direction !== 'rtl' && !extra && columnsOffset && columnsOffset.length === flattenColumns.length) {
 +    var mergedOffsetX = Math.max(0, offsetX || 0);
 +    var viewportWidth = Math.max(0, componentWidth || 0);
-+    var overscanWidth = Math.max(320, viewportWidth);
++    // Keep a small fixed horizontal buffer. Using a whole extra viewport on
++    // both sides multiplies every vertical row mount on wide screens.
++    var overscanWidth = 320;
 +    var visibleStart = Math.max(0, mergedOffsetX - overscanWidth);
 +    var visibleEnd = mergedOffsetX + viewportWidth + overscanWidth;
 +    var nodes = [];

@@ -543,9 +543,8 @@ const ConnectionModal: React.FC<{
     () =>
       buildOverlayWorkbenchTheme(darkMode, {
         disableBackdropFilter: disableLocalBackdropFilter,
-        uiVersion: appearance.uiVersion,
       }),
-    [appearance.uiVersion, darkMode, disableLocalBackdropFilter],
+    [darkMode, disableLocalBackdropFilter],
   );
 
   const tunnelSectionStyle: React.CSSProperties = {
@@ -1785,6 +1784,8 @@ const ConnectionModal: React.FC<{
           httpTunnelPort: config.httpTunnel?.port || 8080,
           httpTunnelUser: config.httpTunnel?.user,
           httpTunnelPassword: config.httpTunnel?.password,
+          httpTunnelEncodeBase64:
+            config.httpTunnel?.encodeBase64 !== false,
           driver: config.driver,
           dsn: config.dsn,
           timeout: resolvedJvmTimeout,
@@ -2641,6 +2642,7 @@ const ConnectionModal: React.FC<{
         httpTunnelPort: 8080,
         httpTunnelUser: "",
         httpTunnelPassword: "",
+        httpTunnelEncodeBase64: true,
         timeout: 30,
         keepAliveEnabled: false,
         keepAliveIntervalMinutes: DEFAULT_KEEPALIVE_INTERVAL_MINUTES,
@@ -2721,6 +2723,7 @@ const ConnectionModal: React.FC<{
         httpTunnelPort: 8080,
         httpTunnelUser: "",
         httpTunnelPassword: "",
+        httpTunnelEncodeBase64: true,
         keepAliveEnabled: false,
         keepAliveIntervalMinutes: DEFAULT_KEEPALIVE_INTERVAL_MINUTES,
         keepAliveSQL: "",
@@ -2777,6 +2780,7 @@ const ConnectionModal: React.FC<{
         httpTunnelPort: 8080,
         httpTunnelUser: "",
         httpTunnelPassword: "",
+        httpTunnelEncodeBase64: true,
         keepAliveEnabled: false,
         keepAliveIntervalMinutes: DEFAULT_KEEPALIVE_INTERVAL_MINUTES,
         keepAliveSQL: "",

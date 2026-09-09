@@ -7,7 +7,7 @@ import { messages } from '../../../shared/i18n/messages';
 import { catalogs } from '../i18n/catalog';
 import { useStore } from '../store';
 import { t } from '../i18n';
-import { normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
+import { resolveAppearanceValues } from '../utils/appearance';
 import { isBackendCancelledResult } from '../utils/connectionExport';
 import { normalizeDriverProgressUpdate, type DriverProgressState } from '../utils/driverProgress';
 import { buildDriverManagerWorkbenchTheme } from '../utils/driverManagerWorkbenchTheme';
@@ -106,6 +106,7 @@ type DriverStatusRow = {
   needsUpdate?: boolean;
   updateReason?: string;
   affectedConnections?: number;
+  activeConnections?: number;
   reasonCode?: string;
   message?: string;
 };
@@ -707,10 +708,9 @@ const DriverManagerModal: React.FC<{
   void languagePreference;
   const darkMode = theme === 'dark';
   const resolvedAppearance = resolveAppearanceValues(appearance);
-  const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const driverManagerTheme = useMemo(
-    () => buildDriverManagerWorkbenchTheme(darkMode, opacity),
-    [darkMode, opacity, appearance.uiVersion],
+    () => buildDriverManagerWorkbenchTheme(darkMode),
+    [darkMode],
   );
   const [loading, setLoading] = useState(() => open && !driverStatusSnapshots.getPreferred());
   const [downloadDir, setDownloadDir] = useState(() => driverStatusSnapshots.getPreferred()?.downloadDir || '');
@@ -1010,6 +1010,9 @@ const DriverManagerModal: React.FC<{
         updateReason: String(item.updateReason || '').trim() || undefined,
         affectedConnections: Number.isFinite(Number(item.affectedConnections))
           ? Number(item.affectedConnections)
+          : undefined,
+        activeConnections: Number.isFinite(Number(item.activeConnections))
+          ? Number(item.activeConnections)
           : undefined,
         reasonCode: String(item.reasonCode || '').trim() || undefined,
         message: String(item.message || '').trim() || undefined,
@@ -1496,6 +1499,32 @@ const DriverManagerModal: React.FC<{
     }
   }, [appendOperationLog, applyDriverDownloadTaskSnapshot, clearDriverDownloadTaskId, clearDriverProgress, downloadDir, loadVersionOptions, refreshStatus, resolveDriverErrorMessage, selectedVersionMap, updateDriverProgress, versionMap]);
 
+  const runAfterDriverInterruptionConfirmation = useCallback((
+    targetRows: DriverStatusRow[],
+    action: () => void | Promise<unknown>,
+  ) => {
+    const activeConnections = targetRows.reduce(
+      (total, item) => total + Math.max(0, Number(item.activeConnections || 0)),
+      0,
+    );
+    if (activeConnections === 0) {
+      void action();
+      return;
+    }
+    Modal.confirm({
+      title: t('driver.modal.confirm.reinstallInUse.title'),
+      content: t('driver.modal.confirm.reinstallInUse.content', { count: activeConnections }),
+      okText: t('driver.modal.confirm.reinstallInUse.ok'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.action.cancel'),
+      onOk: action,
+    });
+  }, []);
+
+  const requestInstallDriver = useCallback((row: DriverStatusRow) => {
+    runAfterDriverInterruptionConfirmation([row], () => installDriver(row));
+  }, [installDriver, runAfterDriverInterruptionConfirmation]);
+
   const installDriverFromLocalPath = useCallback(async (
     row: DriverStatusRow,
     sourcePath: string,
@@ -1590,6 +1619,10 @@ const DriverManagerModal: React.FC<{
     await installDriverFromLocalPath(row, filePath, 'file');
   }, [downloadDir, installDriverFromLocalPath, resolveDriverErrorMessage]);
 
+  const requestInstallDriverFromLocalFile = useCallback((row: DriverStatusRow) => {
+    runAfterDriverInterruptionConfirmation([row], () => installDriverFromLocalFile(row));
+  }, [installDriverFromLocalFile, runAfterDriverInterruptionConfirmation]);
+
   const installDriversFromDirectory = useCallback(async (options?: { forceOverwrite?: boolean }) => {
     const forceOverwriteInstalled = options?.forceOverwrite === true;
     const directoryRes = await SelectDriverPackageDirectory(downloadDir);
@@ -1658,6 +1691,19 @@ const DriverManagerModal: React.FC<{
     }
     message.error(t('driver.modal.batch.directoryImport.failed', { force: forceTip, failed: failCount, skip: skipTip }));
   }, [appendOperationLog, downloadDir, installDriverFromLocalPath, refreshStatus, resolveDriverErrorMessage, rows]);
+
+  const requestInstallDriversFromDirectory = useCallback((options?: { forceOverwrite?: boolean }) => {
+    if (options?.forceOverwrite !== true) {
+      void installDriversFromDirectory(options);
+      return;
+    }
+    const overwriteRows = rows.filter((item) => (
+      !item.builtIn
+      && (item.packageInstalled || item.connectable)
+      && !isSlimBuildInstallUnavailable(item)
+    ));
+    runAfterDriverInterruptionConfirmation(overwriteRows, () => installDriversFromDirectory(options));
+  }, [installDriversFromDirectory, rows, runAfterDriverInterruptionConfirmation]);
 
   const openDriverDirectory = useCallback(async () => {
     const fallbackMessage = t('driver.modal.error.openDirectory');
@@ -1887,11 +1933,11 @@ const DriverManagerModal: React.FC<{
     }
 
     const mainAction = row.needsUpdate ? (
-      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={driverMutationBusy} loading={loadingInstallOrRemove} onClick={() => installDriver(row)}>
+      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={driverMutationBusy} loading={loadingInstallOrRemove} onClick={() => requestInstallDriver(row)}>
         {t('driver.modal.card.action.reinstall')}
       </Button>
     ) : versionSwitchPending ? (
-      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={driverMutationBusy} loading={loadingInstallOrRemove} onClick={() => installDriver(row)}>
+      <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={driverMutationBusy} loading={loadingInstallOrRemove} onClick={() => requestInstallDriver(row)}>
         {t('driver_manager.action.switch_version')}
       </Button>
     ) : row.connectable ? (
@@ -1912,7 +1958,7 @@ const DriverManagerModal: React.FC<{
             {t('driver.modal.card.action.remove')}
           </Button>
         ) : null}
-        <Button size={embedded ? 'small' : undefined} icon={<FileSearchOutlined />} disabled={driverMutationBusy} loading={loadingLocal} onClick={() => installDriverFromLocalFile(row)}>
+        <Button size={embedded ? 'small' : undefined} icon={<FileSearchOutlined />} disabled={driverMutationBusy} loading={loadingLocal} onClick={() => requestInstallDriverFromLocalFile(row)}>
           {getDriverLocalImportButtonLabel()}
         </Button>
       </Space>
@@ -2101,14 +2147,14 @@ const DriverManagerModal: React.FC<{
     message.error(t('driver.modal.batch.actionResult.failed', { action: successLabel, failed: failCount, skip: skipTip }));
   }, [appendOperationLog, installDriver, refreshStatus]);
 
-  const reinstallNeededDrivers = useCallback(async () => {
-    await runBatchInstall(
+  const reinstallNeededDrivers = useCallback(() => {
+    runAfterDriverInterruptionConfirmation(reinstallableRows, () => runBatchInstall(
       reinstallableRows,
       'reinstall-updates',
       t('driver.modal.info.noReinstallableDrivers'),
       t('driver.modal.batch.action.reinstallUpdates'),
-    );
-  }, [reinstallableRows, runBatchInstall]);
+    ));
+  }, [reinstallableRows, runAfterDriverInterruptionConfirmation, runBatchInstall]);
 
   const installAllDrivers = useCallback(async () => {
     await runBatchInstall(
@@ -2310,7 +2356,7 @@ const DriverManagerModal: React.FC<{
                 <Button
                   size={embedded ? 'small' : undefined}
                   type="primary"
-                  onClick={() => installDriver(row)}
+                  onClick={() => requestInstallDriver(row)}
                 >
                   {t('driver_manager.action.switch_version')}
                 </Button>
@@ -2654,14 +2700,14 @@ const DriverManagerModal: React.FC<{
               icon={<DownOutlined />}
               loading={batchDirectoryImporting}
               disabled={batchDirectoryImporting}
-              onClick={() => void installDriversFromDirectory({ forceOverwrite: false })}
+              onClick={() => requestInstallDriversFromDirectory({ forceOverwrite: false })}
               menu={{
                 items: [
                   {
                     key: 'overwrite',
                     label: t('driver.modal.toolbar.importDirectoryOverwrite'),
                     disabled: batchDirectoryImporting,
-                    onClick: () => { void installDriversFromDirectory({ forceOverwrite: true }); },
+                    onClick: () => requestInstallDriversFromDirectory({ forceOverwrite: true }),
                   },
                 ],
               }}

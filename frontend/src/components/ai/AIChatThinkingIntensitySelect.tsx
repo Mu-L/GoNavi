@@ -13,14 +13,12 @@ import {
 interface AIChatThinkingIntensitySelectProps {
   activeProvider?: AIProviderConfig | null;
   value: string;
-  variant: 'legacy' | 'v2';
   onChange: (value: string) => void;
 }
 
 const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps> = ({
   activeProvider,
   value,
-  variant,
   onChange,
 }) => {
   const i18n = useOptionalI18n();
@@ -41,21 +39,6 @@ const AIChatThinkingIntensitySelect: React.FC<AIChatThinkingIntensitySelectProps
     value: item.value,
     label: t(item.labelKey),
   }));
-
-  if (variant === 'legacy') {
-    return (
-      <Select
-        size="small"
-        variant="filled"
-        value={value || undefined}
-        onChange={onChange}
-        options={options}
-        style={{ width: 110, fontSize: 11, background: 'transparent' }}
-        styles={{ popup: { root: { minWidth: 160 } } }}
-        placeholder={t('ai_chat.input.thinking_intensity.placeholder')}
-      />
-    );
-  }
 
   return (
     <Select

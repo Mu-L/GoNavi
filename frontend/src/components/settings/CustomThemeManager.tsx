@@ -85,11 +85,7 @@ const resolveThemeAccent = (theme: CustomThemeDefinition): string => (
   extractCustomThemeAntTokens(theme.css).primary || '#16a34a'
 );
 
-export type CustomThemeManagerProps = {
-  legacyMode?: boolean;
-};
-
-export default function CustomThemeManager({ legacyMode = false }: CustomThemeManagerProps) {
+export default function CustomThemeManager() {
   const { language, t } = useI18n();
   const builtinThemeTitleId = useId();
   const themes = useCustomThemeStore((state) => state.themes);
@@ -263,7 +259,7 @@ export default function CustomThemeManager({ legacyMode = false }: CustomThemeMa
   };
 
   return (
-    <div className={`gonavi-custom-theme-manager${legacyMode ? ' is-legacy' : ''}`}>
+    <div className="gonavi-custom-theme-manager">
       <input
         ref={fileInputRef}
         type="file"
@@ -393,12 +389,6 @@ export default function CustomThemeManager({ legacyMode = false }: CustomThemeMa
           </Tooltip>
         </div>
       </div>
-
-      {legacyMode ? (
-        <div className="gonavi-custom-theme-legacy-note" role="note">
-          {t('app.theme.custom.legacy_compatibility_hint')}
-        </div>
-      ) : null}
 
       <div className="gonavi-custom-theme-safety-note" role="note">
         {t('app.theme.custom.safety_hint', { shortcut: recoveryShortcut })}

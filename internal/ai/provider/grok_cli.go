@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -62,14 +63,14 @@ type grokCLIResult struct {
 	Usage    ai.TokenUsage
 }
 
-// GrokCLIProvider 通过本机 Grok CLI 的订阅登录态提供对话与 SQL 生成。
+// GrokCLIProvider 通过本机 Grok CLI 当前认证（OAuth 或 API key）提供对话与 SQL 生成。
 type GrokCLIProvider struct {
 	config ai.ProviderConfig
 }
 
 func NewGrokCLIProvider(config ai.ProviderConfig) (Provider, error) {
 	if !strings.EqualFold(strings.TrimSpace(config.AuthMode), "local-cli") {
-		return nil, fmt.Errorf("Grok CLI provider requires local-cli subscription authentication")
+		return nil, fmt.Errorf("Grok CLI provider requires local-cli authentication")
 	}
 	return &GrokCLIProvider{config: config}, nil
 }
@@ -147,7 +148,12 @@ func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callba
 		return err
 	}
 	prompt := buildPrompt(req.Messages)
-	args, err := buildGrokCLIArgsWithStream(p.config, prompt, true)
+	promptFile, cleanupPromptFile, err := createGrokCLIPromptFile(prompt)
+	if err != nil {
+		return err
+	}
+	defer cleanupPromptFile()
+	args, err := buildGrokCLIArgsWithStream(p.config, promptFile, true)
 	if err != nil {
 		return err
 	}
@@ -197,7 +203,9 @@ func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callba
 	}
 	scanErr := scanner.Err()
 	waitErr := cmd.Wait()
-	combined.WriteString(stderr.String())
+	stdoutText := combined.String()
+	stderrText := stderr.String()
+	combined.WriteString(stderrText)
 
 	if watchdog.TimedOut() || isClaudeCLITimeout(ctx, waitErr) {
 		requestErr = watchdog.TimeoutError("Grok CLI")
@@ -212,15 +220,16 @@ func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callba
 		requestErr = rejection
 		return requestErr
 	}
+	if detail := grokCLIStructuredErrorDetail(stdoutText); detail != "" {
+		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
+		return requestErr
+	}
 	if scanErr != nil {
 		requestErr = fmt.Errorf("read Grok CLI stream failed: %w", scanErr)
 		return requestErr
 	}
 	if waitErr != nil && !emitted {
-		detail := strings.TrimSpace(firstLineFrom(strings.TrimSpace(stderr.String())))
-		if detail == "" {
-			detail = waitErr.Error()
-		}
+		detail := grokCLIExecutionFailureDetail(stdoutText, stderrText, waitErr)
 		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
 		return requestErr
 	}
@@ -281,7 +290,12 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 	}
 
 	prompt := buildPrompt(req.Messages)
-	args, err := buildGrokCLIArgs(p.config, prompt)
+	promptFile, cleanupPromptFile, err := createGrokCLIPromptFile(prompt)
+	if err != nil {
+		return grokCLIResult{}, err
+	}
+	defer cleanupPromptFile()
+	args, err := buildGrokCLIArgs(p.config, promptFile)
 	if err != nil {
 		return grokCLIResult{}, err
 	}
@@ -322,13 +336,14 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 		requestErr = rejection
 		return grokCLIResult{}, requestErr
 	}
+	if detail := grokCLIStructuredErrorDetail(stdout.String()); detail != "" {
+		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
+		return grokCLIResult{}, requestErr
+	}
 
 	parsed, parseErr := parseGrokCLIResponse(stdout.Bytes())
 	if parseErr != nil {
-		detail := strings.TrimSpace(firstLineFrom(strings.TrimSpace(combined)))
-		if runErr != nil && detail == "" {
-			detail = runErr.Error()
-		}
+		detail := grokCLIExecutionFailureDetail(stdout.String(), stderr.String(), runErr)
 		if detail == "" {
 			detail = parseErr.Error()
 		}
@@ -375,17 +390,101 @@ func parseGrokCLIResponse(raw []byte) (grokCLIParsed, error) {
 	}, nil
 }
 
-func buildGrokCLIArgs(config ai.ProviderConfig, prompt string) ([]string, error) {
-	return buildGrokCLIArgsWithStream(config, prompt, false)
+func createGrokCLIPromptFile(prompt string) (string, func(), error) {
+	file, err := os.CreateTemp("", "gonavi-grok-prompt-*.txt")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create Grok CLI prompt file failed: %w", err)
+	}
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if _, err := file.WriteString(prompt); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("write Grok CLI prompt file failed: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("close Grok CLI prompt file failed: %w", err)
+	}
+	return path, cleanup, nil
 }
 
-func buildGrokCLIArgsWithStream(config ai.ProviderConfig, prompt string, stream bool) ([]string, error) {
+func grokCLIStructuredErrorDetail(output string) string {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var event struct {
+			Type    string   `json:"type"`
+			Message string   `json:"message"`
+			Errors  []string `json:"errors"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &event); err != nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(event.Type), "error") && strings.TrimSpace(event.Message) != "" {
+			return normalizeGrokCLIErrorDetail(event.Message)
+		}
+		for _, detail := range event.Errors {
+			if normalized := normalizeGrokCLIErrorDetail(detail); normalized != "" {
+				return normalized
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeGrokCLIErrorDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	detail = strings.TrimSpace(strings.TrimPrefix(detail, "Error:"))
+	const marker = "Internal error:"
+	if index := strings.LastIndex(detail, marker); index >= 0 {
+		encoded := strings.TrimSpace(detail[index+len(marker):])
+		var payload struct {
+			Message    string `json:"message"`
+			HTTPStatus int    `json:"http_status"`
+		}
+		if err := json.NewDecoder(strings.NewReader(encoded)).Decode(&payload); err == nil {
+			message := strings.TrimSpace(payload.Message)
+			if message != "" {
+				if payload.HTTPStatus > 0 && !strings.Contains(message, fmt.Sprintf("%d", payload.HTTPStatus)) {
+					message = fmt.Sprintf("%s (HTTP %d)", message, payload.HTTPStatus)
+				}
+				return message
+			}
+		}
+	}
+	return strings.TrimSpace(firstLineFrom(detail))
+}
+
+func grokCLIExecutionFailureDetail(stdout string, stderr string, fallback error) string {
+	if detail := grokCLIStructuredErrorDetail(stdout); detail != "" {
+		return detail
+	}
+	if strings.Contains(stderr, "Internal error:") {
+		if detail := normalizeGrokCLIErrorDetail(stderr); detail != "" {
+			return detail
+		}
+	}
+	if detail := strings.TrimSpace(firstLineFrom(strings.TrimSpace(stderr))); detail != "" {
+		return detail
+	}
+	if fallback != nil {
+		return fallback.Error()
+	}
+	return ""
+}
+
+func buildGrokCLIArgs(config ai.ProviderConfig, promptFile string) ([]string, error) {
+	return buildGrokCLIArgsWithStream(config, promptFile, false)
+}
+
+func buildGrokCLIArgsWithStream(config ai.ProviderConfig, promptFile string, stream bool) ([]string, error) {
 	format := "json"
-	args := []string{"-p", prompt, "--output-format", format}
+	args := []string{"--prompt-file", promptFile, "--output-format", format}
 	if stream {
 		// NDJSON in the Anthropic Messages wire format, plus incremental
 		// text/thinking deltas. json mode waits for the whole reply.
-		args = []string{"-p", prompt, "--output-format", "streaming-messages-json", "--include-partial-messages"}
+		args = []string{"--prompt-file", promptFile, "--output-format", "streaming-messages-json", "--include-partial-messages"}
 	}
 	args = append(args,
 		// grok 没有 --ignore-user-config/--ignore-rules；覆盖系统提示是唯一能阻断

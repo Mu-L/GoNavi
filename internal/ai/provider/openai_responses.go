@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,7 +129,8 @@ type openAIResponsesRequest struct {
 }
 
 type openAIResponsesSessionState struct {
-	Input []json.RawMessage `json:"input"`
+	Input               []json.RawMessage `json:"input"`
+	MessageFingerprints []string          `json:"message_fingerprints,omitempty"`
 }
 
 type openAIResponsesReasoning struct {
@@ -360,6 +362,59 @@ func cloneOpenAIResponsesRawItems(items []json.RawMessage) []json.RawMessage {
 	return result
 }
 
+func openAIResponsesMessageFingerprint(message ai.Message) string {
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		encoded = []byte(fmt.Sprintf("%s\x00%s\x00%s", message.Role, message.ToolCallID, message.Content))
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(encoded))
+}
+
+func openAIResponsesMessageFingerprints(messages []ai.Message) []string {
+	if len(messages) == 0 {
+		return nil
+	}
+	fingerprints := make([]string, 0, len(messages))
+	for _, message := range messages {
+		fingerprints = append(fingerprints, openAIResponsesMessageFingerprint(message))
+	}
+	return fingerprints
+}
+
+func filterOpenAIResponsesUnrepresentedMessages(messages []ai.Message, represented []string) []ai.Message {
+	if len(messages) == 0 || len(represented) == 0 {
+		return messages
+	}
+	remaining := make(map[string]int, len(represented))
+	for _, fingerprint := range represented {
+		remaining[fingerprint]++
+	}
+	result := make([]ai.Message, 0, len(messages))
+	for _, message := range messages {
+		fingerprint := openAIResponsesMessageFingerprint(message)
+		if remaining[fingerprint] > 0 {
+			remaining[fingerprint]--
+			continue
+		}
+		result = append(result, message)
+	}
+	return result
+}
+
+func appendOpenAIResponsesAssistantMessage(messages []ai.Message, response *ai.ChatResponse) []ai.Message {
+	result := append([]ai.Message(nil), messages...)
+	if response == nil || (response.Content == "" && response.ReasoningContent == "" && len(response.ToolCalls) == 0) {
+		return result
+	}
+	result = append(result, ai.Message{
+		Role:             "assistant",
+		Content:          response.Content,
+		ReasoningContent: response.ReasoningContent,
+		ToolCalls:        append([]ai.ToolCall(nil), response.ToolCalls...),
+	})
+	return result
+}
+
 // canonicalizeOpenAIResponsesFunctionCallsForInput removes response-only
 // fields before a function call is sent back as a later Responses input item.
 // Several OpenAI-compatible endpoints emit an `id` and `status` in response
@@ -412,6 +467,7 @@ func decodeOpenAIResponsesSessionState(state json.RawMessage) (openAIResponsesSe
 		return openAIResponsesSessionState{}, false
 	}
 	decoded.Input = cloneOpenAIResponsesRawItems(decoded.Input)
+	decoded.MessageFingerprints = append([]string(nil), decoded.MessageFingerprints...)
 	return decoded, true
 }
 
@@ -432,12 +488,90 @@ func responsesSessionToolCallIDs(items []json.RawMessage) map[string]struct{} {
 	return ids
 }
 
-func encodeOpenAIResponsesSessionState(input []json.RawMessage, output []json.RawMessage) (json.RawMessage, error) {
+func responsesSessionToolOutputIDs(items []json.RawMessage) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, rawItem := range items {
+		var item struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if err := json.Unmarshal(rawItem, &item); err != nil || item.Type != "function_call_output" {
+			continue
+		}
+		if id := strings.TrimSpace(item.CallID); id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
+
+// mergeOpenAIResponsesSessionInput appends only the transcript delta that is
+// not already represented by the opaque Responses state. The tool-item guard
+// also repairs legacy states created before message fingerprints were stored:
+// when a completed tool result is present, it is moved directly after the
+// outstanding function-call items and duplicate calls/results are discarded.
+func mergeOpenAIResponsesSessionInput(previousInput []json.RawMessage, messages []ai.Message, baseURL string, represented []string) []json.RawMessage {
+	previous := canonicalizeOpenAIResponsesFunctionCallsForInput(previousInput)
+	toolCallIDs := responsesSessionToolCallIDs(previous)
+	toolOutputIDs := responsesSessionToolOutputIDs(previous)
+	deltaMessages := filterOpenAIResponsesUnrepresentedMessages(messages, represented)
+	delta := marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(deltaMessages, baseURL, toolCallIDs))
+
+	firstOutstandingOutput := -1
+	for index, rawItem := range delta {
+		var item struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if json.Unmarshal(rawItem, &item) != nil || item.Type != "function_call_output" {
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		_, knownCall := toolCallIDs[callID]
+		_, alreadyCompleted := toolOutputIDs[callID]
+		if knownCall && !alreadyCompleted {
+			firstOutstandingOutput = index
+			break
+		}
+	}
+	if firstOutstandingOutput >= 0 {
+		delta = delta[firstOutstandingOutput:]
+	}
+
+	filtered := make([]json.RawMessage, 0, len(delta))
+	for _, rawItem := range delta {
+		var item struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if json.Unmarshal(rawItem, &item) == nil {
+			callID := strings.TrimSpace(item.CallID)
+			if item.Type == "function_call" {
+				if _, exists := toolCallIDs[callID]; exists {
+					continue
+				}
+			}
+			if item.Type == "function_call_output" {
+				if _, exists := toolOutputIDs[callID]; exists {
+					continue
+				}
+			}
+		}
+		filtered = append(filtered, append(json.RawMessage(nil), rawItem...))
+	}
+
+	return append(previous, filtered...)
+}
+
+func encodeOpenAIResponsesSessionState(input []json.RawMessage, output []json.RawMessage, representedMessages []ai.Message) (json.RawMessage, error) {
 	combined := make([]json.RawMessage, 0, len(input)+len(output))
 	combined = append(combined, cloneOpenAIResponsesRawItems(input)...)
 	combined = append(combined, cloneOpenAIResponsesRawItems(output)...)
 	combined = canonicalizeOpenAIResponsesFunctionCallsForInput(combined)
-	encoded, err := json.Marshal(openAIResponsesSessionState{Input: combined})
+	encoded, err := json.Marshal(openAIResponsesSessionState{
+		Input:               combined,
+		MessageFingerprints: openAIResponsesMessageFingerprints(representedMessages),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("serialize OpenAI Responses session state failed: %w", err)
 	}
@@ -719,24 +853,23 @@ func (p *OpenAIResponsesProvider) ChatWithState(
 		return nil, state, err
 	}
 
+	requestMessages := prepareOpenAIRequestMessagesForRequest(
+		req.Messages,
+		p.config.Model,
+		p.baseURL,
+		req.ImageFallbackPrompt,
+		req.ImageOmittedNotice,
+	)
 	body := p.buildRequest(req, false)
 	if len(state) > 0 {
 		previous, ok := decodeOpenAIResponsesSessionState(state)
 		if !ok {
 			return nil, state, fmt.Errorf("parse OpenAI Responses session state failed")
 		}
-		requestMessages := prepareOpenAIRequestMessagesForRequest(
-			req.Messages,
-			p.config.Model,
-			p.baseURL,
-			req.ImageFallbackPrompt,
-			req.ImageOmittedNotice,
-		)
-		previousInput := canonicalizeOpenAIResponsesFunctionCallsForInput(previous.Input)
-		body.Input = append(
-			previousInput,
-			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previousInput)))...,
-		)
+		requestMessages = normalizeToolCallHistoryForResponsesWithSession(requestMessages, responsesSessionToolCallIDs(previous.Input))
+		body.Input = mergeOpenAIResponsesSessionInput(previous.Input, requestMessages, p.baseURL, previous.MessageFingerprints)
+	} else {
+		requestMessages = normalizeToolCallHistoryForResponses(requestMessages)
 	}
 	respBody, err := p.doRequest(ctx, body)
 	if err != nil {
@@ -763,7 +896,8 @@ func (p *OpenAIResponsesProvider) ChatWithState(
 	if response.Content == "" && response.ReasoningContent == "" && len(response.ToolCalls) == 0 {
 		return nil, state, fmt.Errorf("OpenAI Responses returned empty response")
 	}
-	nextState, err := encodeOpenAIResponsesSessionState(body.Input, result.Output)
+	representedMessages := appendOpenAIResponsesAssistantMessage(requestMessages, response)
+	nextState, err := encodeOpenAIResponsesSessionState(body.Input, result.Output, representedMessages)
 	if err != nil {
 		return nil, state, err
 	}
@@ -785,24 +919,23 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 		return state, err
 	}
 
+	requestMessages := prepareOpenAIRequestMessagesForRequest(
+		req.Messages,
+		p.config.Model,
+		p.baseURL,
+		req.ImageFallbackPrompt,
+		req.ImageOmittedNotice,
+	)
 	body := p.buildRequest(req, true)
 	if len(state) > 0 {
 		previous, ok := decodeOpenAIResponsesSessionState(state)
 		if !ok {
 			return state, fmt.Errorf("parse OpenAI Responses session state failed")
 		}
-		requestMessages := prepareOpenAIRequestMessagesForRequest(
-			req.Messages,
-			p.config.Model,
-			p.baseURL,
-			req.ImageFallbackPrompt,
-			req.ImageOmittedNotice,
-		)
-		previousInput := canonicalizeOpenAIResponsesFunctionCallsForInput(previous.Input)
-		body.Input = append(
-			previousInput,
-			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previousInput)))...,
-		)
+		requestMessages = normalizeToolCallHistoryForResponsesWithSession(requestMessages, responsesSessionToolCallIDs(previous.Input))
+		body.Input = mergeOpenAIResponsesSessionInput(previous.Input, requestMessages, p.baseURL, previous.MessageFingerprints)
+	} else {
+		requestMessages = normalizeToolCallHistoryForResponses(requestMessages)
 	}
 	respBody, err := p.doRequest(ctx, body)
 	if err != nil {
@@ -816,6 +949,8 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 	receivedText := false
 	receivedReasoning := false
 	receivedToolCall := false
+	var streamedContent strings.Builder
+	var streamedReasoning strings.Builder
 	toolCalls := make([]ai.ToolCall, 0)
 	toolCallIndexes := make(map[int]int)
 
@@ -865,11 +1000,13 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 		case "response.output_text.delta", "response.refusal.delta":
 			if event.Delta != "" {
 				receivedText = true
+				streamedContent.WriteString(event.Delta)
 				callback(ai.StreamChunk{Content: event.Delta})
 			}
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if event.Delta != "" {
 				receivedReasoning = true
+				streamedReasoning.WriteString(event.Delta)
 				callback(ai.StreamChunk{Thinking: event.Delta, ReasoningContent: event.Delta})
 			}
 		case "response.output_item.added", "response.output_item.done":
@@ -899,10 +1036,12 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 			completed := parseOpenAIResponsesOutput(event.Response)
 			if !receivedText && completed.Content != "" {
 				receivedText = true
+				streamedContent.WriteString(completed.Content)
 				callback(ai.StreamChunk{Content: completed.Content})
 			}
 			if !receivedReasoning && completed.ReasoningContent != "" {
 				receivedReasoning = true
+				streamedReasoning.WriteString(completed.ReasoningContent)
 				callback(ai.StreamChunk{Thinking: completed.ReasoningContent, ReasoningContent: completed.ReasoningContent})
 			}
 			if len(completed.ToolCalls) > 0 {
@@ -924,7 +1063,12 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 				callback(ai.StreamChunk{Done: true})
 				return nil, nil
 			}
-			nextState, err := encodeOpenAIResponsesSessionState(body.Input, event.Response.Output)
+			representedMessages := appendOpenAIResponsesAssistantMessage(requestMessages, &ai.ChatResponse{
+				Content:          streamedContent.String(),
+				ReasoningContent: streamedReasoning.String(),
+				ToolCalls:        toolCalls,
+			})
+			nextState, err := encodeOpenAIResponsesSessionState(body.Input, event.Response.Output, representedMessages)
 			if err != nil {
 				return state, err
 			}

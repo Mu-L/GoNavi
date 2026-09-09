@@ -10,6 +10,7 @@ import { useStore } from './store'
 import { cloneBrowserMockValue, duplicateBrowserMockConnection, resolveBrowserMockSecretFlag } from './utils/browserMockConnections'
 import { configureAntdStaticOverlayLayer } from './utils/overlayZIndex'
 import { normalizeConnectionEnvironmentType } from './utils/connectionEnvironment'
+import { resolveBrandIconRemoteSrc } from './brand/brandIcons'
 
 configureAntdStaticOverlayLayer();
 
@@ -35,6 +36,7 @@ if (
     )
 ) {
     const existingRuntime = (window as any).runtime || {};
+    const existingEnvironment = existingRuntime.Environment;
     const existingEventsOnMultiple = existingRuntime.EventsOnMultiple;
     const existingEventsEmit = existingRuntime.EventsEmit;
     const localRuntimeEventListeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -68,6 +70,15 @@ if (
     };
     (window as any).runtime = {
         ...existingRuntime,
+        Environment: async () => {
+            const detected = typeof existingEnvironment === 'function'
+                ? await existingEnvironment()
+                : {};
+            if (String(detected?.buildType || '').trim()) {
+                return detected;
+            }
+            return { ...detected, platform: 'browser', buildType: 'web' };
+        },
         EventsOnMultiple: (eventName: string, callback: (...args: any[]) => void, maxCallbacks = -1) => {
             const offExisting = typeof existingEventsOnMultiple === 'function'
                 ? existingEventsOnMultiple(eventName, callback, maxCallbacks)
@@ -557,6 +568,27 @@ if (
         defaultSavedQueryDirectory: 'C:/mock/.gonavi/saved_queries',
         savedQueryDirectorySource: 'default',
     };
+    let mockAgentDataDirectory = mockDataRootInfo.path;
+    let mockAgentDataRestartRequired = false;
+    const mockAgentDataStats = () => ({
+        fileBytes: 4096 + mockAgentSessions.size * 2048 + mockWorkspaceSnapshots.size * 1024,
+        walBytes: 0,
+        allocatedBytes: 4096 + mockAgentSessions.size * 2048 + mockWorkspaceSnapshots.size * 1024,
+        freeBytes: 0,
+        sessionCount: mockAgentSessions.size,
+        runCount: mockAgentRuns.size,
+        snapshotCount: mockWorkspaceSnapshots.size,
+        activeRunCount: [...mockAgentRuns.values()].filter((run) => (
+            !['completed', 'failed', 'canceled', 'exhausted'].includes(run.snapshot.state)
+        )).length,
+    });
+    const mockAgentDataInfo = () => ({
+        directory: mockAgentDataDirectory,
+        defaultDirectory: mockDataRootInfo.path,
+        source: mockAgentDataDirectory === mockDataRootInfo.path ? 'default' : 'custom',
+        restartRequired: mockAgentDataRestartRequired,
+        stats: mockAgentDataStats(),
+    });
 
     const upsertMockConnection = (view: any) => {
         const index = mockConnections.findIndex((item) => item.id === view.id);
@@ -817,7 +849,11 @@ if (
                 StartUpdateDownload: async () => ({ success: false, message: 'Browser mock does not provide an update package' }),
                 GetUpdateDownloadTask: async () => ({ success: true, data: { task: null } }),
                 SetLanguage: async () => null,
-                GetBrandIconDataURL: async () => '',
+                // The native backend downloads, verifies, and caches these immutable
+                // assets. Browser/Playwright harnesses have no Go backend, so point
+                // image elements at the same origin instead of showing one fallback
+                // glyph for all six choices.
+                GetBrandIconDataURL: async (id: string) => resolveBrandIconRemoteSrc(id),
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
                 BootstrapConnectionSidebarLayout: async (input: any) => {
                     if (
@@ -1294,6 +1330,41 @@ if (
                 AIGetContextLevel: async () => mockAIContextLevel,
                 AIGetBuiltinPrompts: async () => ({}),
                 AIGetUserPromptSettings: async () => cloneBrowserMockValue(mockAIUserPromptSettings),
+                AIGetAgentDataDirectoryInfo: async () => cloneBrowserMockValue(mockAgentDataInfo()),
+                AISelectAgentDataDirectory: async (current: string) => (
+                    String(current || mockAgentDataDirectory).replace(/[\\/]$/, '') + '/ai-assistant-data'
+                ),
+                AIApplyAgentDataDirectory: async (directory: string) => {
+                    mockAgentDataDirectory = String(directory || mockDataRootInfo.path);
+                    mockAgentDataRestartRequired = true;
+                    return cloneBrowserMockValue(mockAgentDataInfo());
+                },
+                AIOpenAgentDataDirectory: async () => null,
+                AIOptimizeAgentData: async () => {
+                    const before = mockAgentDataStats();
+                    const newestSnapshots = new Map(mockWorkspaceSnapshots);
+                    mockWorkspaceSnapshots.clear();
+                    newestSnapshots.forEach((value, key) => mockWorkspaceSnapshots.set(key, value));
+                    return cloneBrowserMockValue({
+                        info: mockAgentDataInfo(),
+                        maintenance: { before, after: mockAgentDataStats(), removedSnapshots: 0, removedSessions: 0 },
+                    });
+                },
+                AIClearAgentData: async () => {
+                    const before = mockAgentDataStats();
+                    mockAgentSessions.clear();
+                    mockAgentRuns.clear();
+                    mockWorkspaceSnapshots.clear();
+                    return cloneBrowserMockValue({
+                        info: mockAgentDataInfo(),
+                        maintenance: {
+                            before,
+                            after: mockAgentDataStats(),
+                            removedSnapshots: before.snapshotCount,
+                            removedSessions: before.sessionCount,
+                        },
+                    });
+                },
                 AISubmitAgentInput: async (request: any) => submitMockAgentInput(request),
                 AIControlAgentRun: async (request: any) => controlMockAgentRun(request),
                 AIReadAgentRun: async (request: any) => {

@@ -34,7 +34,7 @@ import (
 	"unsafe"
 )
 
-func setApplicationIconPNG(png []byte) error {
+func setApplicationIconPNG(png []byte, _ string) error {
 	if len(png) == 0 {
 		return errors.New("application icon PNG is empty")
 	}

@@ -187,7 +187,6 @@ export type AIChatOpenMode = "dock" | "detached";
 
 export interface AppearanceSettings
   extends DataGridDisplaySettings, SqlEditorTypographySettings {
-  uiVersion: "legacy" | "v2";
   enabled: boolean;
   opacity: number;
   blur: number;
@@ -218,7 +217,6 @@ export const MIN_TAB_ENVIRONMENT_ACCENT_THICKNESS = 1;
 export const MAX_TAB_ENVIRONMENT_ACCENT_THICKNESS = 6;
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
-  uiVersion: "v2",
   enabled: true,
   opacity: 1.0,
   blur: 0,
@@ -862,6 +860,8 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
     port: normalizePort(httpTunnelRaw.port ?? raw.httpTunnelPort, 8080),
     user: toTrimmedString(httpTunnelRaw.user ?? raw.httpTunnelUser),
     password: toTrimmedString(httpTunnelRaw.password ?? raw.httpTunnelPassword),
+    encodeBase64:
+      (httpTunnelRaw.encodeBase64 ?? raw.httpTunnelEncodeBase64) !== false,
   };
   const supportsNetworkTunnel = type !== "sqlite" && type !== "duckdb";
   const useHttpTunnel =
@@ -3202,7 +3202,6 @@ const sanitizeAppearance = (
     ? migrateLegacySqlEditorTypographySettings(dataGridDisplaySettings)
     : sanitizeSqlEditorTypographySettings(appearance);
   const nextAppearance = {
-    uiVersion: DEFAULT_APPEARANCE.uiVersion,
     enabled:
       typeof appearance.enabled === "boolean"
         ? appearance.enabled

@@ -17,9 +17,9 @@ interface BuildAddProviderEditorSessionInput {
   presetBackendType: AIProviderType;
   presetBaseUrl: string;
   presetModel: string;
-  presetModels?: string[];
   apiFormat?: string;
   authMode?: AIProviderAuthMode;
+  connectionMode?: string;
 }
 
 interface BuildEditProviderEditorSessionInput {
@@ -32,9 +32,9 @@ export const buildAddProviderEditorSession = ({
   presetBackendType,
   presetBaseUrl,
   presetModel,
-  presetModels = [],
   apiFormat = 'openai',
   authMode = 'api-key',
+  connectionMode = '',
 }: BuildAddProviderEditorSessionInput): ProviderEditorSession => {
   const editingProvider: ProviderEditorConfig = {
     id: '',
@@ -44,8 +44,6 @@ export const buildAddProviderEditorSession = ({
     authMode,
     baseUrl: presetBaseUrl,
     model: presetModel,
-    models: [...presetModels],
-    maxTokens: 4096,
     temperature: 0.7,
     presetKey,
   };
@@ -57,10 +55,10 @@ export const buildAddProviderEditorSession = ({
       presetKey,
       apiFormat,
       authMode,
+      connectionMode,
       headerRows: [],
       cliEnvRows: [],
       cliPath: '',
-      contextWindow: undefined,
     },
     isEditing: true,
     testStatus: 'idle',
@@ -74,7 +72,6 @@ export const buildEditProviderEditorSession = ({
   editingProvider: provider,
   formValues: formValues || {
     ...provider,
-    models: provider.models || [],
     presetKey: provider.presetKey,
     apiFormat: provider.apiFormat || 'openai',
     headerRows: rowsFromRecord(provider.headers),
@@ -91,4 +88,3 @@ export const buildClosedProviderEditorSession = (): ProviderEditorSession => ({
   isEditing: false,
   testStatus: 'idle',
 });
-

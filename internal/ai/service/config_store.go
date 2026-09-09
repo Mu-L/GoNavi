@@ -92,6 +92,12 @@ func (s *ProviderConfigStore) Load() (ProviderConfigStoreSnapshot, error) {
 	}
 
 	shouldRewrite := cfg.SchemaVersion != aiConfigSchemaVersion
+	for _, providerConfig := range cfg.Providers {
+		if providerHasRemovedEditorFields(providerConfig) {
+			shouldRewrite = true
+			break
+		}
+	}
 	providers := make([]ai.ProviderConfig, 0, len(snapshot.Providers))
 	for _, providerConfig := range snapshot.Providers {
 		runtimeConfig, rewritten, loadErr := s.loadStoredProviderConfig(providerConfig)
@@ -151,7 +157,7 @@ func (s *ProviderConfigStore) Inspect() (ProviderConfigStoreInspection, error) {
 func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 	providers := make([]ai.ProviderConfig, 0, len(snapshot.Providers))
 	for _, providerConfig := range snapshot.Providers {
-		runtimeConfig := normalizeProviderConfig(providerConfig)
+		runtimeConfig := clearRemovedProviderEditorFields(normalizeProviderConfig(clearRemovedProviderEditorFields(providerConfig)))
 		meta, bundle := splitProviderSecrets(runtimeConfig)
 		if bundle.hasAny() {
 			storedMeta, err := persistProviderSecretBundleWithLocalizer(s.dailySecrets, meta, bundle, s.localizer)
@@ -166,7 +172,7 @@ func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 			}
 			meta = providerMetadataView(resolved)
 		}
-		providers = append(providers, providerMetadataView(meta))
+		providers = append(providers, clearRemovedProviderEditorFields(providerMetadataView(meta)))
 	}
 	if providers == nil {
 		providers = []ai.ProviderConfig{}
@@ -241,7 +247,7 @@ func (s *ProviderConfigStore) readStoredSnapshot() (aiConfig, ProviderConfigStor
 
 	providers := make([]ai.ProviderConfig, 0, len(cfg.Providers))
 	for _, providerConfig := range cfg.Providers {
-		providers = append(providers, normalizeProviderConfig(providerConfig))
+		providers = append(providers, clearRemovedProviderEditorFields(normalizeProviderConfig(clearRemovedProviderEditorFields(providerConfig))))
 	}
 	if providers == nil {
 		providers = []ai.ProviderConfig{}
@@ -249,6 +255,17 @@ func (s *ProviderConfigStore) readStoredSnapshot() (aiConfig, ProviderConfigStor
 	snapshot.Providers = providers
 
 	return cfg, snapshot, nil
+}
+
+func providerHasRemovedEditorFields(config ai.ProviderConfig) bool {
+	return len(config.Models) > 0 || config.MaxTokens != 0 || config.ContextWindow != 0
+}
+
+func clearRemovedProviderEditorFields(config ai.ProviderConfig) ai.ProviderConfig {
+	config.Models = nil
+	config.MaxTokens = 0
+	config.ContextWindow = 0
+	return config
 }
 
 func (s *ProviderConfigStore) loadMCPHTTPServerConfig(config ai.MCPHTTPServerConfig) (ai.MCPHTTPServerConfig, error) {

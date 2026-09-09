@@ -183,7 +183,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const sqlLogs = useStore(state => state.sqlLogs);
     const setAIActiveSessionId = useStore(state => state.setAIActiveSessionId);
     const aiPanelVisible = useStore(state => state.aiPanelVisible);
-    const isV2Ui = true;
+
     const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
     const {
         ghostRef,
@@ -194,7 +194,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         panelWidth,
     } = useAIChatPanelResize({
         width,
-        isV2Ui,
         onWidthChange,
     });
     const aiChatSendShortcutBinding = useStore(state => resolveShortcutBinding(
@@ -1044,8 +1043,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         [orderedAISessions, t],
     );
     const effectivePanelMode = useMemo(
-        () => resolveAIChatPanelMode(isV2Ui, activePanelMode),
-        [activePanelMode, isV2Ui],
+        () => resolveAIChatPanelMode(activePanelMode),
+        [activePanelMode],
     );
 
     const handleComposerActionWithNoticeReset = useCallback((actionKey: 'open-settings' | 'reload-models') => {
@@ -1063,7 +1062,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     return (
         <div
             ref={panelRef}
-            className={`ai-chat-panel${isV2Ui ? ' gn-v2-ai-panel' : ''}${isDetachedPresentation ? ' is-detached' : ''}`}
+            className={`ai-chat-panel gn-v2-ai-panel${isDetachedPresentation ? ' is-detached' : ''}`}
             aria-busy={interactionDisabled}
             style={{
                 width: isDetachedPresentation ? '100%' : panelWidth,
@@ -1101,14 +1100,9 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 mutedColor={mutedColor}
                 textColor={textColor}
                 overlayTheme={overlayTheme}
-                isV2Ui={isV2Ui}
                 presentation={presentation}
                 onHistoryClick={() => {
-                    if (isV2Ui) {
-                        setActivePanelMode('history');
-                    } else {
-                        setHistoryOpen(true);
-                    }
+                    setActivePanelMode('history');
                 }}
                 onClear={() => {
                     handleCreateSession();
@@ -1121,7 +1115,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 sessionTitle={currentSessionTitle}
                 activeMode={effectivePanelMode}
                 onModeChange={(mode) => {
-                    if (!isV2Ui) return;
                     setActivePanelMode(mode);
                     if (mode === 'history') {
                         setHistoryOpen(false);
@@ -1140,7 +1133,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 quickActionBorder={quickActionBorder}
                 showScrollBottom={showScrollBottom}
                 contextTableNames={contextTableNames}
-                isV2Ui={isV2Ui}
                 insights={aiInsights}
                 sessions={panelHistorySessions}
                 activeSessionId={sid}
@@ -1212,7 +1204,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 overlayTheme={overlayTheme}
                 contextUsageChars={contextUsageChars}
                 maxContextChars={getDynamicMaxContextChars(activeProvider?.model)}
-                isV2Ui={isV2Ui}
             />
 
             <AIHistoryDrawer

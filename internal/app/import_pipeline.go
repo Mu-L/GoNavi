@@ -583,7 +583,7 @@ func newImportDatabaseRowWriterWithOptions(dbInst db.Database, dbType, tableName
 		conflictPolicy:     normalizeImportConflictPolicy(options.ConflictPolicy),
 		conflictKeyColumns: append([]string(nil), options.ConflictKeyColumns...),
 	}
-	if applier, ok := dbInst.(db.BatchApplier); ok {
+	if applier, ok := dbInst.(db.BatchApplier); ok && runtimeSupportsBatchApply(dbInst) {
 		writer.applier = applier
 	}
 	return writer

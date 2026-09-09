@@ -294,7 +294,7 @@ describe('NativeDetachedWindowApp', () => {
       connections: [],
       theme: 'light',
       themePreference: 'light',
-      appearance: { uiVersion: 'v2' },
+      appearance: {  },
       fontSize: 14,
       uiScale: 1,
       aiPanelVisible: false,
@@ -325,7 +325,7 @@ describe('NativeDetachedWindowApp', () => {
       },
     } as any;
 
-    applyNativeDetachedDocumentAppearance('dark', 'v2', 24, 0.5, documentRef);
+    applyNativeDetachedDocumentAppearance('dark', 24, 0.5, documentRef);
 
     expect(setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
     expect(setAttribute).toHaveBeenCalledWith('data-ui-version', 'v2');
@@ -369,7 +369,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'dark',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           fontSize: 15,
         },
         tab: queryTab,
@@ -464,7 +464,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: theme,
         },
         tab: queryTab,
@@ -513,7 +513,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
         },
         tab: queryTab,
       },
@@ -584,7 +584,7 @@ describe('NativeDetachedWindowApp', () => {
           tabs: [tab],
           activeTabId: tab.id,
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
         },
         tab,
       },
@@ -628,7 +628,7 @@ describe('NativeDetachedWindowApp', () => {
           tabs: [tab],
           activeTabId: tab.id,
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
         },
         tab,
       },
@@ -674,7 +674,7 @@ describe('NativeDetachedWindowApp', () => {
           tabs: [queryTab],
           activeTabId: queryTab.id,
           theme: 'dark',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           fontSize: 15,
           aiPanelVisible: true,
           aiChatHistory: {
@@ -715,7 +715,7 @@ describe('NativeDetachedWindowApp', () => {
           storeState: {
             theme: 'light',
             themePreference: 'light',
-            appearance: { uiVersion: 'v2' },
+            appearance: {  },
             fontSize: 16,
             uiScale: 1.1,
             activeContext: { connectionId: 'connection-2', dbName: 'analytics' },
@@ -733,7 +733,7 @@ describe('NativeDetachedWindowApp', () => {
     ]));
     expect(storeState.theme).toBe('light');
     expect(storeState.themePreference).toBe('light');
-    expect(storeState.appearance).toEqual({ uiVersion: 'v2' });
+    expect(storeState.appearance).toEqual({  });
     expect(storeState.fontSize).toBe(16);
     expect(storeState.uiScale).toBe(1.1);
     expect(aiChatRenderProps.current).toEqual(expect.objectContaining({
@@ -770,7 +770,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Result 1',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:r1',
           sourceQueryTabId: queryTab.id,
@@ -845,7 +845,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'POST /_bulk',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:es-r1',
           sourceQueryTabId: queryTab.id,
@@ -913,7 +913,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Stable result callback',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:stable-callback',
           sourceQueryTabId: queryTab.id,
@@ -998,7 +998,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Result 1',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:r1',
           sourceQueryTabId: queryTab.id,
@@ -1077,7 +1077,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -1119,7 +1119,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const settingsError = new Error('parent settings unavailable');
     const client = {
@@ -1193,7 +1193,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -1269,7 +1269,7 @@ describe('NativeDetachedWindowApp', () => {
       title: tab.title,
       payload: {
         storeState: {
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           theme: 'light',
           tabs: [tab],
           activeTabId: tab.id,
@@ -1338,7 +1338,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'workbench',
       title: queryTab.title,
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' },
+        storeState: { appearance: {  }, theme: 'light' },
         tab: queryTab,
       },
     };
@@ -1435,7 +1435,7 @@ describe('NativeDetachedWindowApp', () => {
         title: 'Detached window',
         payload: {
           storeState: {
-            appearance: { uiVersion: 'v2' },
+            appearance: {  },
             theme: 'light',
             shortcutOptions,
             ...(kind === 'workbench' ? { tabs: [queryTab], activeTabId: queryTab.id } : {}),
@@ -1556,7 +1556,7 @@ describe('NativeDetachedWindowApp', () => {
       title: queryTab.title,
       payload: {
         storeState: {
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           theme: 'light',
           tabs: [queryTab],
           activeTabId: queryTab.id,
@@ -1697,7 +1697,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     aiTerminalGuard.mockImplementationOnce(async () => {
@@ -1767,7 +1767,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     aiTerminalGuard.mockImplementationOnce(async () => {
@@ -1837,7 +1837,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     let markNativeHideStarted: (() => void) | undefined;
     const nativeHideStarted = new Promise<void>((resolve) => {
@@ -1974,7 +1974,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -2049,7 +2049,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     let releaseHide: (() => void) | undefined;
@@ -2141,7 +2141,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -2194,7 +2194,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -2250,7 +2250,7 @@ describe('NativeDetachedWindowApp', () => {
       title: 'GoNavi AI',
       payload: {
         storeState: {
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           theme: 'light',
           aiActiveSessionId: 'session-handoff',
           aiChatHistory: {
@@ -2312,7 +2312,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'ai-chat',
       title: 'GoNavi AI',
       actionRevision: 40,
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const closeError = new Error('native close failed');
     const client = {
@@ -2386,7 +2386,7 @@ describe('NativeDetachedWindowApp', () => {
           id: 'ai-chat',
           kind: 'ai-chat',
           title: 'GoNavi AI',
-          payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+          payload: { storeState: { appearance: {  }, theme: 'light' } },
         };
         const closeError = new Error(`${failureTarget} convergence failed`);
         const cancelError = new Error(`${failureTarget} cancel failed`);
@@ -2461,7 +2461,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     aiTerminalGuard.mockResolvedValue(false);
     const client = {

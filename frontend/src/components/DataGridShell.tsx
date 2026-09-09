@@ -14,7 +14,6 @@ import LogPanel from './LogPanel';
 import { DataGridJsonView, DataGridTextView } from './DataGridRecordViews';
 import { DataGridV2DdlSideWorkspace, DataGridV2DdlView } from './DataGridV2DdlWorkspace';
 import { DataGridV2ErView, DataGridV2FieldsView } from './DataGridV2MetadataViews';
-import DataGridLegacyCellContextMenu from './DataGridLegacyCellContextMenu';
 import TableDesigner from './TableDesigner';
 import { V2CellContextMenuView, V2ColumnHeaderContextMenuView } from './V2TableContextMenu';
 import {
@@ -29,7 +28,6 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
   const {
     CellContextMenuContext,
     CustomEvent,
-    DataContext,
     DataGridColumnQuickFind,
     DataGridPageFind,
     DataGridPaginationBar,
@@ -69,6 +67,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     canExport,
     canImport,
     canModifyData,
+    canEditContextMenuCell,
     canOpenObjectDesigner,
     canUndoContextMenuCellChange,
     canViewDdl,
@@ -78,6 +77,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     cellEditMode,
     cellEditModeRef,
     cellEditorIsJson,
+    cellEditorEscapeApplied,
     cellEditorMeta,
     cellEditorOpen,
     cellEditorReadOnly,
@@ -111,7 +111,6 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     designerReadOnly,
     currentTextRow,
     darkMode,
-    dataContextValue,
     dataEditAutoCommitDelayMs,
     dataEditCommitMode,
     deleteTargetRowCount,
@@ -155,6 +154,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     handleBatchFillCells,
     handleBatchFillToSelected,
     handleCellEditorSave,
+    handleCellEditorValueChange,
     handleCellSetNull,
     handleSetNullForSelectedCells,
     handleClosePageFind,
@@ -165,11 +165,11 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     handleCopyDelete,
     handleCopyInsert,
     handleCopyJson,
-    handleCopyQueryResultCsv,
     handleCopyRowData,
     handleCopySelectedCellsToClipboard,
     handleCopySelectedColumnsFromRow,
     handleCopyUpdate,
+    handleOpenContextMenuCellEditor,
     handleDataPanelFormatJson,
     handleDataPanelSave,
     handleDataGridRootPointerDownCapture,
@@ -179,6 +179,9 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     handleExportSelected,
     handleFormatJsonEditor,
     handleFormatJsonInEditor,
+    handleCompactJsonInEditor,
+    handleEscapeCellEditorValue,
+    handleUnescapeCellEditorValue,
     handleImport,
     handleImportSuccess,
     handleNavigatePageFind,
@@ -214,12 +217,10 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     isNoValueOp,
     isQueryResultExport,
     isTableSurfaceActive,
-    isV2Ui,
     isWritableResultColumn,
     jsonEditorOpen,
     jsonEditorValue,
     jsonViewText,
-    legacyAiButtonStyle,
     loading,
     localizedDataEditAutoCommitDelayOptions,
     looksLikeJsonText,
@@ -245,11 +246,9 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     pageFindText,
     pagination,
     allowCustomPageSize,
-    paginationControlTotal,
     paginationHasKnownTotalPages,
     paginationPageSizeOptions,
     paginationPageText,
-    paginationSummaryText,
     paginationTotalPages,
     paginationV2SummaryText,
     panelFrameColor,
@@ -290,14 +289,12 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     selectedRowCount,
     fillTemplateTargetRowCount,
     selectedRowKeys,
-    selectionAccentHex,
     sensors,
     setAddedRows,
     setBatchEditSetNull,
     setBatchEditValue,
     setCellContextMenu,
     setCellEditMode,
-    setCellEditorValue,
     setColumnQuickFindText,
     setDataEditTransactionOptions,
     setDataPanelValue,
@@ -329,7 +326,6 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     tableComponents,
     tableContainerRef,
     tableName,
-    tableOnRow,
     tableRef,
     tableRenderData,
     tableScrollConfig,
@@ -337,7 +333,6 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     textViewRows,
     toggleDataPanel,
     toolbarBottomPadding,
-    toolbarDividerColor,
     toolbarExtraActions,
     translateDataGrid,
     uniqueKeyGroupsCacheRef,
@@ -355,7 +350,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
 const renderDataTableView = () => (
       <div
           ref={tableContainerRef}
-          className={`${isV2Ui ? 'gn-v2-data-grid-table-shell gn-v2-data-grid-table-wrap ' : ''}data-grid-table-wrap${horizontalScrollVisible ? ' data-grid-table-wrap-external-active' : ''}`}
+          className={`gn-v2-data-grid-table-shell gn-v2-data-grid-table-wrap data-grid-table-wrap${horizontalScrollVisible ? ' data-grid-table-wrap-external-active' : ''}`}
           onClickCapture={enableVirtual ? handleVirtualTableClickCapture : undefined}
           onDoubleClickCapture={enableVirtual ? handleVirtualTableDoubleClickCapture : undefined}
           onContextMenuCapture={enableVirtual ? handleVirtualTableContextMenuCapture : undefined}
@@ -368,8 +363,7 @@ const renderDataTableView = () => (
           }}
       >
           <Form component={false} form={form}>
-              <DataContext.Provider value={dataContextValue}>
-                  <CellContextMenuContext.Provider value={cellContextMenuValue}>
+              <CellContextMenuContext.Provider value={cellContextMenuValue}>
                       <EditableContext.Provider value={form}>
                           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                               <SortableContext items={displayColumnNames} strategy={horizontalListSortingStrategy}>
@@ -399,13 +393,11 @@ const renderDataTableView = () => (
                                       bordered
                                       rowSelection={rowSelectionConfig}
                                       rowClassName={rowClassName}
-                                      onRow={tableOnRow}
                                   />
                               </SortableContext>
                           </DndContext>
                       </EditableContext.Provider>
-                  </CellContextMenuContext.Provider>
-              </DataContext.Provider>
+              </CellContextMenuContext.Provider>
           </Form>
           <div
               ref={externalHorizontalScrollRef}
@@ -430,8 +422,6 @@ const renderDataTableView = () => (
   );
   const pageFindContent = (
       <DataGridPageFind
-          isV2Ui={isV2Ui}
-          darkMode={darkMode}
           inputRef={pageFindInputRef}
           inputProps={noAutoCapInputProps as Record<string, unknown>}
           pageFindText={pageFindText}
@@ -448,20 +438,14 @@ const renderDataTableView = () => (
           translate={translateDataGrid}
       />
   );
-  const floatingPageFindContent = isV2Ui && pageFindOpen && viewMode === 'table'
-      ? pageFindContent
-      : null;
-  const legacyPageFindContent = !isV2Ui && viewMode === 'table'
+  const floatingPageFindContent = pageFindOpen && viewMode === 'table'
       ? pageFindContent
       : null;
   const columnQuickFindContent = isTableSurfaceActive ? (
       <DataGridColumnQuickFind
-          isV2Ui={isV2Ui}
-          darkMode={darkMode}
           inputProps={noAutoCapInputProps as Record<string, unknown>}
           value={columnQuickFindText}
           options={columnQuickFindOptions}
-          hasTarget={!!resolveColumnQuickFindTarget(columnQuickFindText)}
           translate={translateDataGrid}
           onChange={setColumnQuickFindText}
           onSubmit={handleSubmitColumnQuickFind}
@@ -469,8 +453,6 @@ const renderDataTableView = () => (
   ) : null;
   const resultViewSwitcher = (
       <DataGridResultViewSwitcher
-          isV2Ui={isV2Ui}
-          darkMode={darkMode}
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
           translate={translateDataGrid}
@@ -487,12 +469,9 @@ const renderDataTableView = () => (
   }, [onCancelTotalCount, onRequestTotalCount, pagination?.totalCountLoading, pagination?.totalCountUnavailableReason]);
   const paginationContent = (
       <DataGridPaginationBar
-          isV2Ui={isV2Ui}
           pagination={pagination}
           selectedRowCount={selectedRowCount}
           paginationV2SummaryText={paginationV2SummaryText}
-          paginationSummaryText={paginationSummaryText}
-          paginationControlTotal={paginationControlTotal}
           paginationTotalPages={paginationTotalPages}
           paginationPageText={paginationPageText}
           paginationPageSizeOptions={paginationPageSizeOptions}
@@ -591,13 +570,12 @@ const renderDataTableView = () => (
   return (
     <div
         ref={rootRef}
-        tabIndex={isV2Ui ? -1 : undefined}
-        onPointerDownCapture={isV2Ui ? handleDataGridRootPointerDownCapture : undefined}
-        className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''} data-grid-root${isV2Ui ? ' gn-v2-data-grid' : ''}`}
+        tabIndex={-1}
+        onPointerDownCapture={handleDataGridRootPointerDownCapture}
+        className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''} data-grid-root gn-v2-data-grid`}
         style={{ '--gonavi-header-min-height': `${headerCellMinHeight}px`, flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent', outline: 'none' } as React.CSSProperties}
     >
         <DataGridToolbarFrame
-            isV2Ui={isV2Ui}
             tableName={tableName}
             dbName={dbName}
             translate={translateDataGrid}
@@ -611,8 +589,6 @@ const renderDataTableView = () => (
             panelPaddingX={panelPaddingX}
             toolbarBottomPadding={toolbarBottomPadding}
             filterTopPadding={filterTopPadding}
-            selectionAccentHex={selectionAccentHex}
-            toolbarDividerColor={toolbarDividerColor}
             showFilter={showFilter}
             filterPanelRef={filterPanelRef}
             onReload={onReload}
@@ -638,7 +614,6 @@ const renderDataTableView = () => (
             canCopyQueryResult={canCopyQueryResult}
             prefersManualTotalCount={prefersManualTotalCount && !!onRequestTotalCount}
             aiShortcutLabel={aiShortcutLabel}
-            legacyAiButtonStyle={legacyAiButtonStyle}
             paginationTotalCountLoading={pagination?.totalCountLoading}
             totalCountUnavailableLabel={pagination?.totalCountUnavailableLabel}
             totalCountUnavailableReason={pagination?.totalCountUnavailableReason}
@@ -676,7 +651,6 @@ const renderDataTableView = () => (
             onPreviewChanges={handlePreviewChanges}
             onImport={handleImport}
             onOpenExportModal={handleOpenExportDialog}
-            onCopyQueryResultCsv={handleCopyQueryResultCsv}
             onRequestAiInsight={handleRequestAiInsight}
             onToggleTotalCount={handleToggleTotalCount}
             onQuickWhereDraftChange={setQuickWhereDraft}
@@ -746,11 +720,15 @@ const renderDataTableView = () => (
                 cellEditorReadOnly={cellEditorReadOnly}
                 cellEditorViewerMode={cellEditorViewerMode}
                 cellEditorIsJson={cellEditorIsJson}
+                cellEditorEscapeApplied={cellEditorEscapeApplied}
                 cellEditorValue={cellEditorValue}
                 onCloseCellEditor={closeCellEditor}
                 onFormatJsonInEditor={handleFormatJsonInEditor}
+                onCompactJsonInEditor={handleCompactJsonInEditor}
+                onEscapeCellEditorValue={handleEscapeCellEditorValue}
+                onUnescapeCellEditorValue={handleUnescapeCellEditorValue}
                 onSaveCellEditor={handleCellEditorSave}
-                onCellEditorValueChange={setCellEditorValue}
+                onCellEditorValueChange={handleCellEditorValueChange}
                 batchEditModalOpen={batchEditModalOpen}
                 selectedCellsSize={selectedCells.size}
                 batchEditSetNull={batchEditSetNull}
@@ -782,7 +760,7 @@ const renderDataTableView = () => (
 
         {viewMode === 'table' ? (
             renderDataTableView()
-        ) : isV2Ui && viewMode === 'fields' ? (
+        ) : viewMode === 'fields' ? (
             canOpenObjectDesigner ? (
                 <TableDesigner
                     embedded
@@ -810,7 +788,7 @@ const renderDataTableView = () => (
                     translate={translateDataGrid}
                 />
             )
-        ) : isV2Ui && viewMode === 'ddl' && ddlViewLayout === 'side' ? (
+        ) : viewMode === 'ddl' && ddlViewLayout === 'side' ? (
             <DataGridV2DdlSideWorkspace
                 tableContent={renderDataTableView()}
                 translate={translateDataGrid}
@@ -829,7 +807,7 @@ const renderDataTableView = () => (
                 ddlSidebarResizePreviewX={ddlSidebarResizePreviewX}
                 onResizeStart={handleDdlSidebarResizeStart}
             />
-        ) : isV2Ui && viewMode === 'ddl' ? (
+        ) : viewMode === 'ddl' ? (
             <DataGridV2DdlView
                 layout="bottom"
                 translate={translateDataGrid}
@@ -845,7 +823,7 @@ const renderDataTableView = () => (
                 }}
                 onCopy={handleCopyDdl}
             />
-        ) : isV2Ui && viewMode === 'er' ? (
+        ) : viewMode === 'er' ? (
             <DataGridV2ErView
                 connections={connections}
                 connectionId={connectionId}
@@ -857,7 +835,7 @@ const renderDataTableView = () => (
                 onOpenTable={onOpenErTable}
                 translate={translateDataGrid}
             />
-        ) : isV2Ui && viewMode === 'sqlLog' ? (
+        ) : viewMode === 'sqlLog' ? (
             <LogPanel variant="embedded" />
         ) : viewMode === 'json' ? (
             <DataGridJsonView
@@ -915,7 +893,7 @@ const renderDataTableView = () => (
             isDirtyComparedToOriginal={(value) => value !== dataPanelOriginalRef.current}
         />
 
-        {isTableSurfaceActive && isV2Ui && cellContextMenu.visible && createPortal(
+        {isTableSurfaceActive && cellContextMenu.visible && createPortal(
             <div
                 ref={cellContextMenuPortalRef}
                 className="gn-v2-table-context-menu-portal"
@@ -956,6 +934,7 @@ const renderDataTableView = () => (
                         selectedRowCount={selectedRowKeys.length}
                         selectedCellCount={selectedCellCount}
                         canModifyData={canModifyData}
+                        canEditCell={canEditContextMenuCell}
                         canUndoCellChange={canUndoContextMenuCellChange}
                         copiedRowCount={copiedRowsForPaste.length}
                         canPasteCopiedColumns={!!copiedCellPatch}
@@ -967,89 +946,9 @@ const renderDataTableView = () => (
             document.body
         )}
 
-        <DataGridLegacyCellContextMenu
-            visible={isTableSurfaceActive && !isV2Ui && cellContextMenu.visible}
-            darkMode={darkMode}
-            bgContextMenu={bgContextMenu}
-            cellContextMenu={cellContextMenu}
-            canModifyData={canModifyData}
-            copiedRowsForPasteLength={copiedRowsForPaste.length}
-            selectedRowKeysLength={selectedRowKeys.length}
-            copiedCellPatchAvailable={!!copiedCellPatch}
-            canUndoCellChange={canUndoContextMenuCellChange}
-            supportsCopyInsert={supportsCopyInsert}
-            translate={translateDataGrid}
-            onClose={() => setCellContextMenu((prev: any) => ({ ...prev, visible: false }))}
-            onCopyFieldName={handleCopyContextMenuFieldName}
-            onCopyRowData={() => {
-                if (cellContextMenu.record) handleCopyRowData(cellContextMenu.record);
-            }}
-            onCopyRowForPaste={() => {
-                const rowKey = cellContextMenu.record?.[GONAVI_ROW_KEY];
-                if (rowKey === undefined || rowKey === null) {
-                    void message.info(translateDataGrid('data_grid.message.no_copyable_rows'));
-                    return;
-                }
-                setSelectedRowKeys([rowKey]);
-                copyRowsForPaste([rowKey]);
-            }}
-            onPasteCopiedRowsAsNew={handlePasteCopiedRowsAsNew}
-            onUndoCellChange={handleUndoContextMenuCellChange}
-            onSetNull={handleCellSetNull}
-            onSetNullForSelectedCells={handleSetNullForSelectedCells}
-            selectedCellCount={selectedCellCount}
-            onEditRow={handleOpenContextMenuRowEditor}
-            onFillToSelected={() => {
-                if (selectedRowKeys.length > 0 && cellContextMenu.record) {
-                    handleBatchFillToSelected(cellContextMenu.record, cellContextMenu.dataIndex);
-                }
-            }}
-            onPasteCopiedColumns={() => {
-                const fallbackKey = cellContextMenu.record?.[GONAVI_ROW_KEY];
-                handlePasteCopiedColumnsToSelectedRows(fallbackKey);
-            }}
-            onCopyInsert={() => {
-                if (cellContextMenu.record) handleCopyInsert(cellContextMenu.record);
-            }}
-            onCopyUpdate={() => {
-                if (cellContextMenu.record) handleCopyUpdate(cellContextMenu.record);
-            }}
-            onCopyDelete={() => {
-                if (cellContextMenu.record) handleCopyDelete(cellContextMenu.record);
-            }}
-            onCopyJson={() => {
-                if (cellContextMenu.record) handleCopyJson(cellContextMenu.record);
-            }}
-            onCopyCsv={() => {
-                if (cellContextMenu.record) handleCopyCsv(cellContextMenu.record);
-            }}
-            onCopyMarkdown={() => {
-                if (cellContextMenu.record) {
-                    const records = getTargets(cellContextMenu.record);
-                    const lines = records.map((r: any) => {
-                        const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
-                        return `| ${Object.values(vals).join(' | ')} |`;
-                    });
-                    copyToClipboard(lines.join('\n'));
-                }
-            }}
-            onExportCsv={() => {
-                if (cellContextMenu.record) handleExportSelected({ format: 'csv' }, cellContextMenu.record).catch(console.error);
-            }}
-            onExportXlsx={() => {
-                if (cellContextMenu.record) handleExportSelected({ format: 'xlsx' }, cellContextMenu.record).catch(console.error);
-            }}
-            onExportJson={() => {
-                if (cellContextMenu.record) handleExportSelected({ format: 'json' }, cellContextMenu.record).catch(console.error);
-            }}
-            onExportHtml={() => {
-                if (cellContextMenu.record) handleExportSelected({ format: 'html' }, cellContextMenu.record).catch(console.error);
-            }}
-        />
        </div>
 
 	       <DataGridSecondaryActions
-                isV2Ui={isV2Ui}
                 canViewDdl={canViewDdl}
                 canOpenObjectDesigner={canOpenObjectDesigner}
                 viewMode={viewMode}
@@ -1059,15 +958,8 @@ const renderDataTableView = () => (
                 resultViewSwitcher={resultViewSwitcher}
                 columnInfoSettingContent={columnInfoSettingContent}
                 columnQuickFindContent={columnQuickFindContent}
-                pageFindContent={legacyPageFindContent}
                 paginationContent={paginationContent}
                 onViewModeChange={handleViewModeChange}
-                dataPanelOpen={dataPanelOpen}
-                isTableSurfaceActive={isTableSurfaceActive}
-                onToggleDataPanel={toggleDataPanel}
-                onOpenTableDdl={() => {
-                    void handleOpenTableDdl();
-                }}
                 translate={translateDataGrid}
             />
 

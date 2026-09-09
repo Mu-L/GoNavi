@@ -24,42 +24,6 @@ var claudeEvalSymlinks = filepath.EvalSymlinks
 var claudeCLIRequestTimeout = 90 * time.Second
 var claudeCLIAuthStatusTimeout = 10 * time.Second
 
-var claudeCLILocalAuthBlockedEnvKeys = []string{
-	"ANTHROPIC_API_KEY",
-	"ANTHROPIC_AUTH_TOKEN",
-	"ANTHROPIC_BASE_URL",
-	"ANTHROPIC_BEDROCK_BASE_URL",
-	"ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
-	"ANTHROPIC_CUSTOM_HEADERS",
-	"ANTHROPIC_FOUNDRY_API_KEY",
-	"ANTHROPIC_FOUNDRY_AUTH_TOKEN",
-	"ANTHROPIC_FOUNDRY_BASE_URL",
-	"ANTHROPIC_FOUNDRY_RESOURCE",
-	"ANTHROPIC_VERTEX_BASE_URL",
-	"ANTHROPIC_VERTEX_PROJECT_ID",
-	"AWS_ACCESS_KEY_ID",
-	"AWS_BEARER_TOKEN_BEDROCK",
-	"AWS_PROFILE",
-	"AWS_SECRET_ACCESS_KEY",
-	"AWS_SESSION_TOKEN",
-	"CLAUDE_API_KEY",
-	"CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
-	"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
-	"CLAUDE_CODE_SKIP_ANTHROPIC_AWS_AUTH",
-	"CLAUDE_CODE_SKIP_BEDROCK_AUTH",
-	"CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
-	"CLAUDE_CODE_SKIP_MANTLE_AUTH",
-	"CLAUDE_CODE_SKIP_VERTEX_AUTH",
-	"CLAUDE_CODE_USE_ANTHROPIC_AWS",
-	"CLAUDE_CODE_USE_BEDROCK",
-	"CLAUDE_CODE_USE_FOUNDRY",
-	"CLAUDE_CODE_USE_MANTLE",
-	"CLAUDE_CODE_USE_VERTEX",
-	"GCLOUD_PROJECT",
-	"GOOGLE_APPLICATION_CREDENTIALS",
-	"GOOGLE_CLOUD_PROJECT",
-}
-
 var claudeCLILocalAuthIsolationEnvKeys = []string{
 	"CLAUDE_CODE_DISABLE_CLAUDE_MDS",
 	"CLAUDE_CODE_DISABLE_AUTO_MEMORY",
@@ -73,13 +37,9 @@ var claudeCLILocalAuthSettings = buildClaudeCLILocalAuthSettings()
 
 func buildClaudeCLILocalAuthSettings() string {
 	settings := map[string]any{
-		"apiKeyHelper":     "",
 		"claudeMdExcludes": []string{"**"},
 		"disableAllHooks":  true,
 		"enabledPlugins":   map[string]bool{},
-		// Replace the complete user-settings env block. Per-key null values are
-		// materialized as environment entries by Claude Code and can shadow OAuth.
-		"env": nil,
 	}
 	encoded, err := json.Marshal(settings)
 	if err != nil {
@@ -97,22 +57,6 @@ type claudeCLIAuthStatus struct {
 	// 它比 authMethod 的措辞可靠：2.1.241 起订阅登录的 authMethod 已改报 "claude.ai"，
 	// 只按旧的 oauth 词表判定会把真实的 Max 订阅误判成"未连接"。
 	SubscriptionType string `json:"subscriptionType"`
-}
-
-// claudeCLINonSubscriptionPlans 是明确不算订阅的取值；其余非空取值一律视为有效订阅，
-// 这样上游新增套餐名不会再次把可用账号判死。
-var claudeCLINonSubscriptionPlans = map[string]struct{}{
-	"":     {},
-	"none": {},
-	"free": {},
-}
-
-// claudeCLISubscriptionAuthMethods 是旧版 CLI 未提供 subscriptionType 时的回退词表。
-var claudeCLISubscriptionAuthMethods = map[string]struct{}{
-	"oauth":       {},
-	"oauth_token": {},
-	"claude.ai":   {},
-	"claude_ai":   {},
 }
 
 type claudeCLICommand struct {
@@ -145,8 +89,8 @@ func (p *ClaudeCLIProvider) Validate() error {
 	return nil
 }
 
-// CheckClaudeCLILocalAuth validates the local Claude Code subscription login
-// without sending a model request or consuming subscription quota.
+// CheckClaudeCLILocalAuth validates the local Claude Code authentication
+// without sending a model request or consuming model quota.
 func CheckClaudeCLILocalAuth(ctx context.Context) error {
 	return CheckClaudeCLILocalAuthWithConfig(ctx, ai.ProviderConfig{AuthMode: "local-cli"})
 }
@@ -182,7 +126,7 @@ func CheckClaudeCLILocalAuthWithConfig(ctx context.Context, config ai.ProviderCo
 	var status claudeCLIAuthStatus
 	parseErr := json.Unmarshal(output, &status)
 	if parseErr == nil {
-		if err := validateClaudeCLISubscriptionStatus(status); err != nil {
+		if err := validateClaudeCLILocalAuthStatus(status); err != nil {
 			return err
 		}
 		if commandErr == nil {
@@ -202,39 +146,11 @@ func CheckClaudeCLILocalAuthWithConfig(ctx context.Context, config ai.ProviderCo
 	return fmt.Errorf("parse Claude Code authentication status failed: %w", parseErr)
 }
 
-func validateClaudeCLISubscriptionStatus(status claudeCLIAuthStatus) error {
+func validateClaudeCLILocalAuthStatus(status claudeCLIAuthStatus) error {
 	if !status.LoggedIn {
-		return fmt.Errorf("Claude Code CLI is not logged in; run claude auth login with a Claude subscription")
-	}
-	if source := strings.TrimSpace(status.APIKeySource); source != "" {
-		return fmt.Errorf("Claude Code CLI is being overridden by API key source %s; remove that API key before using the Claude subscription provider", source)
-	}
-	providerName := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(strings.TrimSpace(status.APIProvider)))
-	if providerName != "" && providerName != "firstparty" {
-		return fmt.Errorf("Claude Code CLI is using provider %s instead of the first-party Claude subscription", status.APIProvider)
-	}
-	// subscriptionType 是权威事实，优先于 authMethod 的措辞。
-	// 只有该字段缺失（旧版 CLI）时才回退到词表匹配。
-	plan := strings.ToLower(strings.TrimSpace(status.SubscriptionType))
-	if _, notSubscription := claudeCLINonSubscriptionPlans[plan]; !notSubscription {
-		return nil
-	}
-	if status.SubscriptionType != "" {
-		return fmt.Errorf("Claude Code CLI reports subscription %s, which is not a paid Claude subscription; run claude auth login", status.SubscriptionType)
-	}
-
-	authMethod := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(status.AuthMethod)))
-	if _, ok := claudeCLISubscriptionAuthMethods[authMethod]; !ok {
-		return fmt.Errorf("Claude Code CLI is authenticated with %s instead of a Claude subscription; run claude auth login", firstNonEmptyCLIValue(status.AuthMethod, "an unsupported method"))
+		return fmt.Errorf("Claude Code CLI is not authenticated; run claude auth login or configure an API key in Claude Code")
 	}
 	return nil
-}
-
-func firstNonEmptyCLIValue(value string, fallback string) string {
-	if value = strings.TrimSpace(value); value != "" {
-		return value
-	}
-	return fallback
 }
 
 // Chat 非流式聊天：调用 claude -p "prompt" --output-format json
@@ -359,7 +275,7 @@ func (p *ClaudeCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		logAIUpstreamRequestFinish(requestLog, 0, requestErr)
 	}()
 
-	// 代理模式的 prompt 已在 argv 中；订阅模式则通过 stdin 传入，避免出现在进程列表。
+	// 代理模式的 prompt 已在 argv 中；本机 CLI 模式则通过 stdin 传入，避免出现在进程列表。
 	if !isLocalCLIAuthMode(p.config) {
 		cmd.Stdin = nil
 	}
@@ -671,10 +587,9 @@ func buildClaudeCLIArgs(config ai.ProviderConfig, prompt string, stream bool) []
 }
 
 func buildClaudeCLILocalAuthIsolationArgs() []string {
-	// Claude Code 2.1.132 ties Windows OAuth credential loading to the user source.
-	// Keep that source for authentication, then neutralize its executable and
-	// instruction-bearing extensions explicitly. An empty setting source would
-	// also hide the OAuth credential and make subscription login unusable.
+	// Claude Code 2.1.132 ties Windows credential loading to the user source.
+	// Keep that source for OAuth, API-key helpers, and user-configured auth, then
+	// neutralize its executable and instruction-bearing extensions explicitly.
 	return []string{
 		"--setting-sources", "user",
 		"--settings", claudeCLILocalAuthSettings,
@@ -741,12 +656,11 @@ func (p *ClaudeCLIProvider) setEnv(cmd *exec.Cmd) error {
 }
 
 func buildClaudeCLIEnv(config ai.ProviderConfig, baseEnv []string, goos string, lookPath func(string) (string, error), exists func(string) bool) ([]string, error) {
-	// Apply custom values before subscription isolation so API credentials can
-	// never be restored by a later merge.
+	// The local CLI owns authentication selection. Preserve both its inherited
+	// environment and explicitly configured CLI values so OAuth, API key, and
+	// supported cloud-provider authentication keep working exactly as in Claude.
 	env := MergeProviderCLIEnv(baseEnv, config.CLIEnv)
 	if strings.EqualFold(strings.TrimSpace(config.AuthMode), "local-cli") {
-		// 订阅模式必须交给 Claude Code 自身的登录态，避免进程环境中的 API Key 抢占认证。
-		env = removeEnvKeys(env, claudeCLILocalAuthBlockedEnvKeys...)
 		for _, key := range claudeCLILocalAuthIsolationEnvKeys {
 			env = removeEnvKeys(env, key)
 			env = upsertEnv(env, key, "1")

@@ -72,7 +72,6 @@ describe('store appearance persistence', () => {
     const { useStore } = await importStore();
     const appearance = useStore.getState().appearance;
 
-    expect(appearance.uiVersion).toBe('v2');
     expect(appearance.enabled).toBe(false);
     expect(appearance.opacity).toBe(0.75);
     expect(appearance.blur).toBe(6);
@@ -206,7 +205,6 @@ describe('store appearance persistence', () => {
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
         appearance: {
-          uiVersion: 'v2',
           dataTableFontSize: 18,
           dataTableFontSizeFollowGlobal: false,
         },
@@ -226,38 +224,6 @@ describe('store appearance persistence', () => {
     expect(persisted.version).toBe(21);
     expect(persisted.state.appearance.sqlEditorFontSize).toBe(17);
     expect(persisted.state.appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
-  });
-
-  it('migrates an existing legacy UI selection to V2', async () => {
-    storage.setItem('lite-db-storage', JSON.stringify({
-      state: {
-        appearance: {
-          uiVersion: 'legacy',
-        },
-      },
-      version: 13,
-    }));
-
-    const { useStore } = await importStore();
-    expect(useStore.getState().appearance.uiVersion).toBe('v2');
-
-    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(21);
-    expect(persisted.state.appearance.uiVersion).toBe('v2');
-  });
-
-  it('migrates a leftover legacy UI selection to V2', async () => {
-    storage.setItem('lite-db-storage', JSON.stringify({
-      state: {
-        appearance: {
-          uiVersion: 'legacy',
-        },
-      },
-      version: 14,
-    }));
-
-    const { useStore } = await importStore();
-    expect(useStore.getState().appearance.uiVersion).toBe('v2');
   });
 
   it('persists DataGrid appearance settings and restores them after reload', async () => {
@@ -953,6 +919,57 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().connections[0]?.config.ssh).toMatchObject({
       knownHostsPath: '/home/user/.ssh/known_hosts',
       hostKeyFingerprint: 'SHA256:pinned-host-key',
+    });
+  });
+
+  it('normalizes Navicat HTTP tunnel URL and base64 settings', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'navicat-http-tunnel',
+        name: 'Navicat HTTP tunnel',
+        config: {
+          id: 'navicat-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: ' https://gateway.example.com/mysql/ntunnel_mysql.php ',
+            port: 8080,
+            encodeBase64: false,
+          },
+        },
+      },
+      {
+        id: 'legacy-http-tunnel',
+        name: 'Legacy HTTP tunnel',
+        config: {
+          id: 'legacy-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: 'legacy-proxy.internal',
+            port: 3128,
+          },
+        },
+      },
+    ]);
+
+    expect(useStore.getState().connections[0]?.config.httpTunnel).toMatchObject({
+      host: 'https://gateway.example.com/mysql/ntunnel_mysql.php',
+      port: 8080,
+      encodeBase64: false,
+    });
+    expect(useStore.getState().connections[1]?.config.httpTunnel).toMatchObject({
+      host: 'legacy-proxy.internal',
+      port: 3128,
+      encodeBase64: true,
     });
   });
 

@@ -33,7 +33,8 @@ const AIProviderKeyValueRows: React.FC<AIProviderKeyValueRowsProps> = ({
         <Button type="text" size="small" aria-label={removeLabel} onClick={() => patch(rows.filter((_, itemIndex) => itemIndex !== index))}>×</Button>
       </div>
     ))}
-    <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={() => patch([...rows, newKeyValueRow()])}>{addLabel}</Button>
+    <Button className="gonavi-ai-provider-kv-add" type="dashed" size="middle" icon={<PlusOutlined />}
+      onClick={() => patch([...rows, newKeyValueRow()])}>{addLabel}</Button>
   </div>;
 };
 

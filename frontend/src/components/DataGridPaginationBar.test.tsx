@@ -76,11 +76,8 @@ import DataGridPaginationBar, {
 
 describe('DataGridPaginationBar custom page size values', () => {
   const createProps = (onPageSizeChange: (value: string) => void) => ({
-    isV2Ui: true,
     pagination: { current: 1, pageSize: 100, total: 500, totalKnown: true },
     paginationV2SummaryText: 'Current 100 rows / 500 rows total',
-    paginationSummaryText: 'Current 100 rows / 500 rows total',
-    paginationControlTotal: 500,
     paginationTotalPages: 5,
     paginationPageText: 'Page 1 / 5',
     paginationPageSizeOptions: ['100', '200'],
@@ -259,11 +256,11 @@ describe('DataGridPaginationBar boundary navigation', () => {
     }[key] || key);
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{ current: 2, pageSize: 100, total: 500, totalKnown: true }}
         paginationV2SummaryText="200 rows"
-        paginationSummaryText="200 rows"
-        paginationControlTotal={500}
+
+
         paginationTotalPages={5}
         paginationPageText="Page 2 / 5"
         paginationPageSizeOptions={['100']}
@@ -287,12 +284,12 @@ describe('DataGridPaginationBar boundary navigation', () => {
     );
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{ current: 1, pageSize: 100, total: 500, totalKnown: true }}
         selectedRowCount={6}
         paginationV2SummaryText="Current 100 rows / 500 rows total"
-        paginationSummaryText="Current 100 rows / 500 rows total"
-        paginationControlTotal={500}
+
+
         paginationTotalPages={5}
         paginationPageText="Page 1 / 5"
         paginationPageSizeOptions={['100']}
@@ -311,12 +308,12 @@ describe('DataGridPaginationBar boundary navigation', () => {
   it('does not render a selected-row count when nothing is selected', () => {
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui={false}
+
         pagination={{ current: 1, pageSize: 100, total: 24, totalKnown: true }}
         selectedRowCount={0}
         paginationV2SummaryText="24 rows"
-        paginationSummaryText="Current 24 rows / 24 rows total"
-        paginationControlTotal={24}
+
+
         paginationTotalPages={1}
         paginationPageText="Page 1 / 1"
         paginationPageSizeOptions={['100']}
@@ -337,37 +334,32 @@ describe('DataGridPaginationBar boundary navigation', () => {
         : key
     );
 
-    for (const isV2Ui of [true, false]) {
-      const markup = renderToStaticMarkup(
-        <DataGridPaginationBar
-          isV2Ui={isV2Ui}
-          selectedRowCount={3}
-          paginationV2SummaryText=""
-          paginationSummaryText=""
-          paginationControlTotal={0}
-          paginationTotalPages={1}
-          paginationPageText=""
-          paginationPageSizeOptions={[]}
-          showKnownPageCount={false}
-          onPageSizeChange={vi.fn()}
-          onV2PageStep={vi.fn()}
-          translate={translate}
-        />,
-      );
+    const markup = renderToStaticMarkup(
+      <DataGridPaginationBar
+        selectedRowCount={3}
+        paginationV2SummaryText=""
+        paginationTotalPages={1}
+        paginationPageText=""
+        paginationPageSizeOptions={[]}
+        showKnownPageCount={false}
+        onPageSizeChange={vi.fn()}
+        onV2PageStep={vi.fn()}
+        translate={translate}
+      />,
+    );
 
-      expect(markup).toContain('data-grid-selected-count="true"');
-      expect(markup).toContain('Selected 3 rows');
-    }
+    expect(markup).toContain('data-grid-selected-count="true"');
+    expect(markup).toContain('Selected 3 rows');
   });
 
   it('does not render a total-count action without a real callback', () => {
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{ current: 1, pageSize: 100, total: 200, totalKnown: false }}
         paginationV2SummaryText="100 rows"
-        paginationSummaryText="100 rows"
-        paginationControlTotal={200}
+
+
         paginationTotalPages={2}
         paginationPageText="Page 1"
         paginationPageSizeOptions={['100']}
@@ -386,7 +378,7 @@ describe('DataGridPaginationBar boundary navigation', () => {
     const unavailableReason = 'Broker offsets cannot provide an exact TAG total.';
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{
           current: 1,
           pageSize: 100,
@@ -396,8 +388,8 @@ describe('DataGridPaginationBar boundary navigation', () => {
           totalCountUnavailableReason: unavailableReason,
         }}
         paginationV2SummaryText="Current page loaded 100 rows"
-        paginationSummaryText="Current page loaded 100 rows"
-        paginationControlTotal={100}
+
+
         paginationTotalPages={1}
         paginationPageText="Page 1"
         paginationPageSizeOptions={['100']}
@@ -431,11 +423,11 @@ describe('DataGridPaginationBar boundary navigation', () => {
     });
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{ current: 10, pageSize: 10, total: 100, totalKnown: true }}
         paginationV2SummaryText="100 rows"
-        paginationSummaryText="100 rows"
-        paginationControlTotal={100}
+
+
         paginationTotalPages={10}
         paginationPageText="Page 10 / 10"
         paginationPageSizeOptions={['10']}

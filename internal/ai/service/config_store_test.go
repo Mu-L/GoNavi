@@ -138,6 +138,85 @@ func TestProviderConfigStoreSavePersistsSecretlessMetadata(t *testing.T) {
 	}
 }
 
+func TestProviderConfigStoreSaveDropsRemovedProviderFields(t *testing.T) {
+	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
+
+	err := configStore.Save(ProviderConfigStoreSnapshot{
+		Providers: []ai.ProviderConfig{{
+			ID:            "openai-main",
+			Type:          "openai",
+			Name:          "OpenAI",
+			BaseURL:       "https://api.openai.com/v1",
+			Model:         "gpt-5",
+			Models:        []string{"legacy-favorite"},
+			MaxTokens:     8192,
+			ContextWindow: 128000,
+		}},
+		ActiveProvider: "openai-main",
+		SafetyLevel:    ai.PermissionReadOnly,
+		ContextLevel:   ai.ContextSchemaOnly,
+	})
+	if err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	configData, err := os.ReadFile(filepath.Join(configStore.configDir, aiConfigFileName))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(configData, &stored); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	providers, ok := stored["providers"].([]any)
+	if !ok || len(providers) != 1 {
+		t.Fatalf("unexpected providers payload: %#v", stored["providers"])
+	}
+	provider, ok := providers[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected provider payload: %#v", providers[0])
+	}
+	for _, removed := range []string{"models", "maxTokens", "contextWindow"} {
+		if _, exists := provider[removed]; exists {
+			t.Fatalf("removed provider field %q must not be persisted: %s", removed, configData)
+		}
+	}
+}
+
+func TestProviderConfigStoreLoadMigratesRemovedProviderFields(t *testing.T) {
+	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
+	legacy := `{"schemaVersion":5,"providers":[{"id":"openai-main","type":"openai","name":"OpenAI","apiKey":"","baseUrl":"https://api.openai.com/v1","model":"gpt-5","models":["legacy-favorite"],"maxTokens":8192,"contextWindow":128000,"temperature":0.7}],"activeProvider":"openai-main","safetyLevel":"readonly","contextLevel":"schema_only","mcpHTTPServer":{}}`
+	if err := os.WriteFile(filepath.Join(configStore.configDir, aiConfigFileName), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	snapshot, err := configStore.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(snapshot.Providers) != 1 || providerHasRemovedEditorFields(snapshot.Providers[0]) {
+		t.Fatalf("removed fields survived runtime migration: %#v", snapshot.Providers)
+	}
+	rewritten, err := os.ReadFile(filepath.Join(configStore.configDir, aiConfigFileName))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(rewritten, &stored); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	providers, ok := stored["providers"].([]any)
+	if !ok || len(providers) != 1 {
+		t.Fatalf("unexpected providers payload: %#v", stored["providers"])
+	}
+	provider := providers[0].(map[string]any)
+	for _, removed := range []string{"models", "maxTokens", "contextWindow"} {
+		if _, exists := provider[removed]; exists {
+			t.Fatalf("removed provider field %q survived migration: %s", removed, rewritten)
+		}
+	}
+}
+
 func TestProviderConfigStoreSaveKeepsExistingSecretRef(t *testing.T) {
 	withTestAIGOOS(t, "linux")
 

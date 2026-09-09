@@ -32,7 +32,7 @@ vi.mock('antd', async (importOriginal) => {
 });
 
 import { useStore } from '../../store';
-import { buildSidebarLegacyNodeMenuItems } from './sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 const createNacosConnection = (protection: {
   readOnly?: boolean;
@@ -60,7 +60,7 @@ const buildNacosRootItems = (
   loadDatabases = vi.fn(),
   context: Record<string, any> = {},
 ) =>
-  buildSidebarLegacyNodeMenuItems({
+  buildSidebarNodeMenuItems({
     key: connection.id,
     type: 'connection',
     dataRef: connection,
@@ -76,7 +76,7 @@ const buildNacosNamespaceItems = (
   loadDatabases = vi.fn(),
   context: Record<string, any> = {},
 ) =>
-  buildSidebarLegacyNodeMenuItems({
+  buildSidebarNodeMenuItems({
     type: 'nacos-namespace',
     dataRef: {
       ...connection,
@@ -116,7 +116,7 @@ describe('Nacos service group context menu', () => {
 
   it('opens the selected service group with its group filter', () => {
     const addTab = vi.fn();
-    const items = buildSidebarLegacyNodeMenuItems({
+    const items = buildSidebarNodeMenuItems({
       type: 'nacos-service-group',
       dataRef: {
         id: 'nacos-1',
@@ -138,7 +138,7 @@ describe('Nacos service group context menu', () => {
 
   it('does not attach a group filter to the all-services node', () => {
     const addTab = vi.fn();
-    const items = buildSidebarLegacyNodeMenuItems({
+    const items = buildSidebarNodeMenuItems({
       type: 'nacos-service-group',
       dataRef: {
         id: 'nacos-1',
