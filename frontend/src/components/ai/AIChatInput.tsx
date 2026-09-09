@@ -18,6 +18,8 @@ import AIChatContextPreview from './AIChatContextPreview';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import AIChatProviderModelSelect from './AIChatProviderModelSelect';
 import AIChatThinkingIntensitySelect from './AIChatThinkingIntensitySelect';
+import type { CLIModelCatalog } from '../../utils/aiProviderManagement';
+import type { CLIThinkingCapability } from './useAIChatRuntimeResources';
 import { buildAIChatReadinessSnapshot } from './aiChatReadiness';
 import { useAIChatContextBinding } from './useAIChatContextBinding';
 import { useAIChatDraftAttachments } from './useAIChatDraftAttachments';
@@ -40,6 +42,8 @@ interface AIChatInputProps {
     activeConnName: string;
     activeContext: { connectionId?: string | null; dbName?: string | null } | null;
     activeProvider: AIProviderConfig | null;
+    providers?: AIProviderConfig[];
+    providerModels?: Record<string, string[]>;
     dynamicModels: string[];
     loadingModels: boolean;
     sendShortcutBinding: ShortcutPlatformBinding;
@@ -47,9 +51,14 @@ interface AIChatInputProps {
     composerNotice?: AIComposerNotice | null;
     onComposerAction?: (actionKey: AIComposerNoticeAction) => void;
     onModelChange: (val: string) => void;
+    onProviderModelChange?: (providerId: string, model: string) => void;
+    onManageProvider?: (providerId: string) => void;
     onFetchModels: () => void;
+    onFetchProviderModels?: (providerId: string) => void;
     thinkingIntensity: string;
     onThinkingIntensityChange: (val: string) => void;
+    cliCapability?: CLIThinkingCapability;
+    cliCatalog?: CLIModelCatalog;
     textareaRef: React.RefObject<HTMLTextAreaElement>;
     darkMode: boolean;
     textColor: string;
@@ -62,9 +71,10 @@ interface AIChatInputProps {
 export const AIChatInput: React.FC<AIChatInputProps> = ({
     input, setInput, draftAttachments, setDraftAttachments, sending, dispatchMode = 'queue', hasActiveRun = false,
     onDispatchModeChange, onSend, onStop, handleKeyDown,
-    activeConnName, activeContext, activeProvider, dynamicModels, loadingModels,
+    activeConnName, activeContext, activeProvider, providers, providerModels, dynamicModels, loadingModels,
     sendShortcutBinding, shortcutPlatform = 'windows', composerNotice, onComposerAction,
-    onModelChange, onFetchModels, thinkingIntensity, onThinkingIntensityChange,
+    onModelChange, onProviderModelChange, onManageProvider, onFetchModels, onFetchProviderModels, thinkingIntensity, onThinkingIntensityChange,
+    cliCapability, cliCatalog,
     textareaRef, darkMode, textColor, mutedColor, overlayTheme,
     contextUsageChars, maxContextChars
 }) => {
@@ -287,15 +297,22 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                     )}
                     <AIChatProviderModelSelect
                         activeProvider={activeProvider}
+                        providers={providers}
+                        providerModels={providerModels}
                         dynamicModels={dynamicModels}
                         loadingModels={loadingModels}
                         onModelChange={onModelChange}
+                        onProviderModelChange={onProviderModelChange}
+                        onManageProvider={onManageProvider}
                         onFetchModels={onFetchModels}
+                        onFetchProviderModels={onFetchProviderModels}
                     />
                     <AIChatThinkingIntensitySelect
                         activeProvider={activeProvider}
                         value={thinkingIntensity}
                         onChange={onThinkingIntensityChange}
+                        cliCapability={cliCapability}
+                        cliCatalog={cliCatalog}
                     />
                     {contextUsageChars !== undefined && maxContextChars !== undefined && (
                         <Tooltip title={memoryTooltipLabel}>

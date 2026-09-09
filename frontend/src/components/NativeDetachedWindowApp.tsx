@@ -143,7 +143,7 @@ type NativeDetachedWindowClient = {
   hide?: (payload: NativeDetachedWindowActionPayload) => Promise<number>;
   close: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
   cancelCloseRequest?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
-  openAISettings: (visibilityRevision: number) => Promise<void>;
+  openAISettings: (visibilityRevision: number, providerId?: string) => Promise<void>;
   hostEvent?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
   closeCurrentWindow: () => Promise<void>;
   hideCurrentWindow?: (visibilityRevision: number) => Promise<void>;
@@ -352,7 +352,7 @@ const NativeDetachedWindowContent: React.FC<{
   onContentReady: () => void;
   onAttach: () => void;
   onClose: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (providerId?: string) => void;
   onRegisterAITerminalGuard: (guard: (() => Promise<boolean>) | null) => void;
   onQueryResultDataChange: (rows: Array<Record<string, unknown>>) => void;
   interactionDisabled?: boolean;
@@ -460,6 +460,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   const terminalActionGenerationRef = useRef(0);
   const terminalCloseRecoveryPendingRef = useRef(false);
   const openAISettingsAfterHideRef = useRef(false);
+  const openAISettingsProviderIdRef = useRef('');
   const activeTerminalActionRef = useRef<'attach' | 'hide' | 'close' | null>(null);
   const closePreemptionRequestedRef = useRef(false);
   const hideVisibilityRevisionRef = useRef(0);
@@ -970,13 +971,14 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
     setTerminalAction(action);
   }, [bootstrap]);
 
-  const requestOpenAISettings = useCallback(() => {
+  const requestOpenAISettings = useCallback((providerId?: string) => {
     if (
       !bootstrap
       || bootstrap.kind !== 'ai-chat'
       || terminalActionRequestedRef.current
     ) return;
     openAISettingsAfterHideRef.current = true;
+    openAISettingsProviderIdRef.current = String(providerId || '').trim();
     requestTerminalAction('hide');
   }, [bootstrap, requestTerminalAction]);
 
@@ -1202,7 +1204,12 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
           if (closePreemptionRequestedRef.current) {
             await submitPreemptingClose();
           } else if (openAISettingsAfterHideRef.current) {
-            await client.openAISettings(visibilityRevision);
+            const providerId = openAISettingsProviderIdRef.current;
+            if (providerId) {
+              await client.openAISettings(visibilityRevision, providerId);
+            } else {
+              await client.openAISettings(visibilityRevision);
+            }
           } else {
             if (!client.hideCurrentWindow) {
               throw new Error('Native detached hide control is unavailable');
@@ -1253,6 +1260,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
         if (!isCurrentTerminalAction()) return;
         if (actionToRun === 'hide' && !closeActionSubmitted) {
           openAISettingsAfterHideRef.current = false;
+          openAISettingsProviderIdRef.current = '';
           terminalActionStartedRef.current = false;
           terminalActionRequestedRef.current = false;
           activeTerminalActionRef.current = null;
@@ -1270,6 +1278,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
       if (!isCurrentTerminalAction()) return;
       if (actionToRun === 'hide') {
         openAISettingsAfterHideRef.current = false;
+        openAISettingsProviderIdRef.current = '';
         terminalActionStartedRef.current = false;
         terminalActionRequestedRef.current = false;
         activeTerminalActionRef.current = null;

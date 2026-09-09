@@ -8395,8 +8395,8 @@ function App() {
                             onClose={handleCloseAIPanel}
                             onDetach={handleDetachAIPanel}
                             onRegisterTerminalGuard={registerAIPanelTerminalGuard}
-                            onOpenSettings={() => {
-                              handleOpenAISettings();
+                            onOpenSettings={(providerId) => {
+                              handleOpenAISettings(providerId);
                             }}
                             overlayTheme={overlayTheme}
                           />
@@ -8411,7 +8411,7 @@ function App() {
                     bgColor={bgContent}
                     overlayTheme={overlayTheme}
                     renderNonce={aiPanelRenderNonce}
-                    onOpenSettings={() => handleOpenAISettings()}
+                    onOpenSettings={(providerId) => handleOpenAISettings(providerId)}
                     onRenderError={handleAIPanelRenderError}
                     onRetryRender={handleRetryAIPanelRender}
                     onRegisterTerminalGuard={registerAIPanelTerminalGuard}

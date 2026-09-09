@@ -790,6 +790,25 @@ describe('nativeDetachedWindowClient', () => {
     }
   });
 
+  it('passes the selected provider through the atomic native settings control', async () => {
+    const hideForAISettingsProvider = vi.fn(async () => ({ success: true }));
+    const previousWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { go: { nativewindow: { Control: { HideForAISettingsProvider: hideForAISettingsProvider } } } },
+    });
+    try {
+      await hideCurrentNativeDetachedWindowForAISettings(13, 'provider-grok');
+      expect(hideForAISettingsProvider).toHaveBeenCalledWith(13, 'provider-grok');
+    } finally {
+      if (previousWindowDescriptor) {
+        Object.defineProperty(globalThis, 'window', previousWindowDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'window');
+      }
+    }
+  });
+
   it('rejects when the native close control reports a failure', async () => {
     const close = vi.fn(async () => ({
       success: false,

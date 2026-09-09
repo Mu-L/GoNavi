@@ -200,6 +200,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const providerLoadSequenceRef = useRef(0);
     const sectionLoadSequenceRef = useRef(0);
     const editorSessionRef = useRef(0);
+    const openedFocusProviderRef = useRef('');
     const configRevisionRef = useRef(0);
     const testRequestRef = useRef(0);
     const saveRunningRef = useRef(false);
@@ -515,16 +516,6 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         }
     }, [active, resetMCPClientSelectionTouched]);
 
-    useEffect(() => {
-        if (!active || !focusProviderId) {
-            return;
-        }
-        if (!providers.some((provider) => provider.id === focusProviderId)) {
-            return;
-        }
-        applySection('providers');
-    }, [active, applySection, focusProviderId, providers]);
-
     const applyProviderEditorSession = useCallback((session: ProviderEditorSession) => {
         editorSessionRef.current++;
         editedFieldsRef.current.clear();
@@ -679,6 +670,20 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             if (session === editorSessionRef.current && activeRef.current) void messageApi.error(e?.message || t('ai_settings.message.load_provider_failed'));
         }
     });
+
+    useEffect(() => {
+        const requestedProviderId = String(focusProviderId || '').trim();
+        if (!active || !requestedProviderId) {
+            openedFocusProviderRef.current = '';
+            return;
+        }
+        if (openedFocusProviderRef.current === requestedProviderId) return;
+        const requestedProvider = providers.find((provider) => provider.id === requestedProviderId);
+        if (!requestedProvider) return;
+        openedFocusProviderRef.current = requestedProviderId;
+        applySection('providers');
+        void handleEditProvider(requestedProvider);
+    }, [active, applySection, focusProviderId, handleEditProvider, providers]);
 
     const handleDeleteProvider = async (id: string) => {
         const session = editorSessionRef.current;

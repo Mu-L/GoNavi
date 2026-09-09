@@ -4,7 +4,10 @@ import { parseCLIModelCatalog, type CLIModelCatalog } from '../../utils/aiProvid
 // not repeat it on every visit. The last usable catalog per API format is kept
 // here and reused until the user asks for a refresh from the enabled-count button.
 // Stale, empty or failed results are never cached, so those retry on their own.
-export const CLI_MODEL_CATALOG_CACHE_KEY = 'gonavi.ai.providers.modelCatalog.v1';
+// v2 adds model-specific reasoning capabilities and a short expiry. Do not
+// reuse v1 indefinitely: it may contain a partial pre-app-server Codex cache.
+export const CLI_MODEL_CATALOG_CACHE_KEY = 'gonavi.ai.providers.modelCatalog.v2';
+export const CLI_MODEL_CATALOG_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 
 interface CachedCatalogEntry { catalog: CLIModelCatalog; fetchedAt: number }
 
@@ -16,10 +19,13 @@ const readStore = (): Record<string, CachedCatalogEntry> => {
   } catch { return {}; }
 };
 
-export const readCachedCLIModelCatalog = (apiFormat: string): CLIModelCatalog | null => {
+export const readCachedCLIModelCatalog = (apiFormat: string, now = Date.now()): CLIModelCatalog | null => {
   const entry = readStore()[apiFormat];
   const catalog = entry ? parseCLIModelCatalog(entry.catalog) : null;
-  return catalog && !catalog.stale && catalog.models.length ? catalog : null;
+  const fetchedAt = Number(entry?.fetchedAt);
+  return catalog && !catalog.stale && catalog.models.length && Number.isFinite(fetchedAt)
+    && now - fetchedAt <= CLI_MODEL_CATALOG_CACHE_MAX_AGE_MS && now >= fetchedAt
+    ? catalog : null;
 };
 
 export const writeCachedCLIModelCatalog = (apiFormat: string, catalog: CLIModelCatalog, now = Date.now()): void => {
