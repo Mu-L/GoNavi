@@ -107,9 +107,9 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: 14_000_001,
     })).toEqual({
       scrollHeight: 28_000_000,
-      start: 500_000,
-      end: 500_011,
-      offset: 14_000_000,
+      start: 499_998,
+      end: 500_013,
+      offset: 13_999_944,
     });
   });
 
@@ -122,7 +122,7 @@ describe('calculateFixedVirtualRange', () => {
     })).toEqual({
       scrollHeight: 2_800,
       start: 0,
-      end: 12,
+      end: 14,
       offset: 0,
     });
   });
@@ -142,29 +142,35 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: Number.POSITIVE_INFINITY,
     })).toEqual({
       scrollHeight: 2_800,
-      start: 89,
+      start: 87,
       end: 99,
-      offset: 2_492,
+      offset: 2_436,
     });
   });
 
-  it('matches the dependency linear scan throughout a small fixed-height list', () => {
+  it('extends the dependency visible range by three rows for native scroll coverage', () => {
     const itemCount = 40;
     const itemHeight = 7;
     const viewportHeight = 35;
     const maxScrollTop = itemCount * itemHeight - viewportHeight;
     for (let scrollTop = 0; scrollTop <= maxScrollTop; scrollTop += 1) {
+      const linear = calculateLinearReference({
+        itemCount,
+        itemHeight,
+        viewportHeight,
+        scrollTop,
+      });
       expect(calculateFixedVirtualRange({
         itemCount,
         itemHeight,
         viewportHeight,
         scrollTop,
-      })).toEqual(calculateLinearReference({
-        itemCount,
-        itemHeight,
-        viewportHeight,
-        scrollTop,
-      }));
+      })).toEqual({
+        ...linear,
+        start: Math.max(0, linear.start - 2),
+        end: Math.min(itemCount - 1, linear.end + 2),
+        offset: Math.max(0, linear.start - 2) * itemHeight,
+      });
     }
   });
 

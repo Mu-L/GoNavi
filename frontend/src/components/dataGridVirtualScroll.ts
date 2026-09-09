@@ -105,10 +105,11 @@ export const calculateFixedVirtualRange = ({
       : 0;
   const clampedScrollTop = Math.max(0, Math.min(maxScrollTop, requestedScrollTop));
 
-  // rc-virtual-list keeps the item ending exactly at scrollTop in its range.
-  const start = Math.min(count - 1, Math.max(0, Math.ceil(clampedScrollTop / height) - 1));
-  // Keep the same additional cached row rendered by rc-virtual-list.
-  const end = Math.min(count - 1, Math.floor((clampedScrollTop + viewport) / height) + 1);
+  // Native scrolling can advance before React commits the next virtual
+  // window. Keep three rows on each side so the compositor never exposes an
+  // empty strip during a fast touchpad gesture.
+  const start = Math.min(count - 1, Math.max(0, Math.ceil(clampedScrollTop / height) - 3));
+  const end = Math.min(count - 1, Math.floor((clampedScrollTop + viewport) / height) + 3);
 
   return {
     scrollHeight,
