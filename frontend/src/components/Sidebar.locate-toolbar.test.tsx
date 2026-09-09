@@ -1464,7 +1464,7 @@ describe('Sidebar locate toolbar', () => {
   it('scales the v2 rail and keeps fixed workbench tools below a scrollable primary area', () => {
     const css = readV2ThemeCss();
 
-    expect(css).toMatch(/\.gn-v2-rail-workbench-actions \{[^}]*flex-direction: column;/s);
+    expect(css).toMatch(/\.gn-v2-rail-workbench-actions,\s*body\[data-ui-version="v2"\] \.gn-v2-rail-system-actions \{[^}]*flex-direction: column;/s);
     expect(css).toMatch(/\.gn-v2-rail-workbench-actions \{[^}]*border-bottom: 0\.5px solid var\(--gn-br-1\);/s);
     expect(css).toMatch(/\.gn-v2-rail-items \{[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/s);
     expect(css).toMatch(/\.gn-v2-rail-secondary-actions \{[^}]*margin-top: auto;[^}]*flex: 0 0 auto;/s);

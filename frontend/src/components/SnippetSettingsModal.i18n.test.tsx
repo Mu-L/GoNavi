@@ -372,7 +372,7 @@ describe('SnippetSettingsModal i18n', () => {
     expect(actionRow.props.style).toMatchObject({
       flex: '0 0 auto',
       gap: 8,
-      paddingTop: 12,
+      paddingTop: 8,
       marginTop: 0,
     });
   });
@@ -384,9 +384,9 @@ describe('SnippetSettingsModal i18n', () => {
 
     expect(embeddedContent.props.style).toMatchObject({
       gap: 0,
-      borderTop: overlayTheme.sectionBorder,
       fontFamily: 'var(--gn-font-sans)',
     });
+    expect(embeddedContent.props.style.borderTop).toBeUndefined();
     expect(embeddedMaster.props.style).toMatchObject({
       width: 270,
       borderRadius: 0,

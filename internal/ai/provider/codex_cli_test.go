@@ -488,7 +488,10 @@ func TestCodexCLIProviderChatStopsWhenAuthenticationCheckFails(t *testing.T) {
 		return originalCommandContext(ctx, path, args...)
 	}
 
-	provider, _ := NewCodexCLIProvider(ai.ProviderConfig{AuthMode: "local-cli"})
+	provider, _ := NewCodexCLIProvider(ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv:   map[string]string{"CODEX_HOME": t.TempDir()},
+	})
 	_, err := provider.Chat(context.Background(), ai.ChatRequest{
 		Messages: []ai.Message{{Role: "user", Content: "must not be sent"}},
 	})
