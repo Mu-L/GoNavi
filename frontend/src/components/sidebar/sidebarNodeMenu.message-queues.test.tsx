@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildSidebarLegacyNodeMenuItems } from './sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 const itemKeys = (items: any[]) => items.map((item) => item?.key || item?.type);
 
@@ -40,7 +40,7 @@ describe('message queue sidebar menus', () => {
   it('offers message actions instead of relational table actions for topics and queues', () => {
     const context = buildContext();
     const node = buildMessageObject('topic', 'orders.events');
-    const items = buildSidebarLegacyNodeMenuItems(node, context) as any[];
+    const items = buildSidebarNodeMenuItems(node, context) as any[];
 
     expect(itemKeys(items)).toEqual([
       'browse-messages',
@@ -75,7 +75,7 @@ describe('message queue sidebar menus', () => {
   it('opens and publishes to a RabbitMQ exchange without exposing consume actions', () => {
     const context = buildContext();
     const node = buildMessageObject('exchange', 'events.topic', 'rabbitmq');
-    const items = buildSidebarLegacyNodeMenuItems(node, context) as any[];
+    const items = buildSidebarNodeMenuItems(node, context) as any[];
 
     expect(itemKeys(items)).toEqual([
       'open-message-workbench',
@@ -106,7 +106,7 @@ describe('message queue sidebar menus', () => {
         config: { type: 'mqtt' },
       },
     };
-    const items = buildSidebarLegacyNodeMenuItems(node, context) as any[];
+    const items = buildSidebarNodeMenuItems(node, context) as any[];
 
     expect(itemKeys(items)).toEqual([
       'open-message-workbench',

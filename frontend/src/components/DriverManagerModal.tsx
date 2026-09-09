@@ -7,7 +7,7 @@ import { messages } from '../../../shared/i18n/messages';
 import { catalogs } from '../i18n/catalog';
 import { useStore } from '../store';
 import { t } from '../i18n';
-import { normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
+import { resolveAppearanceValues } from '../utils/appearance';
 import { isBackendCancelledResult } from '../utils/connectionExport';
 import { normalizeDriverProgressUpdate, type DriverProgressState } from '../utils/driverProgress';
 import { buildDriverManagerWorkbenchTheme } from '../utils/driverManagerWorkbenchTheme';
@@ -707,10 +707,9 @@ const DriverManagerModal: React.FC<{
   void languagePreference;
   const darkMode = theme === 'dark';
   const resolvedAppearance = resolveAppearanceValues(appearance);
-  const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const driverManagerTheme = useMemo(
-    () => buildDriverManagerWorkbenchTheme(darkMode, opacity),
-    [darkMode, opacity, appearance.uiVersion],
+    () => buildDriverManagerWorkbenchTheme(darkMode),
+    [darkMode],
   );
   const [loading, setLoading] = useState(() => open && !driverStatusSnapshots.getPreferred());
   const [downloadDir, setDownloadDir] = useState(() => driverStatusSnapshots.getPreferred()?.downloadDir || '');

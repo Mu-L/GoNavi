@@ -25,7 +25,7 @@ const storeState = {
     setCurrentLanguage(languagePreference);
     notifyStoreSubscribers();
   }),
-  appearance: { uiVersion: "legacy", opacity: 1 },
+  appearance: { opacity: 1 },
 };
 
 const storeSubscribers = new Set<() => void>();
@@ -460,7 +460,7 @@ describe("ConnectionModal i18n", () => {
     });
     storeState.theme = "light";
     storeState.languagePreference = "zh-CN";
-    storeState.appearance.uiVersion = "legacy";
+
     storeState.appearance.opacity = 1;
     storeState.pinnedConnectionTypes = [];
     backendApp.GetDriverStatusList.mockResolvedValue({ success: true, data: { drivers: [] } });
@@ -1221,10 +1221,10 @@ describe("ConnectionModal i18n", () => {
     ).toContain("All");
   });
 
-  it.each(["legacy", "v2"] as const)(
-    "renders localized create flow copy for %s ui",
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    "renders localized create flow copy",
+    async () => {
+
       mockFormValues = {
         type: "mysql",
         useSSL: true,
@@ -1276,10 +1276,10 @@ describe("ConnectionModal i18n", () => {
     },
   );
 
-  it.each(["legacy", "v2"] as const)(
-    "renders English titles, footer copy, and raw-preserving failure feedback for %s ui",
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    "renders English titles, footer copy, and raw-preserving failure feedback",
+    async () => {
+
       setCurrentLanguage("en-US");
       const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -1396,7 +1396,7 @@ describe("ConnectionModal i18n", () => {
   );
 
   it("renders English topology and authentication copy for legacy mysql, mongodb, and redis sections", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -1474,7 +1474,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English network, appearance, and raw-preserving copy for v2 ui", async () => {
-    storeState.appearance.uiVersion = "v2";
+
     setCurrentLanguage("en-US");
     mockFormValues = {
       type: "mysql",
@@ -1613,7 +1613,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English driver unavailable alert while preserving product names", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
@@ -1650,7 +1650,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English tail copy for SSL hints, driver confirm, Mongo discovery, ClickHouse auto, and examples", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     const { Modal } = await import("antd");
@@ -1821,7 +1821,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English URI feedback and file picker error shell while preserving raw detail", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     backendApp.SelectDatabaseFile.mockResolvedValue({
       success: false,
@@ -1880,7 +1880,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("automatically dismisses URI warning feedback after four seconds", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     let dismissUriFeedback: (() => void) | undefined;
@@ -1919,7 +1919,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("retranslates test failure feedback while preserving raw detail when language changes in-place", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     backendApp.TestConnection.mockReset();
     backendApp.TestConnection.mockResolvedValue({
@@ -1960,7 +1960,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("stops connection action loading before optional database discovery finishes", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     backendApp.TestConnection.mockResolvedValue({
       success: true,
@@ -2003,7 +2003,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("does not let a stale validation run restart loading after the modal reopens", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let resolveValidation: (() => void) | undefined;
     mockValidateFields = () =>
@@ -2048,7 +2048,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("ignores a stale connection-test rejection after the modal reopens", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let rejectConnection: ((reason?: unknown) => void) | undefined;
     backendApp.TestConnection.mockReset();
@@ -2094,7 +2094,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("cancels an in-flight Nacos test and ignores its late result", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let resolveConnection: ((value: unknown) => void) | undefined;
     backendApp.NacosTestConnectionWithProgress.mockReset();
@@ -2143,7 +2143,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English data source groups and hints for the remaining step one copy", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     mockFormValues = {
       jvmDiagnosticEnabled: true,
@@ -2176,7 +2176,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("searches across all data sources, keeps category state consistent, and resets on reopen", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     const onClose = vi.fn();
@@ -2354,7 +2354,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English custom driver DSN copy after the module was loaded in another language", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     setCurrentLanguage("en-US");
@@ -2380,7 +2380,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English JVM fields and diagnostic transport copy", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -2429,7 +2429,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English protocol and database service fields", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 

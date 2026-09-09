@@ -705,6 +705,7 @@ export type V2CellContextMenuActionKey =
   | 'undo-cell-change'
   | 'set-null'
   | 'set-null-selected'
+  | 'edit-cell'
   | 'edit-row'
   | 'fill-selected'
   | 'paste-copied-columns'
@@ -832,6 +833,7 @@ export const V2CellContextMenuView: React.FC<{
   selectedRowCount?: number;
   selectedCellCount?: number;
   canModifyData?: boolean;
+  canEditCell?: boolean;
   canUndoCellChange?: boolean;
   copiedRowCount?: number;
   canPasteCopiedColumns?: boolean;
@@ -845,6 +847,7 @@ export const V2CellContextMenuView: React.FC<{
   selectedRowCount = 0,
   selectedCellCount = 0,
   canModifyData = false,
+  canEditCell = false,
   canUndoCellChange = false,
   copiedRowCount = 0,
   canPasteCopiedColumns = false,
@@ -880,6 +883,11 @@ export const V2CellContextMenuView: React.FC<{
           <>
             <div className="gn-v2-context-menu-section-title">{t('data_grid.context_menu.edit_section')}</div>
             {renderItems([
+              ...(canEditCell ? [{
+                action: 'edit-cell' as const,
+                icon: <EditOutlined />,
+                title: t('data_grid.context_menu.edit_cell_in_editor'),
+              }] : []),
               {
                 action: 'undo-cell-change',
                 icon: <UndoOutlined />,

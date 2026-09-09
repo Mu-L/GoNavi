@@ -359,7 +359,6 @@ describe('nativeDetachedWindowClient', () => {
 
   it('keeps main-window AI context sync separate from child-owned conversation state', () => {
     const appearance = {
-      uiVersion: 'v2',
       toolbarButtonColorOverrides: {
         query: {
           'button-bg': '#13579b',
@@ -399,7 +398,7 @@ describe('nativeDetachedWindowClient', () => {
       ...state,
       theme: 'dark',
       themePreference: 'dark',
-      appearance: { uiVersion: 'legacy' },
+      appearance: {  },
       fontSize: 12,
       uiScale: 0.9,
       activeTabId: queryTab.id,

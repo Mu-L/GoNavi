@@ -10,16 +10,16 @@ import type { SortOrder, ColumnType } from 'antd/es/table/interface';
 import type { Reference as TableReference } from 'rc-table';
 import { CloseOutlined, ConsoleSqlOutlined, CopyOutlined, EditOutlined, ExportOutlined, FileTextOutlined, LeftOutlined, RightOutlined, SearchOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
 import {
-    DndContext, 
-    DragEndEvent, 
-    PointerSensor, 
-    useSensor, 
-    useSensors, 
-    closestCenter 
+    DndContext,
+    DragEndEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    closestCenter
 } from '@dnd-kit/core';
-import { 
-    SortableContext, 
-    useSortable, 
+import {
+    SortableContext,
+    useSortable,
     horizontalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -98,6 +98,12 @@ import {
 } from './dataGridClipboardPayload';
 import { applyNoAutoCapAttributesWithin, noAutoCapInputProps } from '../utils/inputAutoCap';
 import {
+    compactJsonCellText,
+    escapeCellText,
+    formatJsonCellText,
+    unescapeCellText,
+} from '../utils/dataGridCellTextTransform';
+import {
     DEFAULT_SHORTCUT_OPTIONS,
     getShortcutPlatform,
     isEditableElement,
@@ -166,7 +172,6 @@ import DataGridSecondaryActions from './DataGridSecondaryActions';
 import DataGridToolbarFrame from './DataGridToolbarFrame';
 import DataGridShell from './DataGridShell';
 import DataGridModals from './DataGridModals';
-import DataGridLegacyCellContextMenu from './DataGridLegacyCellContextMenu';
 import DataGridPreviewPanel from './DataGridPreviewPanel';
 import { buildDataGridTransactionLog } from './dataGridTransactionLog';
 import {
@@ -261,14 +266,12 @@ import {
     SortableHeaderCell,
     EditableContext,
     CellContextMenuContext,
-    DataContext,
     setGlobalDeletedRowKeys,
     resolveEditableCellRowKey,
     isEditableCellDeleted,
     isEditableCellModified,
     areEditableCellPropsEqual,
     EditableCell,
-    ContextMenuRow,
     buildColumnMetaMap,
     hasUsableColumnMeta,
     shouldOmitBlankDataGridInsertValue,
@@ -400,7 +403,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const clearTableColumnOrder = useStore(state => state.clearTableColumnOrder);
   const tablePinnedLeftColumns = useStore(state => state.tablePinnedLeftColumns);
   const setTablePinnedLeftColumns = useStore(state => state.setTablePinnedLeftColumns);
-  
+
   const tableHiddenColumns = useStore(state => state.tableHiddenColumns);
   const enableHiddenColumnMemory = useStore(state => state.enableHiddenColumnMemory);
   const setTableHiddenColumns = useStore(state => state.setTableHiddenColumns);
@@ -426,20 +429,15 @@ const DataGrid: React.FC<DataGridProps> = ({
       noSafeLocator: () => translateDataGrid('data_grid.message.no_safe_locator'),
       emptyLocatorValue: (column: string) => translateDataGrid('data_grid.message.locator_column_value_empty', { column }),
   }), [translateDataGrid]);
-  
+
   const isMacLike = useMemo(() => isMacLikePlatform(), []);
-  const isV2Ui = true;
+
   const effectiveUiScale = Math.min(1.25, Math.max(0.8, Number(uiScale) || 1));
   const activeShortcutPlatform = useMemo(() => getShortcutPlatform(isMacLike), [isMacLike]);
   const darkMode = theme === 'dark';
   const resolvedAppearance = resolveAppearanceValues(appearance);
   const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
-  const useVirtualHolderPaintHints = !isMacLike && !isV2Ui;
-  const useVirtualRowCellContain = !isMacLike && !isV2Ui;
-  const useVirtualCellContentContain = false;
-  const useVirtualEditablePaintContain = !isMacLike && !isV2Ui;
-  const useVirtualEditableVisibilityHints = !isMacLike && !isV2Ui;
-  const dataGridBackdropFilter = isV2Ui || isMacLike ? 'none' : (opacity < 0.999 ? 'blur(14px)' : 'none');
+  const dataGridBackdropFilter = 'none';
   const showDataTableVerticalBorders = appearance.showDataTableVerticalBorders === true;
   // 未显式传入时跟随外观设置（默认显示行号）；DataViewer / SQL 结果共用
   const resolvedShowRowNumberColumn = typeof showRowNumberColumn === 'boolean'
@@ -447,17 +445,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       : appearance.showDataTableRowNumber !== false;
   const dataTableDensity = appearance.dataTableDensity;
   const densityParams = useMemo(() => getDensityParams(dataTableDensity), [dataTableDensity]);
-  const virtualCellWrapperStyle = useMemo<React.CSSProperties>(() => ({
-      margin: -8,
-      padding: densityParams.cellPadding,
-      display: 'block',
-      minWidth: 0,
-      width: '100%',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-      contain: useVirtualCellContentContain ? 'layout style' : undefined,
-  }), [densityParams, useVirtualCellContentContain]);
   const headerCellMinHeight = densityParams.headerMinHeight;
   const inputCellPadding: React.CSSProperties = { padding: densityParams.inputCellPadding };
   const dataTableVerticalBorderColor = resolveDataTableVerticalBorderColor({
@@ -728,7 +715,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           floatingScrollbarThumbBg: darkMode ? 'rgba(255,255,255,0.68)' : 'rgba(0,0,0,0.44)',
           floatingScrollbarThumbHoverBg: darkMode ? 'rgba(255,255,255,0.78)' : 'rgba(0,0,0,0.54)',
           floatingScrollbarThumbBorderColor: darkMode ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.52)',
-          floatingScrollbarThumbShadow: (isMacLike || isV2Ui) ? 'none' : (darkMode ? '0 4px 14px rgba(0,0,0,0.42)' : '0 4px 10px rgba(0,0,0,0.20)'),
+          floatingScrollbarThumbShadow: 'none',
           verticalScrollbarTrackBg: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
           horizontalScrollbarThumbBg: darkMode ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.14)',
           horizontalScrollbarThumbHoverBg: darkMode ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.24)',
@@ -761,7 +748,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           paginationActiveItemBorderColor: darkMode ? 'rgba(255,214,102,0.46)' : 'rgba(24,144,255,0.28)',
           paginationActiveItemTextColor: darkMode ? '#fff7d6' : '#0958d9',
       };
-  }, [darkMode, opacity, resolvedAppearance.blur, isMacLike, isV2Ui]);
+  }, [darkMode, opacity, resolvedAppearance.blur, isMacLike]);
 
   // 解构常用变量以保持后续代码引用不变
   const {
@@ -801,7 +788,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       () => buildDataGridPaginationPageSizeOptions(queryMaxRows),
       [queryMaxRows],
   );
-  
+
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
   const { exportProgressModal, runExportWithProgress } = useExportProgressDialog();
@@ -835,6 +822,8 @@ const DataGrid: React.FC<DataGridProps> = ({
       cellEditorOpen,
       cellEditorValue,
       setCellEditorValue,
+      cellEditorEscapeApplied,
+      setCellEditorEscapeApplied,
       cellEditorIsJson,
       cellEditorMeta,
       cellEditorApplyRef,
@@ -1535,10 +1524,6 @@ const DataGrid: React.FC<DataGridProps> = ({
           selectionAccentHex,
           selectionAccentRgb,
           tableBodyBottomPadding,
-          useVirtualEditablePaintContain,
-          useVirtualEditableVisibilityHints,
-          useVirtualHolderPaintHints,
-          useVirtualRowCellContain,
           verticalScrollbarTrackBg,
       }),
       [themeStyles, gridId, tableBodyBottomPadding, darkMode, opacity, dataTableVerticalBorderColor, densityParams],
@@ -1858,7 +1843,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       dbName: resolvedDdlDbName,
       dbType,
       tableName: resolvedDdlTableName,
-      isV2Ui,
       isActive,
       cellEditMode,
       selectedRowKeys,
@@ -1908,14 +1892,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, []);
 
   useEffect(() => {
-      if (!isV2Ui || (isActive && viewMode === 'table')) return;
+      if (isActive && viewMode === 'table') return;
       setPageFindOpen(false);
       setPageFindText('');
       setActivePageFindMatchIndex(-1);
-  }, [isActive, isV2Ui, viewMode]);
+  }, [isActive, viewMode]);
 
   useEffect(() => {
-      if (!isV2Ui || !isActive || viewMode !== 'table') return;
+      if (!isActive || viewMode !== 'table') return;
 
       const handlePageFindShortcut = (event: KeyboardEvent) => {
           if (!isShortcutMatch(event, pageFindShortcutCombo)) return;
@@ -1963,7 +1947,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       exportScope,
       handleOpenPageFind,
       isActive,
-      isV2Ui,
       pageFindShortcutCombo,
       viewMode,
   ]);
@@ -1986,14 +1969,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [connectionId, dbName, handleViewModeChange, schemaName, tableName]);
 
   useEffect(() => {
-      if (!enableSqlLogEvent || !isV2Ui || !isActive) return;
+      if (!enableSqlLogEvent || !isActive) return;
       const handleOpenSqlExecutionLog = () => {
           handleViewModeChange('sqlLog');
       };
 
       window.addEventListener('gonavi:show-sql-execution-log', handleOpenSqlExecutionLog as EventListener);
       return () => window.removeEventListener('gonavi:show-sql-execution-log', handleOpenSqlExecutionLog as EventListener);
-  }, [enableSqlLogEvent, handleViewModeChange, isActive, isV2Ui]);
+  }, [enableSqlLogEvent, handleViewModeChange, isActive]);
 
   const dataViewActiveRef = useRef(false);
   useEffect(() => {
@@ -2013,7 +1996,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [isActive, isTableSurfaceActive, onDataViewActivate, viewMode]);
 
   useEffect(() => {
-      if (!isTableSurfaceActive || !isV2Ui || !cellContextMenu.visible) return;
+      if (!isTableSurfaceActive || !cellContextMenu.visible) return;
       const portal = cellContextMenuPortalRef.current;
       if (!portal) return;
       const frame = requestAnimationFrame(() => {
@@ -2030,7 +2013,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
       });
       return () => cancelAnimationFrame(frame);
-  }, [cellContextMenu.visible, cellContextMenu.x, cellContextMenu.y, isTableSurfaceActive, isV2Ui, resolveContextMenuPosition]);
+  }, [cellContextMenu.visible, cellContextMenu.x, cellContextMenu.y, isTableSurfaceActive, resolveContextMenuPosition]);
 
   useEffect(() => {
       cellEditModeRef.current = cellEditMode;
@@ -2473,6 +2456,27 @@ const DataGrid: React.FC<DataGridProps> = ({
     return !!modifiedColumns[keyStr]?.has(dataIndex);
   }, [addedRowKeySet, cellContextMenu.dataIndex, cellContextMenu.record, modifiedColumns, rowKeyStr]);
 
+  const canEditContextMenuCell = useMemo(() => {
+    const record = cellContextMenu.record;
+    const dataIndex = String(cellContextMenu.dataIndex ?? '');
+    const rowKey = record?.[GONAVI_ROW_KEY];
+    if (!canModifyData || !record || !dataIndex || rowKey === undefined || rowKey === null) return false;
+    if (deletedRowKeys.has(rowKeyStr(rowKey))) return false;
+    return isWritableResultColumn(dataIndex, effectiveEditLocator);
+  }, [GONAVI_ROW_KEY, canModifyData, cellContextMenu.dataIndex, cellContextMenu.record, deletedRowKeys, effectiveEditLocator, rowKeyStr]);
+
+  const handleOpenContextMenuCellEditor = useCallback(() => {
+    const record = cellContextMenu.record;
+    const dataIndex = String(cellContextMenu.dataIndex ?? '');
+    if (!canEditContextMenuCell || !record || !dataIndex) return;
+    closeVirtualInlineEditor();
+    openCellEditor(
+      record,
+      dataIndex,
+      resolveContextMenuFieldName(dataIndex, cellContextMenu.title),
+    );
+  }, [canEditContextMenuCell, cellContextMenu.dataIndex, cellContextMenu.record, cellContextMenu.title, closeVirtualInlineEditor, openCellEditor, resolveContextMenuFieldName]);
+
   const handleUndoContextMenuCellChange = useCallback(() => {
     const record = cellContextMenu.record;
     const dataIndex = String(cellContextMenu.dataIndex || '').trim();
@@ -2529,15 +2533,45 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [cellEditorMeta, cellEditorValue, closeCellEditor, isCellEditorSourceCurrent]);
 
   const handleFormatJsonInEditor = useCallback(() => {
-      if (!cellEditorIsJson) return;
+      if (!cellEditorIsJson || cellEditorEscapeApplied) return;
       try {
-          const obj = JSON.parse(cellEditorValue);
-          setCellEditorValue(JSON.stringify(obj, null, 2));
+          setCellEditorValue(formatJsonCellText(cellEditorValue));
       } catch (e: any) {
           const rawErrorMessage = e?.message || String(e);
           void message.error(translateDataGrid('data_grid.json_editor.invalid_format', { error: rawErrorMessage }));
       }
-  }, [cellEditorIsJson, cellEditorValue, translateDataGrid]);
+  }, [cellEditorEscapeApplied, cellEditorIsJson, cellEditorValue, translateDataGrid]);
+
+  const handleCompactJsonInEditor = useCallback(() => {
+      if (!cellEditorIsJson || cellEditorEscapeApplied) return;
+      try {
+          setCellEditorValue(compactJsonCellText(cellEditorValue));
+      } catch (e: any) {
+          const rawErrorMessage = e?.message || String(e);
+          void message.error(translateDataGrid('data_grid.json_editor.invalid_format', { error: rawErrorMessage }));
+      }
+  }, [cellEditorEscapeApplied, cellEditorIsJson, cellEditorValue, translateDataGrid]);
+
+  const handleEscapeCellEditorValue = useCallback(() => {
+      if (cellEditorEscapeApplied) return;
+      setCellEditorValue(escapeCellText(cellEditorValue));
+      setCellEditorEscapeApplied(true);
+  }, [cellEditorEscapeApplied, cellEditorValue, setCellEditorEscapeApplied, setCellEditorValue]);
+
+  const handleUnescapeCellEditorValue = useCallback(() => {
+      try {
+          setCellEditorValue(unescapeCellText(cellEditorValue));
+          setCellEditorEscapeApplied(false);
+      } catch (e: any) {
+          const rawErrorMessage = e?.message || String(e);
+          void message.error(translateDataGrid('data_grid.cell_editor.invalid_unescape', { error: rawErrorMessage }));
+      }
+  }, [cellEditorValue, setCellEditorEscapeApplied, setCellEditorValue, translateDataGrid]);
+
+  const handleCellEditorValueChange = useCallback((value: string) => {
+      setCellEditorValue(value);
+      setCellEditorEscapeApplied(false);
+  }, [setCellEditorEscapeApplied, setCellEditorValue]);
 
   const openVirtualInlineEditor = useCallback((record: Item, dataIndex: string, title: React.ReactNode) => {
       if (
@@ -2605,7 +2639,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [showCellContextMenu]);
 
   // Merge Data for Display
-  // 'displayData' already merges addedRows. 
+  // 'displayData' already merges addedRows.
   // We need to merge modifiedRows into it for rendering.
   const mergedDisplayData = useMemo(() => {
       return displayData.map(row => {
@@ -2705,7 +2739,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       setCopiedRowsForPaste([]);
       closeRowEditor();
       const shouldKeepOpenV2DdlView = previousContextKey !== null
-          && isV2Ui
           && viewMode === 'ddl'
           && canViewDdl
           && !!currentConnConfig
@@ -2723,7 +2756,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       closeVirtualInlineEditor,
       currentConnConfig,
       dataSourceContextKey,
-      isV2Ui,
       resetCellSelection,
       resetDdlViewState,
       resolvedDdlTableName,
@@ -2954,8 +2986,8 @@ const DataGrid: React.FC<DataGridProps> = ({
       : 0;
 
   const displayRenderVersion = useMemo(() => (
-      `${isV2Ui ? 'v2' : 'legacy'}|${theme}|${dataTableDensity}|${effectiveUiScale}`
-  ), [dataTableDensity, effectiveUiScale, isV2Ui, theme]);
+      `v2|${theme}|${dataTableDensity}|${effectiveUiScale}`
+  ), [dataTableDensity, effectiveUiScale, theme]);
 
   const tableRenderData = useMemo(
       () => attachDataGridVirtualEditRenderVersion(
@@ -3352,7 +3384,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                   reorderVisibleColumns(payload.columnName, key);
               },
               onContextMenu: (event: React.MouseEvent<HTMLElement>) => {
-                  if (!isV2Ui) return;
+
                   showColumnHeaderContextMenu(event, key);
               },
               onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
@@ -3391,7 +3423,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               },
           }),
       }));
-  }, [canModifyData, cellEditMode, columnWidths, currentConnConfig, dataTableDensity, displayColumnNames, displayColumnTypeMap, effectiveEditLocator, enableVirtual, handleResizeAutoFit, handleResizeStart, isV2Ui, language, normalizedPageFindText, onSort, pinnedLeftColumnSet, renderColumnTitle, reorderVisibleColumns, selectEditableColumnCells, showColumnComment, showColumnHeaderContextMenu, showColumnType, sortInfo]);
+  }, [canModifyData, cellEditMode, columnWidths, currentConnConfig, dataTableDensity, displayColumnNames, displayColumnTypeMap, effectiveEditLocator, enableVirtual, handleResizeAutoFit, handleResizeStart, language, normalizedPageFindText, onSort, pinnedLeftColumnSet, renderColumnTitle, reorderVisibleColumns, selectEditableColumnCells, showColumnComment, showColumnHeaderContextMenu, showColumnType, sortInfo]);
 
   const mergedColumns = useMemo(() => columns.map((col): ColumnType<any> => {
       const dataIndex = String(col.dataIndex);
@@ -3458,7 +3490,6 @@ const DataGrid: React.FC<DataGridProps> = ({
               const isVirtualInlineEditingCell = !!virtualEditingCellForRender
                   && virtualEditingCellForRender.rowKey === rowKeyText
                   && virtualEditingCellForRender.dataIndex === dataIndex;
-              const shouldUsePlainVirtualContent = isV2Ui;
               if (enableVirtual && enableInlineEditableCell) {
                   const pickerType = getTemporalPickerType(columnType, dbType, currentConnConfig);
                   const isDateTimeField = !!pickerType && !(/^0{4}-0{2}-0{2}/.test(String(record?.[dataIndex] || '')));
@@ -3600,21 +3631,11 @@ const DataGrid: React.FC<DataGridProps> = ({
                           </div>
                       );
                   }
-                  if (shouldUsePlainVirtualContent) {
-                      return originalRenderContent;
-                  }
-                  return <div style={virtualCellWrapperStyle}>{originalRenderContent}</div>;
-              }
-              if (enableVirtual) {
-                  if (shouldUsePlainVirtualContent) {
-                      return originalRenderContent;
-                  }
-                  return <div style={virtualCellWrapperStyle}>{originalRenderContent}</div>;
               }
               return originalRenderContent;
           }
       };
-  }), [cancelVirtualInlinePickerInteraction, closeVirtualInlineEditor, columns, commitVirtualInlinePickerValue, currentConnConfig, dbType, deletedRowKeys, displayColumnTypeMap, enableInlineEditableCell, enableVirtual, form, handleCellSave, handleSharedCellContextMenu, handleSharedCellDoubleClick, handleVirtualCellActivate, inputCellPadding, isVirtualEditingSessionCurrent, lockVirtualInlineTableScroll, modifiedColumns, openCellEditor, rowKeyStr, saveVirtualInlineEditor, scheduleVirtualInlinePickerInteraction, updateFocusedCell, useInlineEditableBodyCell, virtualCellWrapperStyle, virtualEditingCellForRender]);
+  }), [cancelVirtualInlinePickerInteraction, closeVirtualInlineEditor, columns, commitVirtualInlinePickerValue, currentConnConfig, dbType, deletedRowKeys, displayColumnTypeMap, enableInlineEditableCell, enableVirtual, form, handleCellSave, handleSharedCellContextMenu, handleSharedCellDoubleClick, handleVirtualCellActivate, inputCellPadding, isVirtualEditingSessionCurrent, lockVirtualInlineTableScroll, modifiedColumns, openCellEditor, rowKeyStr, saveVirtualInlineEditor, scheduleVirtualInlinePickerInteraction, updateFocusedCell, useInlineEditableBodyCell, virtualEditingCellForRender]);
 
   const rowNumberColumnWidth = useMemo(() => {
       const manual = columnWidths[GONAVI_ROW_NUMBER_COLUMN_KEY];
@@ -3945,13 +3966,13 @@ const DataGrid: React.FC<DataGridProps> = ({
           return true;
       }
 
-      const config = { 
-          ...conn.config, 
-          port: Number(conn.config.port), 
-          password: conn.config.password || "", 
-          database: conn.config.database || "", 
-          useSSH: conn.config.useSSH || false, 
-          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" } 
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
       };
 
       const approved = await confirmProductionRisk({
@@ -3961,18 +3982,18 @@ const DataGrid: React.FC<DataGridProps> = ({
           translate: translateDataGrid,
       });
       if (!approved) return false;
-      
+
       const startTime = Date.now();
       const res = await ApplyChanges(buildRpcConnectionConfig(config) as any, dbName || '', tableName, { inserts, updates, deletes, locatorStrategy: effectiveEditLocator?.strategy } as any);
       const duration = Date.now() - startTime;
-      
+
       const logSql = buildDataGridTransactionLog({
           dbType,
           tableName,
           preview: res.data,
           committed: res.success,
       });
-      
+
       if (res.success) {
           autoCommitFailedTokenRef.current = -1;
           addSqlLog({
@@ -4244,6 +4265,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     handleSetNullForSelectedCells,
     handleCopyColumnData,
     handleCopyContextMenuFieldName,
+    handleOpenContextMenuCellEditor,
     handleOpenContextMenuRowEditor,
     handlePasteCopiedColumnsToSelectedRows,
     handlePasteCopiedRowsAsNew,
@@ -4358,21 +4380,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       />
   );
 
-  const dataContextValue = useMemo(() => ({
-      selectedRowKeysRef,
-      displayDataRef,
-      handleCopyInsert,
-      handleCopyUpdate,
-      handleCopyDelete,
-      handleCopyJson,
-      handleCopyCsv,
-      handleExportSelected,
-      copyToClipboard,
-      tableName,
-      enableRowContextMenu: false,
-      supportsCopyInsert,
-  }), [handleCopyCsv, handleCopyDelete, handleCopyInsert, handleCopyJson, handleCopyUpdate, handleExportSelected, copyToClipboard, tableName, supportsCopyInsert]);
-
   const cellContextMenuValue = useMemo(() => ({
       showMenu: showCellContextMenu,
       handleBatchFillToSelected,
@@ -4384,19 +4391,9 @@ const DataGrid: React.FC<DataGridProps> = ({
       columnWidth: selectionColumnWidth,
       // 与行号列一起左侧固定，横向滚动时仍可勾选/识别行
       fixed: true as const,
-      ...(isV2Ui ? {} : {
-          renderCell: (_checked: boolean, _record: any, _index: number, originNode: React.ReactNode) => (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-                  {originNode}
-              </div>
-          ),
-      }),
-  }), [isV2Ui, selectedRowKeys, selectionColumnWidth]);
-
-  const rowPropsFactory = useCallback((record: any) => ({ record } as any), []);
+  }), [selectedRowKeys, selectionColumnWidth]);
 
   const totalWidth = tableColumns.reduce((sum: number, col: any) => sum + (Number(col.width) || densityParams.defaultColumnWidth), 0) + selectionColumnWidth;
-  const useContextMenuRow = false;
   const tableScrollX = useMemo(() => {
       // rc-table 在 scroll.x 小于容器宽度时会把实际列宽按视口补齐。
       // 这里必须与其使用同一套 scroll.x 口径，否则少字段场景下 header/body 会错位。
@@ -4429,20 +4426,17 @@ const DataGrid: React.FC<DataGridProps> = ({
       ? virtualRowHeightMeasurement.height
       : undefined;
   const virtualListItemHeight = useMemo(() => (
-      isV2Ui
-          ? measuredVirtualRowHeight ?? Math.max(1, 28 * effectiveUiScale)
-          : undefined
-  ), [effectiveUiScale, isV2Ui, measuredVirtualRowHeight]);
+      measuredVirtualRowHeight ?? Math.max(1, 28 * effectiveUiScale)
+  ), [effectiveUiScale, measuredVirtualRowHeight]);
   const virtualListItemHeightFixed = !!(
-      isV2Ui
-      && measuredVirtualRowHeight
+      measuredVirtualRowHeight
       && measuredVirtualRowHeight > 0
       && !virtualEditingCellForRender
   );
-  const virtualListItemColumnVirtual = isV2Ui && enableVirtual && !virtualEditingCellForRender;
+  const virtualListItemColumnVirtual = enableVirtual && !virtualEditingCellForRender;
 
   useEffect(() => {
-      if (!isV2Ui || !enableVirtual || !isTableSurfaceActive || virtualEditingCellForRender) return;
+      if (!enableVirtual || !isTableSurfaceActive || virtualEditingCellForRender) return;
       if (tableRenderData.length === 0) {
           setVirtualRowHeightMeasurement((current) => (
               current?.signature === virtualRowHeightSignature ? null : current
@@ -4490,7 +4484,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           if (firstRaf) cancelAnimationFrame(firstRaf);
           if (secondRaf) cancelAnimationFrame(secondRaf);
       };
-  }, [enableVirtual, isTableSurfaceActive, isV2Ui, tableRenderData.length, virtualEditingCellForRender, virtualRowHeightSignature]);
+  }, [enableVirtual, isTableSurfaceActive, tableRenderData.length, virtualEditingCellForRender, virtualRowHeightSignature]);
   const tableComponents = useMemo(() => {
       const body: Record<string, any> = {};
       // 虚拟表模式下 render() 已返回 EditableCell；这里再挂 body.cell 会形成双层包装，
@@ -4498,14 +4492,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (useInlineEditableBodyCell) {
           body.cell = EditableCell;
       }
-      if (useContextMenuRow) {
-          body.row = ContextMenuRow;
-      }
       return Object.keys(body).length > 0
           ? { body, header: { cell: SortableHeaderCell } }
           : { header: { cell: SortableHeaderCell } };
-  }, [useInlineEditableBodyCell, useContextMenuRow]);
-  const tableOnRow = useMemo(() => (useContextMenuRow ? rowPropsFactory : undefined), [useContextMenuRow, rowPropsFactory]);
+  }, [useInlineEditableBodyCell]);
 
   const resolveVirtualHorizontalElements = useCallback((tableContainer: HTMLElement) => {
       const cached = virtualHorizontalElementsRef.current;
@@ -5731,16 +5721,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       };
   }, [isTableSurfaceActive, tableScrollX, mergedDisplayData.length, pickTableToExternalSyncTargets, scheduleSyncExternalScrollFromTargets, syncExternalScrollFromTargets]);
 
-  const paginationSummaryText = useMemo(() => {
-      if (!pagination) return '';
-      return resolvePaginationSummaryText({
-          pagination,
-          prefersManualTotalCount,
-          supportsApproximateTableCount,
-          translate: translateDataGrid,
-      });
-  }, [pagination, prefersManualTotalCount, supportsApproximateTableCount, translateDataGrid]);
-
   const paginationControlTotal = useMemo(() => {
       if (!pagination) return 0;
       return resolvePaginationTotalForControl({
@@ -5813,19 +5793,11 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [onPageChange, pagination, paginationTotalPages]);
 
   const aiShortcutLabel = resolveShortcutDisplay(shortcutOptions ?? DEFAULT_SHORTCUT_OPTIONS, 'toggleAIPanel', activeShortcutPlatform);
-  const legacyAiButtonStyle: React.CSSProperties | undefined = isV2Ui ? undefined : {
-      background: darkMode ? 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))' : 'linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.02))',
-      borderColor: darkMode ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.4)',
-      color: '#10b981',
-      fontWeight: 500,
-      boxShadow: darkMode ? '0 2px 8px rgba(16,185,129,0.1)' : '0 2px 6px rgba(16,185,129,0.05)',
-  };
     return (
     <DataGridShell
       {...{
         CellContextMenuContext,
         CustomEvent,
-        DataContext,
         DataGridColumnQuickFind,
         DataGridPageFind,
         DataGridPaginationBar,
@@ -5865,6 +5837,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         canExport,
         canImport,
         canModifyData,
+        canEditContextMenuCell,
         canOpenObjectDesigner,
         canUndoContextMenuCellChange,
         canViewDdl,
@@ -5874,6 +5847,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         cellEditMode,
         cellEditModeRef,
         cellEditorIsJson,
+        cellEditorEscapeApplied,
         cellEditorMeta,
         cellEditorOpen: cellEditorOpenForRender,
         cellEditorReadOnly,
@@ -5906,7 +5880,6 @@ const DataGrid: React.FC<DataGridProps> = ({
         designerReadOnly,
         currentTextRow,
         darkMode,
-        dataContextValue,
         dataEditAutoCommitDelayMs,
         dataEditCommitMode,
         deleteTargetRowCount,
@@ -5950,6 +5923,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         handleBatchFillCells,
         handleBatchFillToSelected,
         handleCellEditorSave,
+        handleCellEditorValueChange,
         handleCellSetNull,
         handleSetNullForSelectedCells,
         handleClosePageFind,
@@ -5960,11 +5934,11 @@ const DataGrid: React.FC<DataGridProps> = ({
         handleCopyDelete,
         handleCopyInsert,
         handleCopyJson,
-        handleCopyQueryResultCsv,
         handleCopyRowData,
         handleCopySelectedCellsToClipboard,
         handleCopySelectedColumnsFromRow,
         handleCopyUpdate,
+        handleOpenContextMenuCellEditor,
         handleDataPanelFormatJson,
         handleDataPanelSave,
         handleDataGridRootPointerDownCapture,
@@ -5975,6 +5949,9 @@ const DataGrid: React.FC<DataGridProps> = ({
         handleExportSelected,
         handleFormatJsonEditor,
         handleFormatJsonInEditor,
+        handleCompactJsonInEditor,
+        handleEscapeCellEditorValue,
+        handleUnescapeCellEditorValue,
         handleImport,
         handleImportSuccess,
         handleNavigatePageFind,
@@ -6010,12 +5987,10 @@ const DataGrid: React.FC<DataGridProps> = ({
         isNoValueOp,
         isQueryResultExport,
         isTableSurfaceActive,
-        isV2Ui,
         isWritableResultColumn,
         jsonEditorOpen,
         jsonEditorValue,
         jsonViewText,
-        legacyAiButtonStyle,
         loading,
         localizedDataEditAutoCommitDelayOptions,
         looksLikeJsonText,
@@ -6047,11 +6022,9 @@ const DataGrid: React.FC<DataGridProps> = ({
         pageFindText,
         pagination,
         allowCustomPageSize: Boolean(pagination && queryMaxRows !== undefined),
-        paginationControlTotal,
         paginationHasKnownTotalPages,
         paginationPageSizeOptions,
         paginationPageText,
-        paginationSummaryText,
         paginationTotalPages,
         paginationV2SummaryText,
         panelFrameColor,
@@ -6092,14 +6065,12 @@ const DataGrid: React.FC<DataGridProps> = ({
         selectedRowCount,
         fillTemplateTargetRowCount,
         selectedRowKeys,
-        selectionAccentHex,
         sensors,
         setAddedRows,
         setBatchEditSetNull,
         setBatchEditValue,
         setCellContextMenu,
         setCellEditMode,
-        setCellEditorValue,
         setColumnQuickFindText,
         setDataEditTransactionOptions,
         setDataPanelValue,
@@ -6131,7 +6102,6 @@ const DataGrid: React.FC<DataGridProps> = ({
         tableComponents,
         tableContainerRef,
         tableName,
-        tableOnRow,
         tableRef,
         tableRenderData,
         tableScrollConfig,
@@ -6139,7 +6109,6 @@ const DataGrid: React.FC<DataGridProps> = ({
         textViewRows,
         toggleDataPanel,
         toolbarBottomPadding,
-        toolbarDividerColor,
         toolbarExtraActions,
         translateDataGrid,
         uniqueKeyGroupsCacheRef,

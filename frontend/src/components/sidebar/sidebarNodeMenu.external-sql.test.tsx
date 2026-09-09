@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildSidebarLegacyNodeMenuItems } from './sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 describe('external SQL file context menu', () => {
-  it('opens the persisted database binding workflow from the shared legacy/v2 menu', () => {
+  it('opens the persisted database binding workflow from the shared node menu', () => {
     const openExternalSQLFile = vi.fn();
     const openExternalSQLBindingModal = vi.fn();
-    const items = buildSidebarLegacyNodeMenuItems({
+    const items = buildSidebarNodeMenuItems({
       type: 'external-sql-file',
       title: 'report.sql',
       dataRef: {

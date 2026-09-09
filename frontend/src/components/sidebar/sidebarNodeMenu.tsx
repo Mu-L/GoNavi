@@ -237,7 +237,7 @@ const updateRedisDbNodeAlias = (
 
 const openRedisDbAliasModal = (
   node: any,
-  context: SidebarLegacyNodeMenuContext,
+  context: SidebarNodeMenuContext,
 ): void => {
   const { id, redisDB } = node.dataRef;
   const { treeDataRef, setTreeData } = context;
@@ -291,11 +291,11 @@ type TreeNode = {
   [key: string]: any;
 };
 
-export type SidebarLegacyNodeMenuContext = Record<string, any>;
+export type SidebarNodeMenuContext = Record<string, any>;
 
-export const buildSidebarLegacyNodeMenuItems = (
+export const buildSidebarNodeMenuItems = (
   node: any,
-  context: SidebarLegacyNodeMenuContext,
+  context: SidebarNodeMenuContext,
 ): MenuProps['items'] => {
   const {
     addTab,
