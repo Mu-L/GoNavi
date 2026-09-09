@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -51,10 +52,12 @@ func (a *App) SetApplicationBrandIcon(imageBase64 string) (result connection.Que
 		})}
 	}
 	configDir := ""
+	var runtimeContext context.Context
 	if a != nil {
 		configDir = a.configDir
+		runtimeContext = a.ctx
 	}
-	if err := setApplicationIconPNG(png, configDir); err != nil {
+	if err := setApplicationIconPNG(png, configDir, runtimeContext); err != nil {
 		return connection.QueryResult{Success: false, Message: a.appText("app.backend.error.set_brand_icon_failed", map[string]any{
 			"detail": err.Error(),
 		})}

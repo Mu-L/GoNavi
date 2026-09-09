@@ -12,12 +12,12 @@ import {
 } from './brandIcons';
 
 describe('brand icon asset resolution', () => {
-  it('uses a compact fallback before the remote asset cache is ready', () => {
+  it('uses a compact UI fallback without exposing it to native OS icon surfaces', () => {
     for (const icon of BRAND_ICONS) {
       const selectedAsset = resolveBrandIconSrc(icon.id);
       expect(selectedAsset).toBe(BRAND_ICON_FALLBACK_SRC);
       expect(resolveBrandFullSrc(icon.id)).toBe(selectedAsset);
-      expect(resolveBrandDockSrc(icon.id)).toBe(selectedAsset);
+      expect(resolveBrandDockSrc(icon.id)).toBe('');
 
       const aboutAsset = resolveBrandAboutSrc(icon.id);
       expect(aboutAsset).toBe(BRAND_ICON_FALLBACK_SRC);
@@ -35,6 +35,7 @@ describe('brand icon asset resolution', () => {
   it('can resolve a verified remote data URL after cache warmup', () => {
     setLoadedBrandIconSources({ '03': 'data:image/svg+xml;base64,remote' });
     expect(resolveBrandIconSrc('03')).toBe('data:image/svg+xml;base64,remote');
+    expect(resolveBrandDockSrc('03')).toBe('data:image/svg+xml;base64,remote');
     expect(resolveBrandTitlebarSrc('03')).toBe('data:image/svg+xml;base64,remote');
   });
 

@@ -1034,6 +1034,9 @@ function App() {
                   return;
               }
               const dockHref = resolveBrandDockSrc(brandIconId);
+              // The compact fallback is suitable for UI placeholders, but it
+              // must never become the cached Windows taskbar or macOS Dock icon.
+              if (!dockHref) return;
               const b64 = await composeMacOSDockIconBase64(dockHref);
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);

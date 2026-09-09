@@ -3,14 +3,18 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"unsafe"
+
+	"GoNavi-Wails/internal/logger"
 
 	"golang.org/x/sys/windows"
 )
@@ -18,24 +22,52 @@ import (
 const (
 	windowsImageIcon       = 1
 	windowsLoadFromFile    = 0x0010
+	windowsGetIconMessage  = 0x007f
 	windowsSetIconMessage  = 0x0080
 	windowsIconSmall       = 0
 	windowsIconBig         = 1
+	windowsClassIconLarge  = -14
+	windowsClassIconSmall  = -34
 	windowsSmallIconPixels = 16
 	windowsLargeIconPixels = 32
 )
 
 var (
-	windowsApplicationIconUser32      = windows.NewLazySystemDLL("user32.dll")
-	windowsApplicationIconLoadImage   = windowsApplicationIconUser32.NewProc("LoadImageW")
-	windowsApplicationIconSendMessage = windowsApplicationIconUser32.NewProc("SendMessageW")
-	windowsApplicationIconDestroy     = windowsApplicationIconUser32.NewProc("DestroyIcon")
-	windowsApplicationIconHandleMu    sync.Mutex
-	windowsApplicationIconSmallHandle uintptr
-	windowsApplicationIconLargeHandle uintptr
+	windowsApplicationIconUser32          = windows.NewLazySystemDLL("user32.dll")
+	windowsApplicationIconLoadImage       = windowsApplicationIconUser32.NewProc("LoadImageW")
+	windowsApplicationIconSendMessage     = windowsApplicationIconUser32.NewProc("SendMessageW")
+	windowsApplicationIconSetClassLong    = windowsApplicationIconUser32.NewProc("SetClassLongW")
+	windowsApplicationIconSetClassLongPtr = windowsApplicationIconUser32.NewProc("SetClassLongPtrW")
+	windowsApplicationIconDestroy         = windowsApplicationIconUser32.NewProc("DestroyIcon")
+	windowsApplicationIconHandleMu        sync.Mutex
+	windowsApplicationIconSmallHandle     uintptr
+	windowsApplicationIconLargeHandle     uintptr
+
+	windowsApplicationIconSendMessageCall = func(hwnd, message, wParam, lParam uintptr) uintptr {
+		result, _, _ := windowsApplicationIconSendMessage.Call(hwnd, message, wParam, lParam)
+		return result
+	}
+	windowsApplicationIconSetClassIcon = func(hwnd uintptr, index int32, icon uintptr) {
+		proc := windowsApplicationIconSetClassLongPtr
+		if unsafe.Sizeof(uintptr(0)) == 4 {
+			proc = windowsApplicationIconSetClassLong
+		}
+		proc.Call(hwnd, uintptr(int64(index)), icon)
+	}
+	windowsApplicationIconRefreshTaskbar = refreshWindowsTaskbarButton
+
+	windowsApplicationShortcutMu      sync.Mutex
+	windowsApplicationShortcutRunning bool
+	windowsApplicationShortcutPending windowsApplicationShortcutRequest
+	windowsApplicationShortcutUpdate  = updateCurrentWindowsApplicationShortcuts
 )
 
-func setApplicationIconPNG(pngBytes []byte, configDir string) error {
+type windowsApplicationShortcutRequest struct {
+	iconPath string
+	hwnd     uintptr
+}
+
+func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext context.Context) error {
 	if len(pngBytes) == 0 {
 		return errors.New("application icon PNG is empty")
 	}
@@ -46,45 +78,39 @@ func setApplicationIconPNG(pngBytes []byte, configDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := setCurrentWindowsApplicationIcon(iconPath); err != nil {
-		return err
+	mainWindow, err := setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
+	if mainWindow != 0 {
+		// Even if Explorer rejected the immediate taskbar re-registration, the
+		// shortcut worker gets a second chance after updating the pinned icon.
+		queueCurrentWindowsApplicationShortcutUpdate(iconPath, mainWindow)
 	}
-	return updateCurrentWindowsApplicationShortcuts(iconPath)
-}
-
-func setCurrentWindowsApplicationIcon(iconPath string) error {
-	small, err := loadWindowsApplicationIcon(iconPath, windowsSmallIconPixels)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath string) (uintptr, error) {
+	small, err := loadWindowsApplicationIcon(iconPath, windowsSmallIconPixels)
+	if err != nil {
+		return 0, err
 	}
 	large, err := loadWindowsApplicationIcon(iconPath, windowsLargeIconPixels)
 	if err != nil {
 		destroyWindowsApplicationIcon(small)
-		return err
+		return 0, err
 	}
 
-	currentPID := windows.GetCurrentProcessId()
-	updatedWindows := 0
-	callback := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
-		var ownerPID uint32
-		if _, ownerErr := windows.GetWindowThreadProcessId(windows.HWND(hwnd), &ownerPID); ownerErr == nil && ownerPID == currentPID {
-			windowsApplicationIconSendMessage.Call(hwnd, windowsSetIconMessage, windowsIconSmall, small)
-			windowsApplicationIconSendMessage.Call(hwnd, windowsSetIconMessage, windowsIconBig, large)
-			updatedWindows++
-		}
-		return 1
-	})
-	if err := windows.EnumWindows(callback, nil); err != nil {
+	mainWindow, err := resolveWailsMainWindowHandle(runtimeContext)
+	if err != nil {
 		destroyWindowsApplicationIcon(small)
 		destroyWindowsApplicationIcon(large)
-		return fmt.Errorf("enumerate Windows application windows: %w", err)
+		return 0, fmt.Errorf("resolve Windows application window: %w", err)
 	}
-	if updatedWindows == 0 {
-		destroyWindowsApplicationIcon(small)
-		destroyWindowsApplicationIcon(large)
-		return errors.New("no Windows application window was found")
-	}
+	applyErr := applyWindowsApplicationIcon(mainWindow, small, large)
 
+	// WM_SETICON / class icon calls transfer live references to these handles.
+	// Keep them alive even when Explorer's taskbar refresh reports an error.
 	windowsApplicationIconHandleMu.Lock()
 	previousSmall := windowsApplicationIconSmallHandle
 	previousLarge := windowsApplicationIconLargeHandle
@@ -93,7 +119,115 @@ func setCurrentWindowsApplicationIcon(iconPath string) error {
 	windowsApplicationIconHandleMu.Unlock()
 	destroyWindowsApplicationIcon(previousSmall)
 	destroyWindowsApplicationIcon(previousLarge)
+	if applyErr != nil {
+		return mainWindow, applyErr
+	}
+	return mainWindow, nil
+}
+
+func resolveWailsMainWindowHandle(runtimeContext context.Context) (handle uintptr, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			handle = 0
+			err = fmt.Errorf("resolve Wails main window handle panic: %v", recovered)
+		}
+	}()
+	if runtimeContext == nil {
+		return 0, errors.New("runtime context is nil")
+	}
+	frontendValue, err := resolveWailsFrontendValue(runtimeContext)
+	if err != nil {
+		return 0, err
+	}
+	mainWindowValue, err := accessibleWailsFrontendField(frontendValue, "mainWindow")
+	if err != nil {
+		return 0, err
+	}
+	handleMethod := mainWindowValue.MethodByName("Handle")
+	if !handleMethod.IsValid() {
+		return 0, errors.New("mainWindow.Handle method not found (wails version may have changed)")
+	}
+	if handleMethod.Type().NumIn() != 0 || handleMethod.Type().NumOut() != 1 {
+		return 0, fmt.Errorf("mainWindow.Handle signature changed: expected func() uintptr, got %v", handleMethod.Type())
+	}
+	result := handleMethod.Call(nil)[0]
+	if result.Kind() != reflect.Uintptr && result.Kind() != reflect.Uint && result.Kind() != reflect.Uint64 && result.Kind() != reflect.Uint32 {
+		return 0, fmt.Errorf("mainWindow.Handle returned unsupported kind %v", result.Kind())
+	}
+	handle = uintptr(result.Uint())
+	if handle == 0 {
+		return 0, errors.New("mainWindow.Handle returned zero")
+	}
+	return handle, nil
+}
+
+func applyWindowsApplicationIcon(hwnd, small, large uintptr) error {
+	if hwnd == 0 {
+		return errors.New("Windows application window handle is zero")
+	}
+	windowsApplicationIconSendMessageCall(hwnd, windowsSetIconMessage, windowsIconSmall, small)
+	windowsApplicationIconSendMessageCall(hwnd, windowsSetIconMessage, windowsIconBig, large)
+
+	// WM_SETICON is the live taskbar/Alt+Tab source. Updating the class fallback
+	// as well prevents a later non-client refresh from restoring Wails' embedded
+	// executable icon.
+	windowsApplicationIconSetClassIcon(hwnd, windowsClassIconSmall, small)
+	windowsApplicationIconSetClassIcon(hwnd, windowsClassIconLarge, large)
+
+	actualSmall := windowsApplicationIconSendMessageCall(hwnd, windowsGetIconMessage, windowsIconSmall, 0)
+	actualLarge := windowsApplicationIconSendMessageCall(hwnd, windowsGetIconMessage, windowsIconBig, 0)
+	if actualSmall != small || actualLarge != large {
+		return fmt.Errorf(
+			"Windows icon readback mismatch: small=%#x want=%#x, large=%#x want=%#x",
+			actualSmall,
+			small,
+			actualLarge,
+			large,
+		)
+	}
+	if err := windowsApplicationIconRefreshTaskbar(hwnd); err != nil {
+		return fmt.Errorf("refresh Windows taskbar icon: %w", err)
+	}
 	return nil
+}
+
+// Shortcut discovery can traverse both user and system Start Menu trees. It
+// must not hold the synchronous brand-icon RPC or make rapid selections queue
+// behind stale PowerShell work. The worker serialises updates and coalesces any
+// pending paths so the last selected icon always wins.
+func queueCurrentWindowsApplicationShortcutUpdate(iconPath string, hwnd uintptr) {
+	windowsApplicationShortcutMu.Lock()
+	windowsApplicationShortcutPending = windowsApplicationShortcutRequest{iconPath: iconPath, hwnd: hwnd}
+	if windowsApplicationShortcutRunning {
+		windowsApplicationShortcutMu.Unlock()
+		return
+	}
+	windowsApplicationShortcutRunning = true
+	windowsApplicationShortcutMu.Unlock()
+
+	go drainCurrentWindowsApplicationShortcutUpdates()
+}
+
+func drainCurrentWindowsApplicationShortcutUpdates() {
+	for {
+		windowsApplicationShortcutMu.Lock()
+		request := windowsApplicationShortcutPending
+		windowsApplicationShortcutPending = windowsApplicationShortcutRequest{}
+		if request.iconPath == "" {
+			windowsApplicationShortcutRunning = false
+			windowsApplicationShortcutMu.Unlock()
+			return
+		}
+		windowsApplicationShortcutMu.Unlock()
+
+		if err := windowsApplicationShortcutUpdate(request.iconPath); err != nil {
+			logger.Warnf("后台更新 Windows 应用快捷方式图标失败：%v", err)
+			continue
+		}
+		if err := windowsApplicationIconRefreshTaskbar(request.hwnd); err != nil {
+			logger.Warnf("后台刷新 Windows 任务栏品牌图标失败：%v", err)
+		}
+	}
 }
 
 func loadWindowsApplicationIcon(iconPath string, size int) (uintptr, error) {

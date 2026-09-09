@@ -113,9 +113,14 @@ export function resolveBrandTitlebarSrc(id?: unknown): string {
   return resolveBrandIconSrc(id);
 }
 
-/** Dock / runtime surfaces use the same SVG lockup as BrandIconPicker. */
+/**
+ * Native OS surfaces must wait for the selected verified asset. Sending the
+ * shared UI fallback first makes Windows cache that placeholder as the
+ * taskbar icon while the real asset update is still queued.
+ */
 export function resolveBrandDockSrc(id?: unknown): string {
-  return resolveBrandIconSrc(id);
+  const definition = resolveBrandIcon(id);
+  return loadedBrandIconSources.get(definition.id) || '';
 }
 
 export function setLoadedBrandIconSources(sources: Partial<Record<BrandIconId, string>>): void {
