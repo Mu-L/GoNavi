@@ -932,6 +932,10 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.confirm.remove.title": "移除该驱动？",
     "driver.modal.confirm.remove.content": "将移除驱动「{name}」，后续连接对应数据源前需要重新安装。",
     "driver.modal.confirm.remove.ok": "移除",
+    "driver.modal.confirm.reinstallInUse.title": "关闭正在使用的驱动并重装？",
+    "driver.modal.confirm.reinstallInUse.content":
+      "检测到该驱动有 {count} 个活动连接。继续重装会自动断开这些连接、终止正在执行的查询，并回滚尚未提交的事务；已保存的连接配置不会删除，重装后需要重新连接。",
+    "driver.modal.confirm.reinstallInUse.ok": "关闭连接并重装",
     "driver.modal.card.downloading": "下载中 {percent}%",
     "driver.modal.card.ready": "已就绪",
     "driver.modal.hero.loaded": "已加载 {count} 个驱动",
@@ -1917,6 +1921,10 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.confirm.remove.title": "Remove this driver?",
     "driver.modal.confirm.remove.content": "This will remove the {name} driver. It must be reinstalled before connecting to its data source again.",
     "driver.modal.confirm.remove.ok": "Remove",
+    "driver.modal.confirm.reinstallInUse.title": "Close active driver connections and reinstall?",
+    "driver.modal.confirm.reinstallInUse.content":
+      "This driver has {count} active connections. Continuing will disconnect them, stop running queries, and roll back uncommitted transactions. Saved connection settings are kept, but you must reconnect after reinstallation.",
+    "driver.modal.confirm.reinstallInUse.ok": "Disconnect and reinstall",
     "driver.modal.card.downloading": "Downloading {percent}%",
     "driver.modal.card.ready": "Ready",
     "driver.modal.hero.loaded": "{count} drivers loaded",

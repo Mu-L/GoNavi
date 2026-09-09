@@ -1414,7 +1414,12 @@ func (a *App) dbQueryWithCancel(
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -1673,7 +1678,12 @@ func (a *App) dbQueryMulti(
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
