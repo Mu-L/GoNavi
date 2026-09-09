@@ -177,6 +177,7 @@ describe('calculateFixedVirtualRange', () => {
       new URL('../../patches/rc-table+7.54.0.patch', import.meta.url),
       'utf8',
     );
+    const dataGridSource = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
 
     expect(virtualListPatch).toContain('itemHeightFixed');
     expect(virtualListPatch).toContain('fixedStartIndex');
@@ -188,6 +189,11 @@ describe('calculateFixedVirtualRange', () => {
     expect(tablePatch).toContain('listItemColumnVirtual');
     expect(tablePatch).toContain('cell-virtual-spacer');
     expect(tablePatch).toContain('if (listItemColumnVirtual)');
+    expect(tablePatch).toContain('var overscanWidth = 320;');
+    expect(tablePatch).not.toContain('var overscanWidth = Math.max(320, viewportWidth);');
+    expect(dataGridSource).toContain('const VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX = 160;');
+    expect(dataGridSource.match(/>= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX/g)).toHaveLength(2);
+    expect(dataGridSource).not.toContain('>= Math.max(320, visual.holderEl.clientWidth)');
     expect(virtualListPatch).toContain('disabled?: boolean');
   });
 });

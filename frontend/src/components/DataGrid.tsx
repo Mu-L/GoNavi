@@ -352,6 +352,10 @@ export const buildDataGridPaginationPageSizeOptions = (queryMaxRows?: number): s
 // Native scroll events can outlive a pointer gesture on macOS. Wait for a brief
 // idle window before the virtual table performs its final visual correction.
 const EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS = 80;
+// rc-table keeps 320px of offscreen columns on each side. Refresh the virtual
+// column range at half that distance so visual-only horizontal movement never
+// outruns the mounted cells before the next React commit.
+const VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX = 160;
 
 const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, columnPinScope, objectType = 'table', exportScope = 'table', dbName, schemaName, ddlDbName, ddlTableName, connectionId, connectionParamsOverride, pkColumns = [], editLocator, readOnly = false,
@@ -4724,7 +4728,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (
           virtualListItemColumnVirtual
           && Math.abs(nextScrollLeft - lastCommittedVirtualHorizontalOffsetRef.current)
-              >= Math.max(320, visual.holderEl.clientWidth)
+              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
       ) {
           applyVirtualHorizontalOffset(tableContainer, nextScrollLeft, { forceInternalScroll: true });
       }
@@ -5183,7 +5187,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                       if (
                           virtualListItemColumnVirtual
                           && Math.abs(visual.clampedOffset - lastCommittedVirtualHorizontalOffsetRef.current)
-                              >= Math.max(320, visual.holderEl.clientWidth)
+                              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
                       ) {
                           applyVirtualHorizontalOffset(tableContainer, visual.clampedOffset, { forceInternalScroll: true });
                       }
