@@ -565,9 +565,9 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.ssh.description": "跳板机 / 堡垒机转发",
     "connection.modal.network.proxy.title": "代理",
     "connection.modal.network.proxy.description": "本地代理或网关转发",
-    "connection.modal.network.httpTunnel.title": "HTTP 隧道",
+    "connection.modal.network.httpTunnel.title": "Navicat HTTP 隧道",
     "connection.modal.network.httpTunnel.description":
-      "独立 HTTP CONNECT 路由",
+      "MySQL 兼容脚本隧道",
     "connection.modal.network.ssl.panelDescription":
       "为连接链路增加加密与证书校验控制，适合生产或跨网络访问。",
     "connection.modal.network.ssl.disabledHint":
@@ -672,27 +672,34 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.savedDescription":
       "当前已保存代理密码。留空表示继续沿用，输入新值表示替换。",
     "connection.modal.network.httpTunnel.panelDescription":
-      "与代理模式互斥，适合单独指定一条 HTTP CONNECT 隧道路由。",
+      "通过完整的 ntunnel_mysql.php URL 转发 MySQL 请求。",
     "connection.modal.network.httpTunnel.disabledHint":
-      "左侧勾选“HTTP 隧道”后，可在这里填写隧道目标与认证信息。",
-    "connection.modal.network.httpTunnel.host": "隧道主机",
-    "connection.modal.network.httpTunnel.hostRequired": "请输入隧道主机",
+      "左侧勾选后填写完整脚本 URL 与认证信息；当前仅支持 MySQL 兼容连接，标准 HTTP CONNECT 请使用 HTTP 代理。",
+    "connection.modal.network.httpTunnel.host": "HTTP 隧道 URL",
+    "connection.modal.network.httpTunnel.hostRequired":
+      "请输入完整的 HTTP 隧道 URL",
+    "connection.modal.network.httpTunnel.urlPlaceholder":
+      "例如：https://gateway.example.com/ntunnel_mysql.php",
     "connection.modal.network.httpTunnel.portRequired": "请输入隧道端口",
-    "connection.modal.network.httpTunnel.user": "隧道用户名（可选）",
-    "connection.modal.network.httpTunnel.password": "隧道密码（可选）",
-    "connection.modal.network.httpTunnel.retained": "已保存隧道密码",
+    "connection.modal.network.httpTunnel.user": "HTTP Basic 用户名（可选）",
+    "connection.modal.network.httpTunnel.password": "HTTP Basic 密码（可选）",
+    "connection.modal.network.httpTunnel.retained": "已保存 HTTP 隧道密码",
     "connection.modal.network.httpTunnel.clearPassword":
-      "清除已保存隧道密码",
+      "清除已保存 HTTP 隧道密码",
     "connection.modal.network.httpTunnel.savedDescription":
-      "当前已保存隧道密码。留空表示继续沿用，输入新值表示替换。",
+      "当前已保存 HTTP 隧道密码。留空表示继续沿用，输入新值表示替换。",
+    "connection.modal.network.httpTunnel.encodeBase64":
+      "Base64 编码查询内容",
+    "connection.modal.network.httpTunnel.encodeBase64Hint":
+      "对应 Navicat 的 encodeBase64 选项，默认开启。",
     "connection.modal.network.httpTunnel.exclusiveHint":
-      "与“使用代理”互斥，启用后将通过 HTTP CONNECT 建立独立隧道。",
+      "当前仅支持 MySQL 兼容连接。标准 HTTP CONNECT 代理请在“代理”中选择 HTTP 类型。",
     "connection.modal.validation.ssl.damengRequired":
       "达梦启用 SSL 时必须填写证书路径与私钥路径",
     "connection.modal.validation.ssl.clientPairRequired":
       "TLS 客户端证书与私钥路径需要同时填写",
     "connection.modal.validation.httpTunnel.hostRequired":
-      "HTTP 隧道主机不能为空",
+      "HTTP 隧道 URL 不能为空",
     "connection.modal.validation.httpTunnel.portRange":
       "HTTP 隧道端口必须在 1-65535 之间",
     "connection.modal.network.advanced.title": "高级连接",
@@ -1531,9 +1538,9 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.title": "Proxy",
     "connection.modal.network.proxy.description":
       "Local proxy or gateway forwarding",
-    "connection.modal.network.httpTunnel.title": "HTTP tunnel",
+    "connection.modal.network.httpTunnel.title": "Navicat HTTP tunnel",
     "connection.modal.network.httpTunnel.description":
-      "Dedicated HTTP CONNECT route",
+      "MySQL-compatible script tunnel",
     "connection.modal.network.ssl.panelDescription":
       "Add encryption and certificate validation controls to the connection path, suitable for production or cross-network access.",
     "connection.modal.network.ssl.disabledHint":
@@ -1643,29 +1650,35 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.savedDescription":
       "A saved proxy password exists. Leave blank to keep it, or enter a new value to replace it.",
     "connection.modal.network.httpTunnel.panelDescription":
-      "Mutually exclusive with proxy mode. Use this to specify a dedicated HTTP CONNECT tunnel route.",
+      "Forward MySQL requests through a complete ntunnel_mysql.php URL.",
     "connection.modal.network.httpTunnel.disabledHint":
-      "Select HTTP tunnel on the left to enter the tunnel target and authentication settings here.",
-    "connection.modal.network.httpTunnel.host": "Tunnel host",
+      "Select it to enter the complete script URL and authentication settings. This currently supports MySQL-compatible connections only; use an HTTP proxy for standard HTTP CONNECT.",
+    "connection.modal.network.httpTunnel.host": "HTTP tunnel URL",
     "connection.modal.network.httpTunnel.hostRequired":
-      "Enter the tunnel host",
+      "Enter the complete HTTP tunnel URL",
+    "connection.modal.network.httpTunnel.urlPlaceholder":
+      "For example: https://gateway.example.com/ntunnel_mysql.php",
     "connection.modal.network.httpTunnel.portRequired":
       "Enter the tunnel port",
-    "connection.modal.network.httpTunnel.user": "Tunnel username",
-    "connection.modal.network.httpTunnel.password": "Tunnel password",
-    "connection.modal.network.httpTunnel.retained": "saved tunnel password",
+    "connection.modal.network.httpTunnel.user": "HTTP Basic username",
+    "connection.modal.network.httpTunnel.password": "HTTP Basic password",
+    "connection.modal.network.httpTunnel.retained": "saved HTTP tunnel password",
     "connection.modal.network.httpTunnel.clearPassword":
-      "Clear saved tunnel password",
+      "Clear saved HTTP tunnel password",
     "connection.modal.network.httpTunnel.savedDescription":
-      "A saved tunnel password exists. Leave blank to keep it, or enter a new value to replace it.",
+      "A saved HTTP tunnel password exists. Leave blank to keep it, or enter a new value to replace it.",
+    "connection.modal.network.httpTunnel.encodeBase64":
+      "Base64-encode query content",
+    "connection.modal.network.httpTunnel.encodeBase64Hint":
+      "Matches Navicat's encodeBase64 option and is enabled by default.",
     "connection.modal.network.httpTunnel.exclusiveHint":
-      "Mutually exclusive with Use proxy. When enabled, an independent tunnel is created through HTTP CONNECT.",
+      "Currently supported for MySQL-compatible connections only. For a standard HTTP CONNECT proxy, choose HTTP under Proxy.",
     "connection.modal.validation.ssl.damengRequired":
       "Certificate and private key paths are required when Dameng SSL is enabled.",
     "connection.modal.validation.ssl.clientPairRequired":
       "TLS client certificate and private key paths must be provided together.",
     "connection.modal.validation.httpTunnel.hostRequired":
-      "HTTP tunnel host is required.",
+      "HTTP tunnel URL is required.",
     "connection.modal.validation.httpTunnel.portRange":
       "HTTP tunnel port must be between 1 and 65535.",
     "connection.modal.network.advanced.title": "Advanced connection",

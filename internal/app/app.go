@@ -1294,7 +1294,7 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		}
 	}
 	if config.UseHTTPTunnel {
-		b.WriteString(fmt.Sprintf(" HTTP隧道=%s:%d", strings.TrimSpace(config.HTTPTunnel.Host), config.HTTPTunnel.Port))
+		b.WriteString(fmt.Sprintf(" HTTP隧道=%s", formatHTTPTunnelEndpointForLog(config.HTTPTunnel)))
 		if strings.TrimSpace(config.HTTPTunnel.User) != "" {
 			b.WriteString(" HTTP隧道认证=已配置")
 		}
@@ -1313,6 +1313,19 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	}
 
 	return b.String()
+}
+
+func formatHTTPTunnelEndpointForLog(config connection.HTTPTunnelConfig) string {
+	raw := strings.TrimSpace(config.Host)
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) {
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.ForceQuery = false
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	return fmt.Sprintf("%s:%d", raw, config.Port)
 }
 
 func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {

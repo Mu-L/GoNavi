@@ -170,7 +170,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 	} else if implicitTextTransaction {
 		transactionBoundaryMode = "implicit"
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Message: buildManagedTransactionUnsupportedMessage(),
@@ -192,7 +192,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 			}
 		}
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Message: buildManagedTransactionUnsupportedMessage(),

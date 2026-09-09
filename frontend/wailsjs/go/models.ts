@@ -1977,6 +1977,7 @@ export namespace connection {
 	    port: number;
 	    user?: string;
 	    password?: string;
+	    encodeBase64?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new HTTPTunnelConfig(source);
@@ -1988,6 +1989,7 @@ export namespace connection {
 	        this.port = source["port"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.encodeBase64 = source["encodeBase64"];
 	    }
 	}
 	export class ProxyConfig {

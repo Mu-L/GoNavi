@@ -862,6 +862,8 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
     port: normalizePort(httpTunnelRaw.port ?? raw.httpTunnelPort, 8080),
     user: toTrimmedString(httpTunnelRaw.user ?? raw.httpTunnelUser),
     password: toTrimmedString(httpTunnelRaw.password ?? raw.httpTunnelPassword),
+    encodeBase64:
+      (httpTunnelRaw.encodeBase64 ?? raw.httpTunnelEncodeBase64) !== false,
   };
   const supportsNetworkTunnel = type !== "sqlite" && type !== "duckdb";
   const useHttpTunnel =

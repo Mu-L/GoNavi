@@ -2210,7 +2210,7 @@ func executeSQLFileSingleTransactionStream(ctx context.Context, dbInst db.Databa
 			return result, errors.New("single-transaction SQL-file execution requires a driver-backed transaction handle for this database type")
 		}
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return result, errors.New("single-transaction SQL-file execution requires a pinned database session")
 		}
 		session, err := provider.OpenSessionExecer(ctx)
@@ -2410,7 +2410,7 @@ func executeSQLFileStream(ctx context.Context, dbInst db.Database, reader io.Rea
 		supportsBatch = false
 		batcher = nil
 	}
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		sessionExecer, err := provider.OpenSessionExecer(ctx)
 		if err != nil {
 			return result, err
@@ -3467,7 +3467,7 @@ func (a *App) executeSQLFileWithStatementLimitPolicyContextWithPolicy(parent con
 		}
 	}
 	if requirePinnedSession {
-		if _, ok := dbInst.(db.SessionExecerProvider); !ok {
+		if !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Data:    buildSQLFileExecutionPayload(0, 0, "failed"),
@@ -4956,7 +4956,7 @@ func (a *App) ApplyChanges(config connection.ConnectionConfig, dbName, tableName
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	if applier, ok := dbInst.(db.BatchApplier); ok {
+	if applier, ok := dbInst.(db.BatchApplier); ok && runtimeSupportsBatchApply(dbInst) {
 		targetTableName := resolveChangeTargetTableName(config, dbName, tableName)
 		preview := buildChangePreview(dbInst, config, targetTableName, changes)
 		err := applier.ApplyChanges(targetTableName, changes)
@@ -8302,7 +8302,7 @@ func streamQueryDataForExportWithContext(ctx context.Context, dbInst db.Database
 		return streamer.StreamQueryContext(ctx, query, consumer)
 	}
 
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		session, err := provider.OpenSessionExecer(ctx)
 		if err != nil {
 			logger.Warnf("导出流式会话打开失败，回退到缓冲导出：type=%s err=%v", strings.TrimSpace(config.Type), err)

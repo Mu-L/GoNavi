@@ -346,6 +346,16 @@ type MultiResultQuerierContext interface {
 	QueryMultiContext(ctx context.Context, query string) ([]connection.ResultSetData, error)
 }
 
+// StatementBatchMultiResultQuerierContext is an optional protocol-native
+// contract for transports that accept an ordered SQL array in one request.
+// Navicat's ntunnel_mysql.php uses repeated q[] form fields and keeps one
+// database connection for that request, so callers must not degrade it into
+// independent HTTP requests when session-scoped SQL is present.
+type StatementBatchMultiResultQuerierContext interface {
+	SupportsStatementBatchMultiResult() bool
+	QueryStatementsMultiContext(ctx context.Context, statements []string) ([]connection.ResultSetData, error)
+}
+
 // BatchWriteExecer 是可选接口，支持将多条写语句一次性批量发送执行。
 // 驱动的底层连接需支持多语句协议（如 MySQL multiStatements=true、PostgreSQL 原生多语句）。
 // 实现此接口可大幅减少批量 INSERT/UPDATE/DELETE 的网络往返次数。
@@ -358,6 +368,13 @@ type BatchWriteExecer interface {
 // connection had to fall back to multiStatements=false.
 type BatchWriteCapability interface {
 	SupportsBatchWrites() bool
+}
+
+// BatchApplyCapability lets a driver whose BatchApplier implementation is
+// conditionally unavailable opt out at runtime. This is distinct from plain
+// Exec support: a data grid change set promises an atomic batch.
+type BatchApplyCapability interface {
+	SupportsBatchApply() bool
 }
 
 // StatementExecer is a single-session SQL execution handle.
@@ -469,6 +486,14 @@ type MultiResultQueryMessageExecer interface {
 // pin a long-running job to one physical connection.
 type SessionExecerProvider interface {
 	OpenSessionExecer(ctx context.Context) (StatementExecer, error)
+}
+
+// SessionExecerCapability lets a database/sql implementation report that its
+// current transport cannot preserve a physical session. HTTP script tunnels
+// create a database connection per request even though the concrete Go type
+// also supports pinned sessions for normal TCP connections.
+type SessionExecerCapability interface {
+	SupportsSessionExecer() bool
 }
 
 // TransactionExecer is a single transaction handle backed by the database

@@ -956,6 +956,57 @@ describe('store appearance persistence', () => {
     });
   });
 
+  it('normalizes Navicat HTTP tunnel URL and base64 settings', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'navicat-http-tunnel',
+        name: 'Navicat HTTP tunnel',
+        config: {
+          id: 'navicat-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: ' https://gateway.example.com/mysql/ntunnel_mysql.php ',
+            port: 8080,
+            encodeBase64: false,
+          },
+        },
+      },
+      {
+        id: 'legacy-http-tunnel',
+        name: 'Legacy HTTP tunnel',
+        config: {
+          id: 'legacy-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: 'legacy-proxy.internal',
+            port: 3128,
+          },
+        },
+      },
+    ]);
+
+    expect(useStore.getState().connections[0]?.config.httpTunnel).toMatchObject({
+      host: 'https://gateway.example.com/mysql/ntunnel_mysql.php',
+      port: 8080,
+      encodeBase64: false,
+    });
+    expect(useStore.getState().connections[1]?.config.httpTunnel).toMatchObject({
+      host: 'legacy-proxy.internal',
+      port: 3128,
+      encodeBase64: true,
+    });
+  });
+
   it('preserves JVM Arthas diagnostic config when replacing saved connections', async () => {
     const { useStore } = await importStore();
 
