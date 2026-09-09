@@ -18,7 +18,7 @@ func TestResolveDialConfigWithProxy_PreservesNavicatMySQLTunnelURL(t *testing.T)
 		Password:      "db-password",
 		UseHTTPTunnel: true,
 		HTTPTunnel: connection.HTTPTunnelConfig{
-			Host:     "https://gateway.example/private/ntunnel_mysql.php?token=kept",
+			Host:     "HTTPS://gateway.example/private/ntunnel_mysql.php?token=kept",
 			User:     "web-user",
 			Password: "web-password",
 		},

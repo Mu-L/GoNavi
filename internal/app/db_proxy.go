@@ -165,7 +165,7 @@ func isNavicatHTTPTunnelURL(raw string) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	return parsed.Scheme == "http" || parsed.Scheme == "https"
+	return strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")
 }
 
 func supportsNavicatMySQLTunnel(config connection.ConnectionConfig) bool {

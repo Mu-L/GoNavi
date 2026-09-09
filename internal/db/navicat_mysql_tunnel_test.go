@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,6 +28,12 @@ type navicatTunnelTestField struct {
 	typeID uint32
 	flags  uint32
 	length uint32
+}
+
+type navicatTunnelRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn navicatTunnelRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func writeNavicatTunnelUint32(buf *bytes.Buffer, value uint32) {
@@ -321,6 +328,25 @@ func TestMySQLDBNavicatHTTPTunnelRejectsHTMLResponse(t *testing.T) {
 	}
 	if got := err.Error(); !bytes.Contains([]byte(got), []byte("Navicat")) || !bytes.Contains([]byte(got), []byte("login required")) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNavicatMySQLTunnelTransportErrorRedactsEndpointQuery(t *testing.T) {
+	t.Parallel()
+
+	const secret = "super-secret-token"
+	client := &navicatMySQLTunnelClient{
+		endpoint: "https://gateway.example/ntunnel_mysql.php?token=" + secret,
+		httpClient: &http.Client{Transport: navicatTunnelRoundTripper(func(request *http.Request) (*http.Response, error) {
+			return nil, &url.Error{Op: request.Method, URL: request.URL.String(), Err: errors.New("dial failed")}
+		})},
+	}
+	_, err := client.post(context.Background(), "C", nil)
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "gateway.example") {
+		t.Fatalf("transport error leaked endpoint: %v", err)
 	}
 }
 
