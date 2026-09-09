@@ -2589,6 +2589,51 @@ body[data-ui-version="v2"] .gn-v2-titlebar-right {
     height: 100%;
 }
 
+body[data-ui-version="v2"] .gn-v2-titlebar-system-actions {
+    display: inline-flex;
+    height: 100%;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn {
+    display: inline-flex;
+    width: var(--gn-titlebar-action-height, 30px);
+    min-width: var(--gn-titlebar-action-height, 30px);
+    height: var(--gn-titlebar-action-height, 30px) !important;
+    padding: 0 !important;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 7px;
+    color: var(--gn-fg-3, var(--ant-color-text-tertiary));
+    box-shadow: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn .anticon {
+    font-size: clamp(15px, calc(var(--gn-titlebar-action-height, 30px) * 0.533), 18px);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:focus-visible {
+    background: var(--gn-bg-hover);
+    color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:focus-visible {
+    outline: 2px solid var(--gn-accent);
+    outline-offset: -2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn.is-active {
+    background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+    color: var(--gn-accent);
+    box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
 /* Primary: elevated capsule so "新建查询/连接" reads first */
 .gonavi-titlebar-primary-action {
     display: inline-flex;

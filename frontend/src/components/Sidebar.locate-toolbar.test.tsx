@@ -908,7 +908,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).not.toContain('data-sidebar-legacy-toolbar-item="true"');
   });
 
-  it('renders exactly seven expanded v2 explorer actions in task order', () => {
+  it('renders exactly five expanded v2 explorer actions after moving global actions to the titlebar', () => {
     const markup = renderSidebarMarkup({
       uiVersion: 'v2',
       v2ExplorerContext: {
@@ -949,8 +949,6 @@ describe('Sidebar locate toolbar', () => {
       t('sidebar.action.locate_current_table'),
       t('sidebar.action.scroll_to_top'),
       t('sidebar.active_connection.actions'),
-      t('app.sidebar.ai_assistant'),
-      t('app.sidebar.settings'),
       t('app.sidebar.collapse'),
     ]);
   });
@@ -1247,11 +1245,11 @@ describe('Sidebar locate toolbar', () => {
     expect(source).not.toContain("key: 'locate-current-table'");
     expect(markup).not.toContain('data-gonavi-new-query-action="true"');
     expect(markup).not.toContain('data-gonavi-create-connection-action="true"');
-    expect(markup).toContain('aria-label="AI 助手"');
-    expect(markup).toContain('data-gonavi-ai-entry-action="true"');
+    expect(markup).not.toContain('aria-label="AI 助手"');
+    expect(markup).not.toContain('data-gonavi-ai-entry-action="true"');
     expect(markup).not.toContain('aria-label="工具"');
     expect(markup).not.toContain('data-gonavi-open-tools-action="true"');
-    expect(markup).toContain('aria-label="设置"');
+    expect(markup).not.toContain('aria-label="设置"');
     const contextMenuFunction = source.slice(
       source.indexOf('const openV2ConnectionContextMenu = ('),
       source.indexOf('const getV2TreeMetaText = (node: any): string => {'),
@@ -1500,7 +1498,7 @@ describe('Sidebar locate toolbar', () => {
   it('scales the v2 rail and keeps fixed workbench tools below a scrollable primary area', () => {
     const css = readV2ThemeCss();
 
-    expect(css).toMatch(/\.gn-v2-rail-workbench-actions,\s*body\[data-ui-version="v2"\] \.gn-v2-rail-system-actions \{[^}]*flex-direction: column;/s);
+    expect(css).toMatch(/\.gn-v2-rail-workbench-actions \{[^}]*flex-direction: column;/s);
     expect(css).toMatch(/\.gn-v2-rail-workbench-actions \{[^}]*border-bottom: 0\.5px solid var\(--gn-br-1\);/s);
     expect(css).toMatch(/\.gn-v2-rail-items \{[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/s);
     expect(css).toMatch(/\.gn-v2-rail-secondary-actions \{[^}]*margin-top: auto;[^}]*flex: 0 0 auto;/s);

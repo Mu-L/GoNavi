@@ -57,9 +57,6 @@ const labels: V2ExplorerToolbarActionLabels = {
   locateCurrentTableUnavailable: 'Current table unavailable',
   scrollToTop: 'Scroll to top',
   connectionActions: 'Connection actions',
-  systemActions: 'System actions',
-  aiAssistant: 'AI assistant',
-  settings: 'Settings',
 };
 
 const createToolbar = (overrides: Partial<React.ComponentProps<typeof V2ExplorerToolbarActions>> = {}) => {
@@ -67,8 +64,6 @@ const createToolbar = (overrides: Partial<React.ComponentProps<typeof V2Explorer
     onLocateCurrentTable: vi.fn(),
     onScrollToTop: vi.fn(),
     onOpenConnectionActions: vi.fn(),
-    onToggleAI: vi.fn(),
-    onOpenSettings: vi.fn(),
     onToggleSidebar: vi.fn(),
   };
   const renderer = create(
@@ -76,12 +71,9 @@ const createToolbar = (overrides: Partial<React.ComponentProps<typeof V2Explorer
       labels,
       canLocateActiveTab: true,
       hasActiveConnection: true,
-      aiActive: false,
       onLocateCurrentTable: handlers.onLocateCurrentTable,
       onScrollToTop: handlers.onScrollToTop,
       onOpenConnectionActions: handlers.onOpenConnectionActions,
-      onToggleAI: handlers.onToggleAI,
-      onOpenSettings: handlers.onOpenSettings,
       toggleAction: {
         label: 'Expand sidebar',
         onClick: handlers.onToggleSidebar,
@@ -95,7 +87,7 @@ const createToolbar = (overrides: Partial<React.ComponentProps<typeof V2Explorer
 };
 
 describe('collapsed V2 sidebar actions', () => {
-  it('mounts the shared six-action toolbar in the collapsed titlebar host', () => {
+  it('mounts the shared sidebar toolbar in the collapsed titlebar host', () => {
     const hostStart = appSource.indexOf('data-collapsed-sidebar-actions="true"');
     const hostEnd = appSource.indexOf('{/* Collapsed sidebar titlebar actions end */}', hostStart);
     const actionsSource = appSource.slice(hostStart, hostEnd);
@@ -130,8 +122,6 @@ describe('collapsed V2 sidebar actions', () => {
       'data-sidebar-locate-current-tab-action="true"',
       'data-sidebar-scroll-to-top-action="true"',
       'data-sidebar-active-connection-actions="true"',
-      'data-gonavi-ai-entry-action="true"',
-      'data-sidebar-settings-action="true"',
       'data-sidebar-toggle-placement={toggleAction.placement}',
     ];
     const markerIndexes = actionMarkers.map((marker) => sharedActionsSource.indexOf(marker));
@@ -199,36 +189,30 @@ describe('collapsed V2 sidebar actions', () => {
     expect(appCss).not.toContain('font-size: 0 !important;');
   });
 
-  it('renders the complete toolbar in collapsed-titlebar placement and keeps actions usable', () => {
+  it('renders the sidebar toolbar without global AI and settings actions', () => {
     const { renderer, handlers } = createToolbar();
     const buttons = renderer.root.findAllByType('button');
 
-    expect(buttons).toHaveLength(6);
+    expect(buttons).toHaveLength(4);
     expect(buttons.map((button) => button.props['aria-label'])).toEqual([
       'Locate current table',
       'Scroll to top',
       'Connection actions',
-      'AI assistant',
-      'Settings',
       'Expand sidebar',
     ]);
     expect(buttons.map((button) => button.props['data-sidebar-toggle-placement'])).toEqual([
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
       'collapsed-titlebar',
     ]);
-    expect(buttons[5].props['aria-expanded']).toBe(false);
-    expect(buttons[5].props['aria-controls']).toBe('gonavi-sidebar-tree-panel');
+    expect(buttons[3].props['aria-expanded']).toBe(false);
+    expect(buttons[3].props['aria-controls']).toBe('gonavi-sidebar-tree-panel');
 
     buttons.forEach((button) => button.props.onClick());
     expect(handlers.onLocateCurrentTable).toHaveBeenCalledTimes(1);
     expect(handlers.onScrollToTop).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenConnectionActions).toHaveBeenCalledTimes(1);
-    expect(handlers.onToggleAI).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenSettings).toHaveBeenCalledTimes(1);
     expect(handlers.onToggleSidebar).toHaveBeenCalledTimes(1);
   });
 

@@ -11,6 +11,7 @@ import Sidebar from './components/Sidebar';
 import TitleBarPrimaryActions, {
   resolveTitleBarPrimaryActionShortcut,
 } from './components/TitleBarPrimaryActions';
+import TitleBarSystemActions from './components/TitleBarSystemActions';
 import ConnectionGroupManagementModal from './components/sidebar/ConnectionGroupManagementModal';
 import TabManager from './components/TabManager';
 import FloatingWorkbenchWindows from './components/FloatingWorkbenchWindows';
@@ -8133,6 +8134,15 @@ function App() {
               )}
               {/* Collapsed sidebar titlebar actions end */}
               <div className={isV2Ui ? 'gn-v2-titlebar-right' : undefined}>
+                  {isV2Ui && (
+                      <TitleBarSystemActions
+                        aiAssistantLabel={t('app.sidebar.ai_assistant')}
+                        settingsLabel={t('app.sidebar.settings')}
+                        aiActive={aiPanelVisible}
+                        onToggleAI={handleToggleOrFocusAIPanel}
+                        onOpenSettings={handleOpenSettingsModal}
+                      />
+                  )}
                   {isWebRuntime ? (
                       <div
                         onDoubleClick={(e) => e.stopPropagation()}

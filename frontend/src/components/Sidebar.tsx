@@ -127,9 +127,7 @@ import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLi
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   VerticalAlignTopOutlined,
-  RobotOutlined,
   SafetyCertificateOutlined,
-  SettingOutlined,
   SkinOutlined,
 	} from '@ant-design/icons';
 import {
@@ -786,9 +784,6 @@ export type V2ExplorerToolbarActionLabels = {
   locateCurrentTableUnavailable: string;
   scrollToTop: string;
   connectionActions: string;
-  systemActions: string;
-  aiAssistant: string;
-  settings: string;
 };
 
 export type V2ExplorerToolbarToggleAction = {
@@ -803,23 +798,17 @@ export const V2ExplorerToolbarActions: React.FC<{
   labels: V2ExplorerToolbarActionLabels;
   canLocateActiveTab: boolean;
   hasActiveConnection: boolean;
-  aiActive: boolean;
   onLocateCurrentTable: () => void;
   onScrollToTop: () => void;
   onOpenConnectionActions: (event: React.MouseEvent<HTMLElement>) => void;
-  onToggleAI?: () => void;
-  onOpenSettings?: () => void;
   toggleAction?: V2ExplorerToolbarToggleAction;
 }> = ({
   labels,
   canLocateActiveTab,
   hasActiveConnection,
-  aiActive,
   onLocateCurrentTable,
   onScrollToTop,
   onOpenConnectionActions,
-  onToggleAI,
-  onOpenSettings,
   toggleAction,
 }) => (
   <>
@@ -877,31 +866,6 @@ export const V2ExplorerToolbarActions: React.FC<{
             onClick={onOpenConnectionActions}
           />
         </span>
-      </Tooltip>
-    </div>
-    <div className="gn-v2-explorer-action-group is-system" role="group" aria-label={labels.systemActions}>
-      <Tooltip title={labels.aiAssistant} placement="bottom" mouseEnterDelay={0.35}>
-        <Button
-          size="small"
-          type="text"
-          className={`gn-v2-explorer-tool${aiActive ? ' is-active' : ''}`}
-          icon={<RobotOutlined />}
-          aria-label={labels.aiAssistant}
-          aria-pressed={aiActive}
-          data-gonavi-ai-entry-action="true"
-          onClick={onToggleAI}
-        />
-      </Tooltip>
-      <Tooltip title={labels.settings} placement="bottom" mouseEnterDelay={0.35}>
-        <Button
-          size="small"
-          type="text"
-          className="gn-v2-explorer-tool"
-          icon={<SettingOutlined />}
-          aria-label={labels.settings}
-          data-sidebar-settings-action="true"
-          onClick={onOpenSettings}
-        />
       </Tooltip>
     </div>
     {toggleAction && (
@@ -1032,7 +996,6 @@ const Sidebar: React.FC<{
   const shortcutOptions = useStore(state => state.shortcutOptions);
   const languagePreference = useStore(state => state.languagePreference);
   const setAppearance = useStore(state => state.setAppearance);
-  const aiPanelVisible = useStore(state => state.aiPanelVisible);
   const setAIPanelVisible = useStore(state => state.setAIPanelVisible);
   const addAIContext = useStore(state => state.addAIContext);
   void languagePreference;
@@ -4510,8 +4473,6 @@ const Sidebar: React.FC<{
   const v2OpenExternalSqlFileLabel = t('sidebar.sql_file_exec.title');
   const v2LocateCurrentTableLabel = t('sidebar.action.locate_current_table');
   const v2LocateCurrentTableUnavailableLabel = t('sidebar.message.locate_current_table_unavailable');
-  const v2AiAssistantLabel = t('app.sidebar.ai_assistant');
-  const v2SettingsLabel = t('app.sidebar.settings');
   const v2ConnectionActionsLabel = t('sidebar.active_connection.actions');
   const v2ScrollToTopLabel = t('sidebar.action.scroll_to_top');
   const v2CommandSearchLabel = t('sidebar.command_search.label');
@@ -4528,13 +4489,9 @@ const Sidebar: React.FC<{
       locateCurrentTableUnavailable: v2LocateCurrentTableUnavailableLabel,
       scrollToTop: v2ScrollToTopLabel,
       connectionActions: v2ConnectionActionsLabel,
-      systemActions: v2RailSystemActionsLabel,
-      aiAssistant: v2AiAssistantLabel,
-      settings: v2SettingsLabel,
     },
     canLocateActiveTab,
     hasActiveConnection: Boolean(activeConnection),
-    aiActive: aiPanelVisible,
     onLocateCurrentTable: handleLocateActiveTabInSidebar,
     onScrollToTop: scrollV2ExplorerToTop,
     onOpenConnectionActions: (event: React.MouseEvent<HTMLElement>) => {
@@ -4542,8 +4499,6 @@ const Sidebar: React.FC<{
         openV2ConnectionContextMenu(event, activeConnection);
       }
     },
-    onToggleAI,
-    onOpenSettings,
   };
 
   const handleOpenDataImportWorkbench = useCallback(() => {
@@ -4704,8 +4659,6 @@ const Sidebar: React.FC<{
       openExternalSqlFile: v2OpenExternalSqlFileLabel,
       locateCurrentTable: v2LocateCurrentTableLabel,
       locateCurrentTableUnavailable: v2LocateCurrentTableUnavailableLabel,
-      aiAssistant: v2AiAssistantLabel,
-      settings: v2SettingsLabel,
     },
     handlers: {
       openCreateTagModal: () => { setRenameViewTarget(null); createTagForm.resetFields(); setIsCreateTagModalOpen(true); },
@@ -4714,13 +4667,10 @@ const Sidebar: React.FC<{
       openDataImport: handleOpenDataImportWorkbench,
       openExternalSqlFile: handleOpenSQLFileFromToolbar,
       locateActiveTab: handleLocateActiveTabInSidebar,
-      toggleAI: onToggleAI ?? (() => {}),
-      openSettings: onOpenSettings ?? (() => {}),
     },
     canLocateActiveTab,
     showObjectActions: false,
     showLocateAction: false,
-    aiActive: aiPanelVisible,
     sidebarExpandAction: !collapsedSidebarActionsTarget && onExpandSidebar && expandSidebarLabel ? {
       label: expandSidebarLabel,
       onClick: onExpandSidebar,
