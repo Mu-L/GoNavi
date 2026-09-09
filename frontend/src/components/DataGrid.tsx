@@ -978,10 +978,6 @@ const DataGrid: React.FC<DataGridProps> = ({
   const virtualEditingCellForRender = virtualEditingUnavailable || virtualEditingPermissionLost
       ? null
       : virtualEditingCell;
-  const [virtualRowHeightMeasurement, setVirtualRowHeightMeasurement] = useState<{
-      signature: string;
-      height: number;
-  } | null>(null);
   const virtualInlineInputRef = useRef<any>(null);
   const virtualInlinePickerOpenRef = useRef(false);
   const virtualInlinePickerInteractionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4424,70 +4420,12 @@ const DataGrid: React.FC<DataGridProps> = ({
   const horizontalScrollVisible = isTableSurfaceActive && externalHorizontalScrollMetrics.visible;
   const horizontalScrollWidth = externalHorizontalScrollMetrics.innerWidth;
   const tableScrollConfig = useMemo(() => ({ x: tableScrollX, y: tableHeight }), [tableScrollX, tableHeight]);
-  const virtualRowHeightSignature = `${displayRenderVersion}|${effectiveUiScale}`;
-  const measuredVirtualRowHeight = virtualRowHeightMeasurement?.signature === virtualRowHeightSignature
-      ? virtualRowHeightMeasurement.height
-      : undefined;
-  const virtualListItemHeight = useMemo(() => (
-      measuredVirtualRowHeight ?? Math.max(1, 28 * effectiveUiScale)
-  ), [effectiveUiScale, measuredVirtualRowHeight]);
-  const virtualListItemHeightFixed = !!(
-      measuredVirtualRowHeight
-      && measuredVirtualRowHeight > 0
-      && !virtualEditingCellForRender
-  );
+  // V2 data rows have a CSS-enforced 28px height. Entering fixed mode on the
+  // first render avoids a later rAF measurement that would rebuild the virtual
+  // window while the user is already scrolling.
+  const virtualListItemHeight = Math.max(1, 28 * effectiveUiScale);
+  const virtualListItemHeightFixed = !virtualEditingCellForRender;
   const virtualListItemColumnVirtual = enableVirtual && !virtualEditingCellForRender;
-
-  useEffect(() => {
-      if (!enableVirtual || !isTableSurfaceActive || virtualEditingCellForRender) return;
-      if (tableRenderData.length === 0) {
-          setVirtualRowHeightMeasurement((current) => (
-              current?.signature === virtualRowHeightSignature ? null : current
-          ));
-          return;
-      }
-      // Keep the handles initialized before scheduling: several host/test
-      // environments invoke requestAnimationFrame synchronously.
-      let firstRaf = 0;
-      let secondRaf = 0;
-      firstRaf = requestAnimationFrame(() => {
-          firstRaf = 0;
-          secondRaf = requestAnimationFrame(() => {
-              secondRaf = 0;
-              const tableContainer = tableContainerRef.current;
-              if (!(tableContainer instanceof HTMLElement)) return;
-              const rows = Array.from(tableContainer.querySelectorAll<HTMLElement>(
-                  '.ant-table-tbody-virtual-holder-inner .ant-table-row',
-              )).slice(0, 6);
-              const heights = rows
-                  .map((row) => row.getBoundingClientRect().height)
-                  .filter((height) => Number.isFinite(height) && height > 0);
-              if (heights.length === 0) return;
-              const minHeight = Math.min(...heights);
-              const maxHeight = Math.max(...heights);
-              // Fixed mode is opt-in only while the rendered V2 rows prove that
-              // the current layout is uniform. Clear a previous measurement as
-              // soon as a data/layout refresh renders mixed heights.
-              if (maxHeight - minHeight > 0.05) {
-                  setVirtualRowHeightMeasurement((current) => (
-                      current?.signature === virtualRowHeightSignature ? null : current
-                  ));
-                  return;
-              }
-              const nextHeight = heights.reduce((sum, height) => sum + height, 0) / heights.length;
-              setVirtualRowHeightMeasurement((current) => (
-                  current?.signature === virtualRowHeightSignature
-                  && Math.abs(current.height - nextHeight) < 0.01
-                      ? current
-                      : { signature: virtualRowHeightSignature, height: nextHeight }
-              ));
-          });
-      });
-      return () => {
-          if (firstRaf) cancelAnimationFrame(firstRaf);
-          if (secondRaf) cancelAnimationFrame(secondRaf);
-      };
-  }, [enableVirtual, isTableSurfaceActive, tableRenderData.length, virtualEditingCellForRender, virtualRowHeightSignature]);
   const tableComponents = useMemo(() => {
       const body: Record<string, any> = {};
       // 虚拟表模式下 render() 已返回 EditableCell；这里再挂 body.cell 会形成双层包装，

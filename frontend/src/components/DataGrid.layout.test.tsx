@@ -2017,6 +2017,16 @@ describe('DataGrid layout', () => {
     expect(tableSurfaceCss).toContain('.gn-v2-data-grid .ant-table-tbody-virtual-holder');
   });
 
+  it('enters fixed-row virtual scrolling before a user can scroll the V2 data table', () => {
+    const source = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
+    const css = readV2ThemeCss();
+
+    expect(css).toContain('height: calc(28px * var(--gn-ui-scale, 1));');
+    expect(source).toContain('const virtualListItemHeight = Math.max(1, 28 * effectiveUiScale);');
+    expect(source).toContain('const virtualListItemHeightFixed = !virtualEditingCellForRender;');
+    expect(source).not.toContain('virtualRowHeightMeasurement');
+  });
+
   it('keeps DataGrid scroll synchronization throttled to animation frames', () => {
     const source = readDataGridSource();
     const secondaryActionsSource = readFileSync(new URL('./DataGridSecondaryActions.tsx', import.meta.url), 'utf8');

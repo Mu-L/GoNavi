@@ -106,9 +106,9 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: 14_000_001,
     })).toEqual({
       scrollHeight: 28_000_000,
-      start: 499_998,
-      end: 500_013,
-      offset: 13_999_944,
+      start: 499_991,
+      end: 500_020,
+      offset: 13_999_748,
     });
   });
 
@@ -121,7 +121,7 @@ describe('calculateFixedVirtualRange', () => {
     })).toEqual({
       scrollHeight: 2_800,
       start: 0,
-      end: 14,
+      end: 21,
       offset: 0,
     });
   });
@@ -141,16 +141,16 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: Number.POSITIVE_INFINITY,
     })).toEqual({
       scrollHeight: 2_800,
-      start: 87,
+      start: 80,
       end: 99,
-      offset: 2_436,
+      offset: 2_240,
     });
   });
 
-  it('extends the dependency visible range by three rows for native scroll coverage', () => {
+  it('extends the dependency visible range by one viewport for native scroll coverage', () => {
     const itemCount = 40;
     const itemHeight = 7;
-    const viewportHeight = 35;
+    const viewportHeight = 70;
     const maxScrollTop = itemCount * itemHeight - viewportHeight;
     for (let scrollTop = 0; scrollTop <= maxScrollTop; scrollTop += 1) {
       const linear = calculateLinearReference({
@@ -159,6 +159,7 @@ describe('calculateFixedVirtualRange', () => {
         viewportHeight,
         scrollTop,
       });
+      const overscanRows = Math.max(6, Math.ceil(viewportHeight / itemHeight));
       expect(calculateFixedVirtualRange({
         itemCount,
         itemHeight,
@@ -166,11 +167,40 @@ describe('calculateFixedVirtualRange', () => {
         scrollTop,
       })).toEqual({
         ...linear,
-        start: Math.max(0, linear.start - 2),
-        end: Math.min(itemCount - 1, linear.end + 2),
-        offset: Math.max(0, linear.start - 2) * itemHeight,
+        start: Math.max(0, linear.start - (overscanRows - 1)),
+        end: Math.min(itemCount - 1, linear.end + (overscanRows - 1)),
+        offset: Math.max(0, linear.start - (overscanRows - 1)) * itemHeight,
       });
     }
+  });
+
+  it('keeps the recorded fifteen-row native jump covered before React commits', () => {
+    const itemHeight = 28;
+    const viewportHeight = 840;
+    const initialRange = calculateFixedVirtualRange({
+      itemCount: 1_000,
+      itemHeight,
+      viewportHeight,
+      scrollTop: 0,
+    });
+    const jumpedViewportBottom = (15 * itemHeight) + viewportHeight;
+
+    expect((initialRange.end + 1) * itemHeight).toBeGreaterThanOrEqual(jumpedViewportBottom);
+  });
+
+  it('keeps the recorded reverse jump covered while React still has the old range', () => {
+    const itemHeight = 28;
+    const viewportHeight = 840;
+    const previousVisibleRow = 112;
+    const previousRange = calculateFixedVirtualRange({
+      itemCount: 1_000,
+      itemHeight,
+      viewportHeight,
+      scrollTop: previousVisibleRow * itemHeight,
+    });
+    const jumpedVisibleRow = previousVisibleRow - 24;
+
+    expect(previousRange.start).toBeLessThanOrEqual(jumpedVisibleRow);
   });
 });
 
