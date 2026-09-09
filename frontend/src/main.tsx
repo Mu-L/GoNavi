@@ -10,6 +10,7 @@ import { useStore } from './store'
 import { cloneBrowserMockValue, duplicateBrowserMockConnection, resolveBrowserMockSecretFlag } from './utils/browserMockConnections'
 import { configureAntdStaticOverlayLayer } from './utils/overlayZIndex'
 import { normalizeConnectionEnvironmentType } from './utils/connectionEnvironment'
+import { resolveBrandIconRemoteSrc } from './brand/brandIcons'
 
 configureAntdStaticOverlayLayer();
 
@@ -35,6 +36,7 @@ if (
     )
 ) {
     const existingRuntime = (window as any).runtime || {};
+    const existingEnvironment = existingRuntime.Environment;
     const existingEventsOnMultiple = existingRuntime.EventsOnMultiple;
     const existingEventsEmit = existingRuntime.EventsEmit;
     const localRuntimeEventListeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -68,6 +70,15 @@ if (
     };
     (window as any).runtime = {
         ...existingRuntime,
+        Environment: async () => {
+            const detected = typeof existingEnvironment === 'function'
+                ? await existingEnvironment()
+                : {};
+            if (String(detected?.buildType || '').trim()) {
+                return detected;
+            }
+            return { ...detected, platform: 'browser', buildType: 'web' };
+        },
         EventsOnMultiple: (eventName: string, callback: (...args: any[]) => void, maxCallbacks = -1) => {
             const offExisting = typeof existingEventsOnMultiple === 'function'
                 ? existingEventsOnMultiple(eventName, callback, maxCallbacks)
@@ -819,7 +830,11 @@ if (
                 StartUpdateDownload: async () => ({ success: false, message: 'Browser mock does not provide an update package' }),
                 GetUpdateDownloadTask: async () => ({ success: true, data: { task: null } }),
                 SetLanguage: async () => null,
-                GetBrandIconDataURL: async () => '',
+                // The native backend downloads, verifies, and caches these immutable
+                // assets. Browser/Playwright harnesses have no Go backend, so point
+                // image elements at the same origin instead of showing one fallback
+                // glyph for all six choices.
+                GetBrandIconDataURL: async (id: string) => resolveBrandIconRemoteSrc(id),
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
                 BootstrapConnectionSidebarLayout: async (input: any) => {
                     if (

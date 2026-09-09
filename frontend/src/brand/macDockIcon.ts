@@ -19,12 +19,13 @@ export type MacOSDockImageRect = {
 };
 
 /**
- * Only the native macOS runtime can update the Dock image.  The generated
- * Wails bridge also exists in the browser build, so checking method presence
- * alone would still serialize and post a large image from the web client.
+ * macOS and Windows both support changing the native runtime icon. The
+ * generated Wails bridge also exists in the browser build, so checking method
+ * presence alone would still serialize and post a large image from the web.
  */
-export function shouldSyncMacOSDockIcon(environment?: DockIconRuntimeEnvironment | null): boolean {
-  return String(environment?.platform || '').trim().toLowerCase() === 'darwin'
+export function shouldSyncApplicationBrandIcon(environment?: DockIconRuntimeEnvironment | null): boolean {
+  const platform = String(environment?.platform || '').trim().toLowerCase();
+  return (platform === 'darwin' || platform === 'windows')
     && String(environment?.buildType || '').trim().toLowerCase() !== 'web';
 }
 

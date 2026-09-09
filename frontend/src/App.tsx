@@ -53,7 +53,7 @@ import {
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
-import { composeMacOSDockIconBase64, shouldSyncMacOSDockIcon } from './brand/macDockIcon';
+import { composeMacOSDockIconBase64, shouldSyncApplicationBrandIcon } from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
 import SettingsCenterTreeNav, {
@@ -1015,7 +1015,7 @@ function App() {
       void safeWindowRuntimeCall(() => WindowSetLightTheme(), undefined);
   }, [effectiveThemePreference, resolvedThemeMode, setTheme, themeMode]);
 
-  // Apply selected brand mascot to favicon + native macOS Dock icon.
+  // Apply the selected brand mascot to the favicon and supported native OS surfaces.
   useEffect(() => {
       if (typeof document === 'undefined') return;
       const href = resolveBrandIconSrc(brandIconId);
@@ -1030,10 +1030,10 @@ function App() {
       link.href = href;
 
       let cancelled = false;
-      const applyDockIcon = async () => {
+      const applyNativeIcon = async () => {
           try {
               const environment = await Environment();
-              if (cancelled || !shouldSyncMacOSDockIcon(environment)) {
+              if (cancelled || !shouldSyncApplicationBrandIcon(environment)) {
                   return;
               }
               const dockHref = resolveBrandDockSrc(brandIconId);
@@ -1041,17 +1041,17 @@ function App() {
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);
               if (!result.success && !cancelled) {
-                  console.warn('Failed to update the macOS Dock icon:', result.message);
-                  message.warning(t('app.settings.entry.brand_icon.dock_sync_failed'));
+                  console.warn('Failed to update the native application icon:', result.message);
+                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
               }
           } catch (error) {
               if (!cancelled) {
-                  console.warn('Failed to update the macOS Dock icon:', error);
-                  message.warning(t('app.settings.entry.brand_icon.dock_sync_failed'));
+                  console.warn('Failed to update the native application icon:', error);
+                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
               }
           }
       };
-      void applyDockIcon();
+      void applyNativeIcon();
       return () => {
           cancelled = true;
       };

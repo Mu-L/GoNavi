@@ -17,6 +17,7 @@ export type BrandIconDefinition = {
 };
 
 export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
+export const BRAND_ICON_REMOTE_BASE_URL = 'https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1';
 export const BRAND_ICON_FALLBACK_SRC = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjMTYxYzJhIi8+PHBhdGggZD0iTTI0IDM0aDgwYzAgMjAtMTIgMjktMjkgMjktMTcgMC0yOS05LTI5LTI5bDI5IDBjMTcgMCAyOS05IDI5LTI5em0wIDYwYzE3IDAgMjktOSAyOS0yOWgyMmMwIDIwLTEyIDI5LTI5IDI5LTE3IDAtMjktOS0yOS0yOWgyMmMwIDIwIDEyIDI5IDI5IDI5eiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==';
 
 const loadedBrandIconSources = new Map<BrandIconId, string>();
@@ -85,6 +86,14 @@ export function sanitizeBrandIconId(value: unknown): BrandIconId {
 
 export function resolveBrandIcon(id?: unknown): BrandIconDefinition {
   return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[2];
+}
+
+/** Browser-only harnesses use the same immutable assets as the native cache. */
+export function resolveBrandIconRemoteSrc(id?: unknown): string {
+  const raw = String(id || '').trim() as BrandIconId;
+  const definition = BRAND_ICON_BY_ID.get(raw);
+  if (!definition) return '';
+  return `${BRAND_ICON_REMOTE_BASE_URL}/${definition.id}-${definition.slug}.svg`;
 }
 
 export function resolveBrandIconSrc(id?: unknown): string {
