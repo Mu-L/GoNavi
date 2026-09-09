@@ -2027,6 +2027,13 @@ describe('DataGrid layout', () => {
     expect(source).not.toContain('virtualRowHeightMeasurement');
   });
 
+  it('keeps overflowing table column references stable across viewport-only resizes', () => {
+    const source = readDataGridSource();
+
+    expect(source).toContain('const baseTableColumns = useMemo(() => (');
+    expect(source).toContain('columns: baseTableColumns,');
+  });
+
   it('keeps DataGrid scroll synchronization throttled to animation frames', () => {
     const source = readDataGridSource();
     const secondaryActionsSource = readFileSync(new URL('./DataGridSecondaryActions.tsx', import.meta.url), 'utf8');
