@@ -664,7 +664,10 @@ func TestClaudeCLIProvider_ChatTimesOutWhenCommandDoesNotFinish(t *testing.T) {
 	defer restore()
 
 	originalRequestTimeout := claudeCLIRequestTimeout
-	claudeCLIRequestTimeout = 200 * time.Millisecond
+	// Windows can take longer than 200ms to start the helper process. Keep the
+	// timeout short for the test, but leave enough room to exercise the hung
+	// command path rather than timing out during process creation.
+	claudeCLIRequestTimeout = 2 * time.Second
 	defer func() {
 		claudeCLIRequestTimeout = originalRequestTimeout
 	}()
@@ -696,7 +699,9 @@ func TestClaudeCLIProvider_ChatStreamUsesRequestTimeoutWhenNoMeaningfulResponseA
 	defer restore()
 
 	originalRequestTimeout := claudeCLIRequestTimeout
-	claudeCLIRequestTimeout = 200 * time.Millisecond
+	// The stream timeout starts before cmd.Start. A 200ms deadline flakes on
+	// Windows CI before the helper has a chance to emit its init event.
+	claudeCLIRequestTimeout = 2 * time.Second
 	defer func() {
 		claudeCLIRequestTimeout = originalRequestTimeout
 	}()
