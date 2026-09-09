@@ -606,6 +606,10 @@ export function GetAppInfo() {
   return window['go']['app']['App']['GetAppInfo']();
 }
 
+export function GetBrandIconDataURL(arg1) {
+  return window['go']['app']['App']['GetBrandIconDataURL'](arg1);
+}
+
 export function GetDataRootDirectoryInfo() {
   return window['go']['app']['App']['GetDataRootDirectoryInfo']();
 }
@@ -1364,10 +1368,6 @@ export function SelectSavedQueryDirectory(arg1) {
 
 export function SetApplicationBrandIcon(arg1) {
   return window['go']['app']['App']['SetApplicationBrandIcon'](arg1);
-}
-
-export function GetBrandIconDataURL(arg1) {
-  return window['go']['app']['App']['GetBrandIconDataURL'](arg1);
 }
 
 export function SetLanguage(arg1) {
