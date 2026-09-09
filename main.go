@@ -129,6 +129,9 @@ func main() {
 			defer releaseSingleInstance()
 		}
 	}
+	if err := app.ConfigureWindowsApplicationUserModelID(); err != nil {
+		logger.Warnf("设置 Windows 任务栏应用标识失败：%v", err)
+	}
 
 	// Create an instance of the app structure
 	application := app.NewApp()

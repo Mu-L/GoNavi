@@ -54,7 +54,7 @@ var (
 		}
 		proc.Call(hwnd, uintptr(int64(index)), icon)
 	}
-	windowsApplicationIconRefreshTaskbar = refreshWindowsTaskbarButton
+	windowsApplicationIconSetTaskbarProperties = setWindowsTaskbarProperties
 
 	windowsApplicationShortcutMu      sync.Mutex
 	windowsApplicationShortcutRunning bool
@@ -64,7 +64,6 @@ var (
 
 type windowsApplicationShortcutRequest struct {
 	iconPath string
-	hwnd     uintptr
 }
 
 func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext context.Context) error {
@@ -80,9 +79,8 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	}
 	mainWindow, err := setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
 	if mainWindow != 0 {
-		// Even if Explorer rejected the immediate taskbar re-registration, the
-		// shortcut worker gets a second chance after updating the pinned icon.
-		queueCurrentWindowsApplicationShortcutUpdate(iconPath, mainWindow)
+		// Shortcut updates keep existing pins aligned with the window identity.
+		queueCurrentWindowsApplicationShortcutUpdate(iconPath)
 	}
 	if err != nil {
 		return err
@@ -107,7 +105,7 @@ func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath s
 		destroyWindowsApplicationIcon(large)
 		return 0, fmt.Errorf("resolve Windows application window: %w", err)
 	}
-	applyErr := applyWindowsApplicationIcon(mainWindow, small, large)
+	applyErr := applyWindowsApplicationIcon(mainWindow, iconPath, small, large)
 
 	// WM_SETICON / class icon calls transfer live references to these handles.
 	// Keep them alive even when Explorer's taskbar refresh reports an error.
@@ -161,7 +159,7 @@ func resolveWailsMainWindowHandle(runtimeContext context.Context) (handle uintpt
 	return handle, nil
 }
 
-func applyWindowsApplicationIcon(hwnd, small, large uintptr) error {
+func applyWindowsApplicationIcon(hwnd uintptr, iconPath string, small, large uintptr) error {
 	if hwnd == 0 {
 		return errors.New("Windows application window handle is zero")
 	}
@@ -185,8 +183,8 @@ func applyWindowsApplicationIcon(hwnd, small, large uintptr) error {
 			large,
 		)
 	}
-	if err := windowsApplicationIconRefreshTaskbar(hwnd); err != nil {
-		return fmt.Errorf("refresh Windows taskbar icon: %w", err)
+	if err := windowsApplicationIconSetTaskbarProperties(hwnd, iconPath); err != nil {
+		return fmt.Errorf("set Windows taskbar icon properties: %w", err)
 	}
 	return nil
 }
@@ -195,9 +193,9 @@ func applyWindowsApplicationIcon(hwnd, small, large uintptr) error {
 // must not hold the synchronous brand-icon RPC or make rapid selections queue
 // behind stale PowerShell work. The worker serialises updates and coalesces any
 // pending paths so the last selected icon always wins.
-func queueCurrentWindowsApplicationShortcutUpdate(iconPath string, hwnd uintptr) {
+func queueCurrentWindowsApplicationShortcutUpdate(iconPath string) {
 	windowsApplicationShortcutMu.Lock()
-	windowsApplicationShortcutPending = windowsApplicationShortcutRequest{iconPath: iconPath, hwnd: hwnd}
+	windowsApplicationShortcutPending = windowsApplicationShortcutRequest{iconPath: iconPath}
 	if windowsApplicationShortcutRunning {
 		windowsApplicationShortcutMu.Unlock()
 		return
@@ -223,9 +221,6 @@ func drainCurrentWindowsApplicationShortcutUpdates() {
 		if err := windowsApplicationShortcutUpdate(request.iconPath); err != nil {
 			logger.Warnf("后台更新 Windows 应用快捷方式图标失败：%v", err)
 			continue
-		}
-		if err := windowsApplicationIconRefreshTaskbar(request.hwnd); err != nil {
-			logger.Warnf("后台刷新 Windows 任务栏品牌图标失败：%v", err)
 		}
 	}
 }

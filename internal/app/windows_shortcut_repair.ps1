@@ -345,8 +345,12 @@ function Set-GoNaviShortcutBrandIcon {
                         continue
                     }
                     $wantedIconLocation = $normalizedIconPath + ',0'
+                    $needsSave = $false
                     if (-not [string]::Equals([string]$shortcut.IconLocation, $wantedIconLocation, [StringComparison]::OrdinalIgnoreCase)) {
                         $shortcut.IconLocation = $wantedIconLocation
+                        $needsSave = $true
+                    }
+                    if ($needsSave) {
                         $shortcut.Save()
                         $updatedCount++
                     }

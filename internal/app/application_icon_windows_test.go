@@ -46,11 +46,11 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 	)
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
-	originalRefreshTaskbar := windowsApplicationIconRefreshTaskbar
+	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
-		windowsApplicationIconRefreshTaskbar = originalRefreshTaskbar
+		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
 	})
 
 	current := map[uintptr]uintptr{}
@@ -76,13 +76,16 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 			t.Fatalf("unexpected class icon handle %#x", icon)
 		}
 	}
-	refreshedTaskbar := uintptr(0)
-	windowsApplicationIconRefreshTaskbar = func(actualHWND uintptr) error {
-		refreshedTaskbar = actualHWND
+	var taskbarHWND uintptr
+	var taskbarIconPath string
+	windowsApplicationIconSetTaskbarProperties = func(actualHWND uintptr, iconPath string) error {
+		taskbarHWND = actualHWND
+		taskbarIconPath = iconPath
 		return nil
 	}
 
-	if err := applyWindowsApplicationIcon(hwnd, small, large); err != nil {
+	const iconPath = `C:\Users\tester\gonavi-brand.ico`
+	if err := applyWindowsApplicationIcon(hwnd, iconPath, small, large); err != nil {
 		t.Fatalf("apply Windows application icon: %v", err)
 	}
 	if len(calls) != 4 {
@@ -94,19 +97,19 @@ func TestApplyWindowsApplicationIconVerifiesMainWindowReadback(t *testing.T) {
 	if calls[1] != [4]uintptr{hwnd, windowsSetIconMessage, windowsIconBig, large} {
 		t.Fatalf("large icon update = %#v", calls[1])
 	}
-	if refreshedTaskbar != hwnd {
-		t.Fatalf("refreshed taskbar HWND = %#x, want %#x", refreshedTaskbar, hwnd)
+	if taskbarHWND != hwnd || taskbarIconPath != iconPath {
+		t.Fatalf("taskbar properties = (%#x, %q), want (%#x, %q)", taskbarHWND, taskbarIconPath, hwnd, iconPath)
 	}
 }
 
 func TestApplyWindowsApplicationIconRejectsSilentSetFailure(t *testing.T) {
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
-	originalRefreshTaskbar := windowsApplicationIconRefreshTaskbar
+	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
-		windowsApplicationIconRefreshTaskbar = originalRefreshTaskbar
+		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
 	})
 	windowsApplicationIconSendMessageCall = func(_, message, _, _ uintptr) uintptr {
 		if message == windowsGetIconMessage {
@@ -115,12 +118,12 @@ func TestApplyWindowsApplicationIconRejectsSilentSetFailure(t *testing.T) {
 		return 0
 	}
 	windowsApplicationIconSetClassIcon = func(uintptr, int32, uintptr) {}
-	windowsApplicationIconRefreshTaskbar = func(uintptr) error {
-		t.Fatal("taskbar must not refresh when icon readback failed")
+	windowsApplicationIconSetTaskbarProperties = func(uintptr, string) error {
+		t.Fatal("taskbar properties must not update when icon readback failed")
 		return nil
 	}
 
-	err := applyWindowsApplicationIcon(0x1234, 0x2001, 0x2002)
+	err := applyWindowsApplicationIcon(0x1234, `C:\brand.ico`, 0x2001, 0x2002)
 	if err == nil {
 		t.Fatal("expected readback mismatch to fail")
 	}
@@ -129,14 +132,14 @@ func TestApplyWindowsApplicationIconRejectsSilentSetFailure(t *testing.T) {
 	}
 }
 
-func TestApplyWindowsApplicationIconReturnsTaskbarRefreshFailure(t *testing.T) {
+func TestApplyWindowsApplicationIconReturnsTaskbarPropertyFailure(t *testing.T) {
 	originalSend := windowsApplicationIconSendMessageCall
 	originalSetClass := windowsApplicationIconSetClassIcon
-	originalRefreshTaskbar := windowsApplicationIconRefreshTaskbar
+	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
 	t.Cleanup(func() {
 		windowsApplicationIconSendMessageCall = originalSend
 		windowsApplicationIconSetClassIcon = originalSetClass
-		windowsApplicationIconRefreshTaskbar = originalRefreshTaskbar
+		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
 	})
 	windowsApplicationIconSendMessageCall = func(_, message, iconType, icon uintptr) uintptr {
 		if message == windowsGetIconMessage {
@@ -148,13 +151,13 @@ func TestApplyWindowsApplicationIconReturnsTaskbarRefreshFailure(t *testing.T) {
 		return icon
 	}
 	windowsApplicationIconSetClassIcon = func(uintptr, int32, uintptr) {}
-	windowsApplicationIconRefreshTaskbar = func(uintptr) error {
-		return errors.New("shell rejected taskbar refresh")
+	windowsApplicationIconSetTaskbarProperties = func(uintptr, string) error {
+		return errors.New("shell rejected taskbar properties")
 	}
 
-	err := applyWindowsApplicationIcon(0x1234, 0x2001, 0x2002)
+	err := applyWindowsApplicationIcon(0x1234, `C:\brand.ico`, 0x2001, 0x2002)
 	if err == nil || !strings.Contains(err.Error(), "taskbar") {
-		t.Fatalf("expected taskbar refresh error, got %v", err)
+		t.Fatalf("expected taskbar property error, got %v", err)
 	}
 }
 
