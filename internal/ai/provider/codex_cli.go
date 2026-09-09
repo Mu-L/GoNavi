@@ -20,7 +20,7 @@ import (
 var codexLookPath = lookupLocalCLICommand
 var codexCommandContext = exec.CommandContext
 var codexEvalSymlinks = filepath.EvalSymlinks
-var codexCLIChatGPTAuthCheck = CheckCodexCLIAuthWithConfig
+var codexCLILocalAuthCheck = CheckCodexCLIAuthWithConfig
 
 const codexCLIMaxJSONLineBytes = 8 * 1024 * 1024
 const codexCLILoginConfigOverride = `model_reasoning_effort="high"`
@@ -112,7 +112,7 @@ type codexCLIResult struct {
 	LastError     string
 }
 
-// CodexCLIProvider 通过官方 Codex CLI 复用本机 ChatGPT 订阅登录态。
+// CodexCLIProvider 通过官方 Codex CLI 复用本机当前认证（ChatGPT 或 API key）。
 // CLI 在隔离临时目录、只读 sandbox 且禁用 shell/web 的条件下运行。
 type CodexCLIProvider struct {
 	config ai.ProviderConfig
@@ -120,7 +120,7 @@ type CodexCLIProvider struct {
 
 func NewCodexCLIProvider(config ai.ProviderConfig) (Provider, error) {
 	if !strings.EqualFold(strings.TrimSpace(config.AuthMode), "local-cli") {
-		return nil, fmt.Errorf("Codex CLI provider requires local-cli subscription authentication")
+		return nil, fmt.Errorf("Codex CLI provider requires local-cli authentication")
 	}
 	return &CodexCLIProvider{config: config}, nil
 }
@@ -135,13 +135,13 @@ func (p *CodexCLIProvider) Validate() error {
 }
 
 // CheckCodexCLIAuth verifies that the official CLI is installed and has a
-// usable local login. It deliberately does not send a model request.
+// usable ChatGPT or API-key login. It deliberately does not send a model request.
 func CheckCodexCLIAuth(ctx context.Context) error {
 	return CheckCodexCLIAuthWithConfig(ctx, ai.ProviderConfig{AuthMode: "local-cli"})
 }
 
 // CheckCodexCLIAuthWithConfig validates the exact CLI executable/environment
-// selected for the provider while preserving subscription authentication.
+// selected for the provider while preserving the CLI's active authentication.
 func CheckCodexCLIAuthWithConfig(ctx context.Context, config ai.ProviderConfig) error {
 	command, err := resolveCodexCLICommand(runtime.GOOS, runtime.GOARCH, lookPathWithOverride(config.CLIPath, codexLookPath), fileExists)
 	if err != nil {
@@ -164,21 +164,21 @@ func CheckCodexCLIAuthWithConfig(ctx context.Context, config ai.ProviderConfig) 
 		}
 		return fmt.Errorf("Codex CLI login check failed: %s; run codex login first", RedactAIUpstreamLogText(detail))
 	}
-	if !isCodexCLIChatGPTLoginStatus(detail) {
+	if !isCodexCLIAuthenticatedStatus(detail) {
 		if detail == "" {
 			detail = "unknown login type"
 		}
-		return fmt.Errorf(
-			"Codex CLI is not logged in with a ChatGPT subscription (status: %s); run codex logout, then codex login and choose ChatGPT",
-			RedactAIUpstreamLogText(detail),
-		)
+		return fmt.Errorf("Codex CLI is not authenticated with ChatGPT or an API key (status: %s); run codex login or codex login --with-api-key", RedactAIUpstreamLogText(detail))
 	}
 	return nil
 }
 
-func isCodexCLIChatGPTLoginStatus(status string) bool {
+func isCodexCLIAuthenticatedStatus(status string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(status))
-	return strings.Contains(normalized, "logged in using chatgpt")
+	return strings.Contains(normalized, "logged in using chatgpt") ||
+		strings.Contains(normalized, "logged in using an api key") ||
+		strings.Contains(normalized, "logged in using api key") ||
+		strings.Contains(normalized, "logged in using an access token")
 }
 
 func (p *CodexCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
@@ -208,7 +208,7 @@ func (p *CodexCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, c
 func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest, onChunk func(ai.StreamChunk)) (codexCLIResult, error) {
 	ctx, watchdog := startCLIIdleWatchdog(ctx, cliStreamIdleTimeout, cliStreamMaxTimeout)
 	defer watchdog.Close()
-	if err := codexCLIChatGPTAuthCheck(ctx, p.config); err != nil {
+	if err := codexCLILocalAuthCheck(ctx, p.config); err != nil {
 		return codexCLIResult{}, err
 	}
 
@@ -365,7 +365,7 @@ func buildCodexCLIArgs(config ai.ProviderConfig) []string {
 }
 
 func buildCodexCLIEnv(baseEnv []string, commandPath string) []string {
-	return EnrichCLICommandPATH(removeEnvKeys(baseEnv, "CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"), commandPath)
+	return EnrichCLICommandPATH(baseEnv, commandPath)
 }
 
 func buildCodexCLIEnvWithConfig(baseEnv []string, commandPath string, extra map[string]string) []string {

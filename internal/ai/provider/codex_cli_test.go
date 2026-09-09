@@ -81,7 +81,7 @@ func TestNewCodexCLIProviderRejectsAPIKeyAuthMode(t *testing.T) {
 	}
 }
 
-func TestBuildCodexCLIEnvRemovesAPIKeyOverrides(t *testing.T) {
+func TestBuildCodexCLIEnvPreservesActiveCLIAuthentication(t *testing.T) {
 	env := buildCodexCLIEnv([]string{
 		"PATH=/usr/bin",
 		"CODEX_HOME=/tmp/codex-home",
@@ -90,9 +90,13 @@ func TestBuildCodexCLIEnvRemovesAPIKeyOverrides(t *testing.T) {
 		"OPENAI_BASE_URL=https://example.invalid",
 	}, "")
 
-	for _, key := range []string{"CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"} {
-		if got := envValue(env, key); got != "" {
-			t.Fatalf("expected %s to be removed, got %q", key, got)
+	for key, want := range map[string]string{
+		"CODEX_API_KEY":   "codex-key",
+		"OPENAI_API_KEY":  "openai-key",
+		"OPENAI_BASE_URL": "https://example.invalid",
+	} {
+		if got := envValue(env, key); got != want {
+			t.Fatalf("expected %s=%q to be preserved, got %q", key, want, got)
 		}
 	}
 	if got := envValue(env, "CODEX_HOME"); got != "/tmp/codex-home" {
@@ -147,7 +151,7 @@ func TestCodexCLIProviderChatReadsPromptFromStdinAndParsesJSONL(t *testing.T) {
 	}
 }
 
-func TestCodexCLIProviderCustomEnvironmentCannotRestoreAPIOverrides(t *testing.T) {
+func TestCodexCLIProviderCustomEnvironmentCanSelectAPIKeyAuthentication(t *testing.T) {
 	restore := overrideCodexCLIForTest(t, "success")
 	defer restore()
 
@@ -162,8 +166,8 @@ func TestCodexCLIProviderCustomEnvironmentCannotRestoreAPIOverrides(t *testing.T
 		AuthMode: "local-cli",
 		CLIEnv: map[string]string{
 			"GONAVI_CODEX_CUSTOM": "configured",
-			"OPENAI_API_KEY":      "must-stay-blocked",
-			"OPENAI_BASE_URL":     "https://must-stay-blocked.invalid",
+			"OPENAI_API_KEY":      "configured-api-key",
+			"OPENAI_BASE_URL":     "https://configured-endpoint.invalid",
 		},
 	})
 	if err != nil {
@@ -178,23 +182,24 @@ func TestCodexCLIProviderCustomEnvironmentCannotRestoreAPIOverrides(t *testing.T
 	if got := envValue(modelCommand.Env, "GONAVI_CODEX_CUSTOM"); got != "configured" {
 		t.Fatalf("custom environment = %q, want configured", got)
 	}
-	for _, key := range []string{"CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"} {
-		if got := envValue(modelCommand.Env, key); got != "" {
-			t.Fatalf("%s was restored after subscription isolation: %q", key, got)
-		}
+	if got := envValue(modelCommand.Env, "OPENAI_API_KEY"); got != "configured-api-key" {
+		t.Fatalf("OPENAI_API_KEY = %q, want configured CLI authentication", got)
+	}
+	if got := envValue(modelCommand.Env, "OPENAI_BASE_URL"); got != "https://configured-endpoint.invalid" {
+		t.Fatalf("OPENAI_BASE_URL = %q, want configured CLI endpoint", got)
 	}
 }
 
-func TestCodexCLIProviderChatRejectsNonSubscriptionAuthBeforeModelRequest(t *testing.T) {
-	originalAuthCheck := codexCLIChatGPTAuthCheck
+func TestCodexCLIProviderChatStopsWhenAuthenticationCheckFails(t *testing.T) {
+	originalAuthCheck := codexCLILocalAuthCheck
 	originalCommandContext := codexCommandContext
 	defer func() {
-		codexCLIChatGPTAuthCheck = originalAuthCheck
+		codexCLILocalAuthCheck = originalAuthCheck
 		codexCommandContext = originalCommandContext
 	}()
 
-	codexCLIChatGPTAuthCheck = func(context.Context, ai.ProviderConfig) error {
-		return errors.New("Codex CLI is not logged in with a ChatGPT subscription; API key login detected")
+	codexCLILocalAuthCheck = func(context.Context, ai.ProviderConfig) error {
+		return errors.New("Codex CLI is not authenticated")
 	}
 	modelStarted := false
 	codexCommandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
@@ -206,8 +211,8 @@ func TestCodexCLIProviderChatRejectsNonSubscriptionAuthBeforeModelRequest(t *tes
 	_, err := provider.Chat(context.Background(), ai.ChatRequest{
 		Messages: []ai.Message{{Role: "user", Content: "must not be sent"}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "ChatGPT subscription") {
-		t.Fatalf("expected subscription auth error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not authenticated") {
+		t.Fatalf("expected authentication error, got %v", err)
 	}
 	if modelStarted {
 		t.Fatal("model command must not start when subscription auth validation fails")
@@ -234,13 +239,12 @@ func TestCheckCodexCLIAuthUsesLoginStatusWithoutModelRequest(t *testing.T) {
 	}
 }
 
-func TestCheckCodexCLIAuthRejectsAPIKeyLogin(t *testing.T) {
+func TestCheckCodexCLIAuthAcceptsAPIKeyLogin(t *testing.T) {
 	restore := overrideCodexCLIForTest(t, "login-api-key")
 	defer restore()
 
-	err := CheckCodexCLIAuth(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "ChatGPT subscription") || !strings.Contains(err.Error(), "API key") {
-		t.Fatalf("expected API key login to be rejected with an actionable error, got %v", err)
+	if err := CheckCodexCLIAuth(context.Background()); err != nil {
+		t.Fatalf("expected API key login to be accepted, got %v", err)
 	}
 }
 
@@ -444,7 +448,7 @@ func overrideCodexCLIForTest(t *testing.T, mode string) func() {
 	t.Helper()
 	originalLookPath := codexLookPath
 	originalCommandContext := codexCommandContext
-	originalAuthCheck := codexCLIChatGPTAuthCheck
+	originalAuthCheck := codexCLILocalAuthCheck
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("resolve test executable: %v", err)
@@ -460,10 +464,10 @@ func overrideCodexCLIForTest(t *testing.T, mode string) func() {
 		cmd.Env = append(os.Environ(), "GO_WANT_CODEX_HELPER=1", "GO_CODEX_HELPER_MODE="+mode)
 		return cmd
 	}
-	codexCLIChatGPTAuthCheck = func(context.Context, ai.ProviderConfig) error { return nil }
+	codexCLILocalAuthCheck = func(context.Context, ai.ProviderConfig) error { return nil }
 	return func() {
 		codexLookPath = originalLookPath
 		codexCommandContext = originalCommandContext
-		codexCLIChatGPTAuthCheck = originalAuthCheck
+		codexCLILocalAuthCheck = originalAuthCheck
 	}
 }
