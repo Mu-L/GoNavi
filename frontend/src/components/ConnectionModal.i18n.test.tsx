@@ -241,6 +241,9 @@ vi.mock("@ant-design/icons", () => {
 });
 
 const modalConfirm = vi.hoisted(() => vi.fn());
+const modalTestState = vi.hoisted(() => ({
+  connectionPanel: null as any,
+}));
 
 vi.mock("antd", () => {
   const Button: any = ({ children, disabled, loading, onClick, ...rest }: any) => (
@@ -403,14 +406,34 @@ vi.mock("antd", () => {
     }
   };
 
-  const Modal: any = ({ title, children, footer, open }: any) =>
-    open ? (
+  const Modal: any = ({ title, children, footer, open, panelRef, wrapClassName }: any) => {
+    React.useLayoutEffect(() => {
+      if (!String(wrapClassName || "").includes("connection-modal-wrap") || !panelRef) {
+        return undefined;
+      }
+      const panel = open ? modalTestState.connectionPanel : null;
+      if (typeof panelRef === "function") {
+        panelRef(panel);
+      } else {
+        panelRef.current = panel;
+      }
+      return () => {
+        if (typeof panelRef === "function") {
+          panelRef(null);
+        } else {
+          panelRef.current = null;
+        }
+      };
+    }, [open, panelRef, wrapClassName]);
+
+    return open ? (
       <section>
         <div>{title}</div>
         <div>{children}</div>
         <div>{footer}</div>
       </section>
     ) : null;
+  };
   Modal.confirm = modalConfirm;
 
   const Typography = {
@@ -443,6 +466,7 @@ describe("ConnectionModal i18n", () => {
   beforeEach(() => {
     vi.stubGlobal("document", {
       body: {},
+      getElementById: vi.fn(() => null),
       querySelectorAll: vi.fn(() => []),
     });
     vi.stubGlobal(
@@ -463,6 +487,7 @@ describe("ConnectionModal i18n", () => {
 
     storeState.appearance.opacity = 1;
     storeState.pinnedConnectionTypes = [];
+    modalTestState.connectionPanel = null;
     backendApp.GetDriverStatusList.mockResolvedValue({ success: true, data: { drivers: [] } });
     backendApp.SaveConnection.mockReset();
     backendApp.SaveConnection.mockImplementation(async (input) => ({
@@ -2296,6 +2321,96 @@ describe("ConnectionModal i18n", () => {
     ).toBe("button");
     expect(findClickableCard(renderer!, "MySQL").type).toBe("button");
     expect(findClickableCard(renderer!, "MySQL").props.type).toBe("button");
+  });
+
+  it("keeps keyboard focus in the active form after switching connection type", async () => {
+    const createFocusable = () => {
+      const element: any = {
+        disabled: false,
+        hidden: false,
+        parentElement: {},
+        closest: vi.fn(() => null),
+        getAttribute: vi.fn(() => null),
+        hasAttribute: vi.fn(() => false),
+        getClientRects: vi.fn(() => [{}]),
+      };
+      element.focus = vi.fn(() => {
+        (document as any).activeElement = element;
+      });
+      return element;
+    };
+
+    const outsideControl = createFocusable();
+    const portalControl = createFocusable();
+    const firstControl = createFocusable();
+    const selectedSection = createFocusable();
+    const lastControl = createFocusable();
+    const panel = {
+      contains: vi.fn((element: unknown) =>
+        [firstControl, selectedSection, lastControl].includes(element),
+      ),
+      querySelector: vi.fn((selector: string) =>
+        selector.includes("gn-conn-form-nav-item") ? selectedSection : null,
+      ),
+      querySelectorAll: vi.fn(() => [firstControl, selectedSection, lastControl]),
+    };
+    modalTestState.connectionPanel = panel;
+    vi.mocked(document.getElementById).mockReturnValue({
+      contains: (element: unknown) => element === outsideControl,
+    } as HTMLElement);
+    (document as any).activeElement = outsideControl;
+
+    const onClose = vi.fn();
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ConnectionModal open onClose={onClose} />);
+    });
+    await act(async () => {
+      findClickableCard(renderer!, "MySQL").props.onClick();
+    });
+
+    expect(selectedSection.focus).toHaveBeenCalledTimes(1);
+    expect((document as any).activeElement).toBe(selectedSection);
+
+    const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === "keydown" && options === true);
+    const keydownListener = (
+      keydownRegistrations[keydownRegistrations.length - 1]?.[1]
+    ) as EventListener | undefined;
+    expect(keydownListener).toBeDefined();
+
+    const dispatchKey = (key: string, shiftKey = false) => {
+      const event = {
+        key,
+        shiftKey,
+        defaultPrevented: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      };
+      keydownListener?.(event as unknown as Event);
+      return event;
+    };
+
+    (document as any).activeElement = outsideControl;
+    const forwardTab = dispatchKey("Tab");
+    expect(forwardTab.preventDefault).toHaveBeenCalledTimes(1);
+    expect(firstControl.focus).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = outsideControl;
+    const backwardTab = dispatchKey("Tab", true);
+    expect(backwardTab.preventDefault).toHaveBeenCalledTimes(1);
+    expect(lastControl.focus).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = outsideControl;
+    const escape = dispatchKey("Escape");
+    expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = portalControl;
+    const portalEscape = dispatchKey("Escape");
+    expect(portalEscape.preventDefault).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("pins data source types without opening the form and restores their personal order", async () => {
