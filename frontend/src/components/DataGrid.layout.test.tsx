@@ -148,6 +148,7 @@ const enUsCatalog = JSON.parse(
   readFileSync(new URL('../../../shared/i18n/en-US.json', import.meta.url), 'utf8'),
 ) as Record<string, string>;
 const zhObjectDesignLabel = zhCnCatalog['data_grid.secondary.object_design'];
+const zhRowNumberHint = zhCnCatalog['data_grid.row_number.double_click_to_view'];
 const enUndoCellChangeLabel = enUsCatalog['data_grid.context_menu.undo_cell_change'];
 
 describe('DataGrid layout', () => {
@@ -1727,6 +1728,10 @@ describe('DataGrid layout', () => {
       expect(markup).toContain('vertical-align:middle');
       expect(markup).toContain('data-grid-row-number="true"');
       expect(markup).toContain('data-grid-row-number-action="true"');
+      expect(markup).toContain(`title="${zhRowNumberHint}"`);
+      expect(markup).toContain(
+        `<span class="data-grid-row-number" data-grid-row-number="true" title="${zhRowNumberHint}"`,
+      );
       expect(markup).toContain('display:flex');
       expect(markup).toContain('width:100%');
       expect(markup).toContain('height:100%');

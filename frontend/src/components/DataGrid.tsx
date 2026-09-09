@@ -3,7 +3,7 @@ import { registerWorkbenchTabCloseGuard } from '../utils/workbenchTabCloseProtec
 // cspell:ignore anticon sqls uuidv uuidv4 hscroll
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Tooltip, Popover, DatePicker, TimePicker } from 'antd';
+import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Popover, DatePicker, TimePicker } from 'antd';
 import type { InputRef } from 'antd';
 import dayjs from 'dayjs';
 import type { SortOrder, ColumnType } from 'antd/es/table/interface';
@@ -3710,28 +3710,27 @@ const DataGrid: React.FC<DataGridProps> = ({
           const pageSize = Math.max(1, Number(pagination?.pageSize) || 0);
           const offset = pageSize > 0 ? (currentPage - 1) * pageSize : 0;
           return (
-              <Tooltip title={translateDataGrid('data_grid.row_number.double_click_to_view')}>
-                  <span
-                      className="data-grid-row-number"
-                      data-grid-row-number="true"
-                      style={{
-                          display: 'flex',
-                          width: '100%',
-                          height: '100%',
-                          minHeight: 24,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                      }}
-                      onDoubleClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          handleRowNumberDoubleClick(index);
-                      }}
-                  >
-                      {offset + index + 1}
-                  </span>
-              </Tooltip>
+              <span
+                  className="data-grid-row-number"
+                  data-grid-row-number="true"
+                  title={translateDataGrid('data_grid.row_number.double_click_to_view')}
+                  style={{
+                      display: 'flex',
+                      width: '100%',
+                      height: '100%',
+                      minHeight: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                  }}
+                  onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleRowNumberDoubleClick(index);
+                  }}
+              >
+                  {offset + index + 1}
+              </span>
           );
       },
   }), [handleResizeAutoFit, handleResizeStart, handleRowNumberClick, handleRowNumberDoubleClick, pagination?.current, pagination?.pageSize, rowNumberColumnWidth, translateDataGrid]);
