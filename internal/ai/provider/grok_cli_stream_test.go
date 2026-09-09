@@ -56,6 +56,16 @@ func TestGrokStreamChunkFromLine(t *testing.T) {
 	}
 }
 
+func TestGrokStreamUsageFromLine(t *testing.T) {
+	usage := grokStreamUsageFromLine([]byte(`{"type":"result","usage":{"input_tokens":10,"output_tokens":3,"total_tokens":13,"cached_input_tokens":4}}`))
+	if usage == nil || usage.PromptTokens != 10 || usage.CompletionTokens != 3 || usage.TotalTokens != 13 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 4 {
+		t.Fatalf("cached usage = %#v", usage.CachedTokens)
+	}
+}
+
 func TestBuildGrokCLIArgsStreamingFormat(t *testing.T) {
 	args, err := buildGrokCLIArgsWithStream(ai.ProviderConfig{Model: "grok-4.6"}, "hi", true)
 	if err != nil {
