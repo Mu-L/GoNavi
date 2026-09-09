@@ -158,7 +158,7 @@ func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callba
 		return err
 	}
 
-	cmd := grokCommandContext(ctx, command, args...)
+	cmd := newGrokCLICommand(ctx, command, args...)
 	cmd.Env = MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -300,7 +300,7 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 		return grokCLIResult{}, err
 	}
 
-	cmd := grokCommandContext(ctx, command, args...)
+	cmd := newGrokCLICommand(ctx, command, args...)
 	cmd.Env = MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -407,6 +407,13 @@ func createGrokCLIPromptFile(prompt string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("close Grok CLI prompt file failed: %w", err)
 	}
 	return path, cleanup, nil
+}
+
+func newGrokCLICommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	// Grok is commonly installed through a Windows command wrapper. GoNavi is
+	// a GUI process, so the child must use the same no-console policy as the
+	// other local CLI providers instead of creating a transient terminal tab.
+	return newLocalCLICommand(grokCommandContext, ctx, name, args...)
 }
 
 func grokCLIStructuredErrorDetail(output string) string {

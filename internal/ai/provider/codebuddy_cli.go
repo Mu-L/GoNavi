@@ -76,7 +76,7 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 		args = append(args, "--resume", strings.TrimSpace(sessionState.SessionID))
 	}
 
-	cmd := codebuddyCommandContext(ctx, commandName, args...)
+	cmd := newLocalCLICommand(codebuddyCommandContext, ctx, commandName, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return nil, nil, err
 	}
@@ -175,7 +175,7 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 		args = append(args, "--resume", strings.TrimSpace(resumeSessionID))
 	}
 
-	cmd := codebuddyCommandContext(ctx, commandName, args...)
+	cmd := newLocalCLICommand(codebuddyCommandContext, ctx, commandName, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return "", err
 	}

@@ -7,9 +7,9 @@ import (
 	"syscall"
 )
 
-const claudeCLIWindowsCreateNoWindow uint32 = 0x08000000
+const localCLIWindowsCreateNoWindow uint32 = 0x08000000
 
-func configureClaudeCLICommand(cmd *exec.Cmd) {
+func configureLocalCLICommand(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
@@ -17,5 +17,5 @@ func configureClaudeCLICommand(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.HideWindow = true
-	cmd.SysProcAttr.CreationFlags |= claudeCLIWindowsCreateNoWindow
+	cmd.SysProcAttr.CreationFlags |= localCLIWindowsCreateNoWindow
 }

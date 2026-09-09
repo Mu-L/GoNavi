@@ -4,4 +4,4 @@ package provider
 
 import "os/exec"
 
-func configureClaudeCLICommand(_ *exec.Cmd) {}
+func configureLocalCLICommand(_ *exec.Cmd) {}

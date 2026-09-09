@@ -423,9 +423,7 @@ func isClaudeCLITimeout(ctx context.Context, err error) bool {
 }
 
 func newClaudeCLICommand(ctx context.Context, name string, args ...string) *exec.Cmd {
-	cmd := claudeCommandContext(ctx, name, args...)
-	configureClaudeCLICommand(cmd)
-	return cmd
+	return newLocalCLICommand(claudeCommandContext, ctx, name, args...)
 }
 
 func claudeCLIEndpointForLog(config ai.ProviderConfig) string {

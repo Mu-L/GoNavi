@@ -341,7 +341,7 @@ var modelDiscoveryTimeout = 15 * time.Second
 
 var cliModelLookPath = lookupLocalCLICommand
 var cliModelCommandOutput = func(ctx context.Context, command string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := newLocalCLICommand(exec.CommandContext, ctx, command, args...)
 	// A CLI wrapper may leave inherited output pipes open after it is killed.
 	cmd.WaitDelay = time.Second
 	cmd.Env = EnrichCLICommandPATH(cmd.Environ(), command)
@@ -382,7 +382,7 @@ func (c CLICapability) DiscoverModelsWithConfig(ctx context.Context, config ai.P
 	if strings.TrimSpace(config.CLIPath) == "" && len(config.CLIEnv) == 0 {
 		output, runErr = cliModelCommandOutput(ctx, command, c.ModelDiscoveryArgs...)
 	} else {
-		cmd := exec.CommandContext(ctx, command, c.ModelDiscoveryArgs...)
+		cmd := newLocalCLICommand(exec.CommandContext, ctx, command, c.ModelDiscoveryArgs...)
 		cmd.WaitDelay = time.Second
 		cmd.Env = MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), config.CLIEnv)
 		output, runErr = cmd.CombinedOutput()

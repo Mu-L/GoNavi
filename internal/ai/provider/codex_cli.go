@@ -227,7 +227,7 @@ func CheckCodexCLIAuthWithConfig(ctx context.Context, config ai.ProviderConfig) 
 	args := append(append([]string(nil), command.PrefixArgs...),
 		"login", "status", "-c", codexCLILoginConfigOverride,
 	)
-	cmd := codexCommandContext(ctx, command.Path, args...)
+	cmd := newLocalCLICommand(codexCommandContext, ctx, command.Path, args...)
 	cmd.Env = buildCodexCLIEnvWithConfig(cmd.Environ(), command.Path, config.CLIEnv)
 	output, err := cmd.CombinedOutput()
 	detail := strings.TrimSpace(string(output))
@@ -314,7 +314,7 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest, onChunk 
 
 	prompt := buildPrompt(req.Messages)
 	args := append(append([]string(nil), command.PrefixArgs...), buildCodexCLIArgs(p.config, routing)...)
-	cmd := codexCommandContext(ctx, command.Path, args...)
+	cmd := newLocalCLICommand(codexCommandContext, ctx, command.Path, args...)
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Env = buildCodexCLIEnvWithConfig(cmd.Environ(), command.Path, mergeCodexCLIProviderEnv(p.config.CLIEnv, routing.Env))

@@ -338,8 +338,7 @@ func startCursorCLICommandWithConfig(ctx context.Context, config ai.ProviderConf
 	// --trust refers exclusively to our newly-created workspace, never the
 	// user's project. No user CLI configuration or login file is rewritten.
 	commandArgs := append([]string{"--workspace", workspace}, args...)
-	cmd := cursorCommandContext(ctx, command, commandArgs...)
-	configureClaudeCLICommand(cmd) // Hide the console window on Windows.
+	cmd := newLocalCLICommand(cursorCommandContext, ctx, command, commandArgs...)
 	cmd.Dir = workspace
 	customEnv := MergeProviderCLIEnv(cmd.Environ(), config.CLIEnv)
 	cmd.Env = EnrichCLICommandPATH(buildCursorCLIEnv(customEnv, filepath.Join(workspace, "data")), command)
