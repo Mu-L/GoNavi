@@ -2029,6 +2029,11 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 		var assistant *Message
 		if result.Text != "" || result.Reasoning != "" || len(result.ToolCalls) > 0 {
 			message := Message{ID: uuid.NewString(), SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: result.Text, Reasoning: result.Reasoning, CreatedAt: time.Now().UTC()}
+			if metadata, marshalErr := json.Marshal(struct {
+				Usage Usage `json:"usage"`
+			}{Usage: result.Usage}); marshalErr == nil {
+				message.Metadata = metadata
+			}
 			if len(result.ToolCalls) > 0 {
 				calls, _ := json.Marshal(result.ToolCalls)
 				message.ToolCalls = calls

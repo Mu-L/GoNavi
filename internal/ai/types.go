@@ -67,6 +67,9 @@ type TokenUsage struct {
 	PromptTokens     int `json:"promptTokens"`
 	CompletionTokens int `json:"completionTokens"`
 	TotalTokens      int `json:"totalTokens"`
+	// CachedTokens is nil when the upstream does not expose cache-hit usage.
+	// A non-nil zero means the provider reported that no prompt tokens were cached.
+	CachedTokens *int `json:"cachedTokens,omitempty"`
 }
 
 // StreamChunk 流式响应片段
@@ -77,6 +80,9 @@ type StreamChunk struct {
 	Done             bool       `json:"done"`
 	Error            string     `json:"error,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	// Usage is normally attached to the terminal chunk. Providers that do not
+	// expose usage leave it nil so the UI can show an explicit unavailable value.
+	Usage *TokenUsage `json:"usage,omitempty"`
 }
 
 // ThinkingIntensity 控制模型思考/推理强度。

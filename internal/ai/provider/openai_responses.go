@@ -208,18 +208,23 @@ type openAIResponsesOutputItem struct {
 }
 
 type openAIResponsesResponse struct {
-	ID     string            `json:"id"`
-	Status string            `json:"status,omitempty"`
-	Output []json.RawMessage `json:"output"`
-	Usage  struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
+	ID                string                `json:"id"`
+	Status            string                `json:"status,omitempty"`
+	Output            []json.RawMessage     `json:"output"`
+	Usage             *openAIResponsesUsage `json:"usage,omitempty"`
 	Error             *openAIResponsesError `json:"error,omitempty"`
 	IncompleteDetails *struct {
 		Reason string `json:"reason,omitempty"`
 	} `json:"incomplete_details,omitempty"`
+}
+
+type openAIResponsesUsage struct {
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	TotalTokens       int `json:"total_tokens"`
+	InputTokenDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details,omitempty"`
 }
 
 type openAIResponsesStreamEvent struct {
@@ -661,15 +666,23 @@ func parseOpenAIResponsesOutput(result openAIResponsesResponse) *ai.ChatResponse
 		}
 	}
 
+	usage := ai.TokenUsage{}
+	if result.Usage != nil {
+		usage = ai.TokenUsage{
+			PromptTokens:     result.Usage.InputTokens,
+			CompletionTokens: result.Usage.OutputTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+		}
+		if result.Usage.InputTokenDetails != nil {
+			cached := result.Usage.InputTokenDetails.CachedTokens
+			usage.CachedTokens = &cached
+		}
+	}
 	return &ai.ChatResponse{
 		Content:          content.String(),
 		ReasoningContent: reasoning.String(),
 		ToolCalls:        toolCalls,
-		TokensUsed: ai.TokenUsage{
-			PromptTokens:     result.Usage.InputTokens,
-			CompletionTokens: result.Usage.OutputTokens,
-			TotalTokens:      result.Usage.TotalTokens,
-		},
+		TokensUsed:       usage,
 	}
 }
 
@@ -1059,8 +1072,13 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 			if !receivedText && !receivedReasoning && !receivedToolCall {
 				return state, fmt.Errorf("OpenAI Responses returned empty response")
 			}
+			var streamUsage *ai.TokenUsage
+			if event.Response.Usage != nil {
+				usage := completed.TokensUsed
+				streamUsage = &usage
+			}
 			if len(event.Response.Output) == 0 {
-				callback(ai.StreamChunk{Done: true})
+				callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 				return nil, nil
 			}
 			representedMessages := appendOpenAIResponsesAssistantMessage(requestMessages, &ai.ChatResponse{
@@ -1072,7 +1090,7 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 			if err != nil {
 				return state, err
 			}
-			callback(ai.StreamChunk{Done: true})
+			callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 			return nextState, nil
 		case "response.failed":
 			message := "OpenAI Responses request failed"

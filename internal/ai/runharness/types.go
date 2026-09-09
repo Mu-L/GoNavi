@@ -612,9 +612,10 @@ type ApprovalEvent struct {
 }
 
 type Usage struct {
-	PromptTokens     int `json:"promptTokens,omitempty"`
-	CompletionTokens int `json:"completionTokens,omitempty"`
-	TotalTokens      int `json:"totalTokens,omitempty"`
+	PromptTokens     int  `json:"promptTokens,omitempty"`
+	CompletionTokens int  `json:"completionTokens,omitempty"`
+	TotalTokens      int  `json:"totalTokens,omitempty"`
+	CachedTokens     *int `json:"cachedTokens,omitempty"`
 }
 
 // TokenReservation is an encrypted-ledger-independent accounting record for

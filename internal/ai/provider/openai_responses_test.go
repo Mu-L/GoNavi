@@ -351,7 +351,7 @@ func TestOpenAIResponsesProviderChatStreamParsesTypedEvents(t *testing.T) {
 			``,
 			`data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"table\":\"orders\"}"}`,
 			``,
-			`data: {"type":"response.completed","response":{"id":"resp_stream","status":"completed","usage":{"input_tokens":5,"output_tokens":4,"total_tokens":9}}}`,
+			`data: {"type":"response.completed","response":{"id":"resp_stream","status":"completed","usage":{"input_tokens":5,"output_tokens":4,"total_tokens":9,"input_tokens_details":{"cached_tokens":2}}}}`,
 			``,
 		}, "\n")))
 	}))
@@ -391,6 +391,13 @@ func TestOpenAIResponsesProviderChatStreamParsesTypedEvents(t *testing.T) {
 	}
 	if len(chunks) == 0 || !chunks[len(chunks)-1].Done {
 		t.Fatalf("expected final done chunk, got %#v", chunks)
+	}
+	usage := chunks[len(chunks)-1].Usage
+	if usage == nil || usage.PromptTokens != 5 || usage.CompletionTokens != 4 || usage.TotalTokens != 9 {
+		t.Fatalf("expected final usage, got %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 2 {
+		t.Fatalf("expected cached usage, got %#v", usage.CachedTokens)
 	}
 }
 

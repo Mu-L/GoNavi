@@ -908,6 +908,14 @@ export interface AIChatRunActivity {
   errorCode?: string;
 }
 
+export interface AIChatTokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  /** Undefined means the provider did not expose cache-hit usage. */
+  cachedTokens?: number;
+}
+
 export interface AIChatMessage {
   id: string;
   /** Harness run that owns this transient or durable message, when known. */
@@ -922,6 +930,8 @@ export interface AIChatMessage {
   images?: string[]; // base64 encoded images with data URI prefix
   attachments?: AIChatAttachment[];
   tool_calls?: AIToolCall[];
+  /** Provider-reported usage aggregated across all model turns in this reply. */
+  tokenUsage?: AIChatTokenUsage;
   /** Redacted, ordered execution steps retained with this assistant message. */
   runActivities?: AIChatRunActivity[];
   tool_call_id?: string;
