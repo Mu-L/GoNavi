@@ -2913,12 +2913,14 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
     transition: box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-/* About：镜像源条按内容收窄，不拉满整行 */
+/* About：按内容确定宽度，字体放大或空间不足时允许换行。 */
 .gonavi-about-download-source {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
-    width: 232px;
+    width: max-content;
+    min-width: 0;
     max-width: 100%;
     margin-top: 10px;
     padding: 6px 10px 6px 12px;
@@ -3010,21 +3012,21 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     margin-left: auto;
 }
 
-/* 工具栏内嵌镜像源：按内容收窄，不拉满整行 */
+/* 工具栏内嵌镜像源：为完整名称、切换按钮和加载图标保留空间。 */
 .driver-manager-mirror-chip.is-compact {
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    flex-wrap: nowrap;
-    width: 232px;
+    flex-wrap: wrap;
+    width: max-content;
     min-width: 0;
     max-width: 100%;
     gap: 8px;
-    height: 32px;
-    padding: 0 12px 0 14px;
+    min-height: 32px;
+    padding: 3px 12px 3px 14px;
     margin-left: auto;
     margin-right: 0;
-    flex: 0 0 232px;
+    flex: 0 1 auto;
     overflow: hidden;
     border-radius: 8px;
     box-sizing: border-box;
@@ -3032,6 +3034,10 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 
 .driver-manager-mirror-chip.is-compact::before {
     border-radius: 8px 0 0 8px;
+}
+
+.driver-manager-mirror-chip.is-compact > .ant-btn {
+    flex-shrink: 0;
 }
 
 .driver-manager-list-head {
@@ -3072,7 +3078,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 .driver-manager-list-search-row.is-embedded {
     justify-content: space-between;
     align-items: center;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 6px;
     width: 100%;
     max-width: 100%;
@@ -5191,6 +5197,7 @@ body .gonavi-about-identity img {
 
 body .gonavi-about-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
 }

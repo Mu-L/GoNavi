@@ -189,7 +189,6 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("t('app.about.sponsors')");
     expect(appCss).toContain('.gonavi-about-project-entry-logo');
     expect(appSource).toContain('className="gonavi-about-download-source"');
-    expect(appCss).toMatch(/\.gonavi-about-download-source\s*\{[^}]*width:\s*232px/);
     expect(appCss).toMatch(/\.gonavi-about-link-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
     expect(appSource).not.toContain('apismart');
     expect(appSource).not.toContain("gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)'");

@@ -104,13 +104,16 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toContain('.driver-manager-footer-actions.is-status-only');
     expect(appCss).toContain('.driver-manager-bulkbar.is-embedded-toolbar');
     expect(appCss).toMatch(
-      /\.driver-manager-list-search-row\.is-embedded\s*\{[^}]*flex-wrap:\s*nowrap[^}]*gap:\s*6px/s,
+      /\.driver-manager-list-search-row\.is-embedded\s*\{[^}]*flex-wrap:\s*wrap[^}]*gap:\s*6px/s,
     );
     expect(appCss).toMatch(
-      /\.driver-manager-mirror-chip\.is-compact\s*\{[^}]*width:\s*232px[^}]*flex:\s*0 0 232px/s,
+      /\.driver-manager-mirror-chip\.is-compact\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%[^}]*flex:\s*0 1 auto/s,
     );
     expect(appCss).toMatch(
-      /\.gonavi-about-download-source\s*\{[^}]*width:\s*232px/s,
+      /\.gonavi-about-download-source\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-section\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
     );
     expect(appCss).toMatch(
       /\.driver-manager-mirror-chip\.is-compact\s*>\s*\.ant-btn,\s*\.gonavi-about-download-source\s*>\s*\.ant-btn\s*\{[^}]*margin-left:\s*auto/s,
