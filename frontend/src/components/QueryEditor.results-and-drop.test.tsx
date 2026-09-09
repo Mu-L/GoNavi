@@ -81,7 +81,6 @@ const storeState = vi.hoisted(() => ({
   fontSize: 14,
   languagePreference: 'zh-CN' as 'zh-CN' | 'en-US',
   appearance: {
-    uiVersion: 'legacy' as 'legacy' | 'v2',
     customMonoFontFamily: null as string | null,
     dataTableFontSize: null as number | null,
     dataTableFontSizeFollowGlobal: true,
@@ -559,7 +558,8 @@ vi.mock('antd', () => {
     Tooltip: ({ children }: any) => <>{children}</>,
     Select: () => null,
     Tabs: ({ activeKey, items, onChange, tabBarExtraContent }: any) => {
-      const resolvedActiveKey = tabsState.activeKey ?? activeKey ?? items?.[0]?.key;
+      const hasRememberedActiveItem = items?.some((item: any) => item.key === tabsState.activeKey);
+      const resolvedActiveKey = (hasRememberedActiveItem ? tabsState.activeKey : undefined) ?? activeKey ?? items?.[0]?.key;
       const activeItem = items?.find((item: any) => item.key === resolvedActiveKey) || items?.[0];
       return (
         <div>
@@ -708,7 +708,7 @@ describe('QueryEditor external SQL save', () => {
           executionError=""
           sqlLogCount={1}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           toggleShortcutLabel=""
@@ -784,7 +784,7 @@ describe('QueryEditor external SQL save', () => {
           executionError=""
           sqlLogCount={1}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           toggleShortcutLabel=""
@@ -972,7 +972,7 @@ describe('QueryEditor external SQL save', () => {
     storeState.connections[0].config.type = 'mysql';
     storeState.connections[0].config.database = 'main';
     storeState.fontSize = 14;
-    storeState.appearance.uiVersion = 'legacy';
+
     storeState.appearance.customMonoFontFamily = null;
     storeState.appearance.dataTableFontSize = null;
     storeState.appearance.dataTableFontSizeFollowGlobal = true;
@@ -1139,7 +1139,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('executes a long commented Oracle anonymous block without blocking the UI thread', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'oracle';
     storeState.connections[0].config.database = 'ORCLPDB1';
     const columns = Array.from(
@@ -1488,7 +1488,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('hides redundant sqlserver affected-row status results for every statement in a batch', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'sqlserver';
     storeState.connections[0].config.database = 'master';
     backendApp.DBQueryMulti.mockResolvedValueOnce({
@@ -1613,7 +1613,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('shows the data result tab in V2 when the SQL log tab is already visible', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.sqlLogs = [{
       id: 'log-existing',
       timestamp: Date.now(),
@@ -1842,8 +1842,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     const tabLabels = renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     });
     expect(tabLabels).toHaveLength(2);
     expect(dataGridState.latestProps?.columnNames).toEqual(['name']);
@@ -1882,7 +1881,11 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const resultTabButtons = renderer!.root.findAll((node) => node.type === 'button' && node.props['data-tab-key']);
+    const resultTabButtons = renderer!.root.findAll((node) => (
+      node.type === 'button'
+      && node.props['data-tab-key']
+      && node.props['data-tab-key'] !== QUERY_EDITOR_SQL_LOG_TAB_KEY
+    ));
     expect(resultTabButtons).toHaveLength(2);
 
     await act(async () => {
@@ -2193,7 +2196,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('keeps cursor statement execution available in v2 UI', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBQueryMulti.mockResolvedValueOnce({
       success: true,
       data: [{ columns: ['two'], rows: [{ two: 2 }] }],
@@ -2391,7 +2394,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('renders the zero-count V2 SQL log tab for the active non-Chinese language', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.languagePreference = 'en-US';
     setCurrentLanguage('en-US');
 
@@ -3450,8 +3453,7 @@ describe('QueryEditor external SQL save', () => {
     expect(textContent(renderer!.toJSON())).not.toContain('结果 3');
     expect(textContent(renderer!.toJSON())).not.toContain('结果 4');
     expect(renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     })).toHaveLength(2);
   });
 
@@ -3561,16 +3563,14 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     })).toHaveLength(3);
 
     await act(async () => {
       renderer!.root.findAll((node) => node.type === 'button' && textContent(node) === '关闭右侧')[1].props.onClick();
     });
     expect(renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     })).toHaveLength(2);
     expect(textContent(renderer!.toJSON())).not.toContain('结果 3');
 
@@ -3578,8 +3578,7 @@ describe('QueryEditor external SQL save', () => {
       renderer!.root.findAll((node) => node.type === 'button' && textContent(node) === '关闭左侧')[1].props.onClick();
     });
     expect(renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     })).toHaveLength(1);
     expect(dataGridState.latestProps?.data).toEqual(expect.arrayContaining([expect.objectContaining({ b: 2 })]));
     expect(dataGridState.latestProps?.data).not.toEqual(expect.arrayContaining([expect.objectContaining({ a: 1 })]));
@@ -3589,8 +3588,7 @@ describe('QueryEditor external SQL save', () => {
       renderer!.root.findAll((node) => node.type === 'button' && textContent(node) === '关闭所有')[0].props.onClick();
     });
     expect(renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     })).toHaveLength(0);
   });
 
@@ -3652,9 +3650,7 @@ describe('QueryEditor external SQL save', () => {
       closeButtons[1].props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
     });
 
-    expect(renderer.root.findAll((node) =>
-      String(node.props?.className || '').split(/\s+/).includes('query-result-tab-label'),
-    )).toHaveLength(1);
+    expect(renderer.root.findAll((node) => node.props?.['data-query-result-tab'] === 'true')).toHaveLength(1);
     expect(dataGridState.latestProps?.data).toEqual(expect.arrayContaining([expect.objectContaining({ a: 1 })]));
   });
 
@@ -3753,9 +3749,7 @@ describe('QueryEditor external SQL save', () => {
       }));
     });
 
-    expect(renderer.root.findAll((node) =>
-      String(node.props?.className || '').split(/\s+/).includes('query-result-tab-label'),
-    )).toHaveLength(0);
+    expect(renderer.root.findAll((node) => node.props?.['data-query-result-tab'] === 'true')).toHaveLength(0);
 
     await act(async () => {
       restoreRegistrations[0][1](new CustomEvent('gonavi:restore-query-result', {
@@ -3807,7 +3801,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('closes the final result and synchronously hides the log tab on the next command', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBQueryMulti.mockResolvedValueOnce({
       success: true,
       data: [{ columns: ['a'], rows: [{ a: 1 }] }],
@@ -3855,7 +3849,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('ignores result close commands for hidden, invalid, or inactive result targets', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     let hiddenRenderer!: ReactTestRenderer;
     await act(async () => {
       hiddenRenderer = create(<QueryEditor tab={createTab()} />);
@@ -3875,7 +3869,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     vi.mocked(window.addEventListener).mockClear();
-    storeState.appearance.uiVersion = 'legacy';
+
     let invalidRenderer!: ReactTestRenderer;
     await act(async () => {
       invalidRenderer = create(<QueryEditor tab={createTab({ id: 'tab-invalid', resultPanelVisible: true })} />);
@@ -3885,7 +3879,7 @@ describe('QueryEditor external SQL save', () => {
     expect(invalidRegistrations).toHaveLength(1);
     const invalidRequest: CloseActiveResultShortcutRequest = { targetTabId: 'tab-invalid', handled: false, outcome: 'ignored' };
     invalidRegistrations[0][1](new CustomEvent(CLOSE_ACTIVE_RESULT_TAB_EVENT, { detail: invalidRequest }));
-    expect(invalidRequest).toEqual({ targetTabId: 'tab-invalid', handled: true, outcome: 'ignored' });
+    expect(invalidRequest).toEqual({ targetTabId: 'tab-invalid', handled: true, outcome: 'hidden' });
     await act(async () => {
       invalidRenderer.unmount();
     });
@@ -4056,16 +4050,13 @@ describe('QueryEditor external SQL save', () => {
     });
 
     const tabLabels = renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-label');
+      return node.props?.['data-query-result-tab'] === 'true';
     });
     const counts = renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-count');
+      return node.props?.['data-query-result-tab-count'] === 'true';
     });
     const titles = renderer!.root.findAll((node) => {
-      const className = String(node.props?.className || '');
-      return className.includes('query-result-tab-text');
+      return node.props?.['data-query-result-tab-title'] === 'true';
     });
 
     expect(tabLabels).toHaveLength(2);
@@ -4137,7 +4128,7 @@ describe('QueryEditor external SQL save', () => {
           executionError=""
           sqlLogCount={0}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           toggleShortcutLabel=""
@@ -4196,7 +4187,7 @@ describe('QueryEditor external SQL save', () => {
           executionError=""
           sqlLogCount={0}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           maxRows={750}
@@ -4229,7 +4220,7 @@ describe('QueryEditor external SQL save', () => {
           executionError=""
           sqlLogCount={0}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           maxRows={750}
@@ -4282,7 +4273,7 @@ describe('QueryEditor external SQL save', () => {
         executionError=""
         sqlLogCount={0}
         darkMode={false}
-        isV2Ui
+
         currentDb="main"
         currentConnectionId="conn-1"
         toggleShortcutLabel=""
@@ -4477,8 +4468,8 @@ describe('QueryEditor external SQL save', () => {
     renderer.unmount();
   });
 
-  it('does not render the embedded sql execution log tab in legacy UI', () => {
-    const renderResultsPanel = (isV2Ui: boolean, sqlLogCount = 1) => create(
+  it('renders the embedded SQL execution log tab', () => {
+    const renderResultsPanel = (sqlLogCount = 1) => create(
       <QueryEditorResultsPanel
         resultSets={[]}
         activeResultKey=""
@@ -4487,7 +4478,7 @@ describe('QueryEditor external SQL save', () => {
         executionError=""
         sqlLogCount={sqlLogCount}
         darkMode={false}
-        isV2Ui={isV2Ui}
+
         currentDb="main"
         currentConnectionId="conn-1"
         toggleShortcutLabel=""
@@ -4506,17 +4497,12 @@ describe('QueryEditor external SQL save', () => {
       />,
     );
 
-    const legacyRenderer = renderResultsPanel(false);
-    expect(legacyRenderer.root.findAll((node) => node.props?.['data-log-panel'] === 'true')).toHaveLength(0);
-    expect(legacyRenderer.root.findAll((node) => node.props?.['data-tab-key'] === '__gonavi_sql_execution_log__')).toHaveLength(0);
-    legacyRenderer.unmount();
-
-    const v2Renderer = renderResultsPanel(true);
-    expect(v2Renderer.root.findAll((node) => node.props?.['data-log-panel'] === 'true')).toHaveLength(1);
-    expect(v2Renderer.root.findAll((node) => node.props?.['data-tab-key'] === '__gonavi_sql_execution_log__')).toHaveLength(1);
-    const tabActions = v2Renderer.root.findByProps({ className: 'query-result-panel-tab-actions' });
+    const renderer = renderResultsPanel();
+    expect(renderer.root.findAll((node) => node.props?.['data-log-panel'] === 'true')).toHaveLength(1);
+    expect(renderer.root.findAll((node) => node.props?.['data-tab-key'] === '__gonavi_sql_execution_log__')).toHaveLength(1);
+    const tabActions = renderer.root.findByProps({ className: 'query-result-panel-tab-actions' });
     const actionButtons = tabActions.findAll((node) => node.type === 'button');
-    const resultPanelStyles = v2Renderer.root.findAll((node) => node.type === 'style')
+    const resultPanelStyles = renderer.root.findAll((node) => node.type === 'style')
       .map((node) => textContent(node))
       .join('\n');
     expect(actionButtons.map((node) => node.props.className)).toEqual([
@@ -4533,15 +4519,15 @@ describe('QueryEditor external SQL save', () => {
       actionButtons[0].props.onClick();
     });
     expect(storeState.clearSqlLogs).toHaveBeenCalledTimes(1);
-    v2Renderer.unmount();
+    renderer.unmount();
 
-    const emptyV2Renderer = renderResultsPanel(true, 0);
-    expect(emptyV2Renderer.root.findAll((node) => node.props?.['data-log-panel'] === 'true')).toHaveLength(1);
-    expect(emptyV2Renderer.root.findAll((node) => node.props?.['data-tab-key'] === QUERY_EDITOR_SQL_LOG_TAB_KEY)).toHaveLength(1);
-    expect(emptyV2Renderer.root.findAll((node) =>
+    const emptyRenderer = renderResultsPanel(0);
+    expect(emptyRenderer.root.findAll((node) => node.props?.['data-log-panel'] === 'true')).toHaveLength(1);
+    expect(emptyRenderer.root.findAll((node) => node.props?.['data-tab-key'] === QUERY_EDITOR_SQL_LOG_TAB_KEY)).toHaveLength(1);
+    expect(emptyRenderer.root.findAll((node) =>
       node.props?.['data-gonavi-close-shortcut-scope'] === 'result',
     )).toHaveLength(1);
-    emptyV2Renderer.unmount();
+    emptyRenderer.unmount();
   });
 
   it('uses the shared effective result key for stale-key rendering fallbacks', () => {
@@ -4566,7 +4552,7 @@ describe('QueryEditor external SQL save', () => {
         executionError=""
         sqlLogCount={0}
         darkMode={false}
-        isV2Ui
+
         currentDb="main"
         currentConnectionId="conn-1"
         toggleShortcutLabel=""
@@ -5600,7 +5586,7 @@ describe('QueryEditorResultsPanel result-tab detach lifecycle', () => {
           executionError=""
           sqlLogCount={0}
           darkMode={false}
-          isV2Ui
+
           currentDb="main"
           currentConnectionId="conn-1"
           toggleShortcutLabel=""
@@ -5664,7 +5650,7 @@ describe('QueryEditorResultsPanel result-tab detach lifecycle', () => {
           executionError=""
           sqlLogCount={0}
           darkMode={false}
-          isV2Ui
+
           currentDb="APP"
           currentConnectionId="conn-1"
           toggleShortcutLabel=""

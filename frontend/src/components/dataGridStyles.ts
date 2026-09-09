@@ -40,10 +40,6 @@ export const buildDataGridCssText = ({
     selectionAccentHex,
     selectionAccentRgb,
     tableBodyBottomPadding,
-    useVirtualEditablePaintContain,
-    useVirtualEditableVisibilityHints,
-    useVirtualHolderPaintHints,
-    useVirtualRowCellContain,
     verticalScrollbarTrackBg,
 }: DataGridCssTextParams) => `
 
@@ -636,9 +632,9 @@ export const buildDataGridCssText = ({
 
                     scroll-padding-bottom: ${tableBodyBottomPadding}px;
 
-                    contain: ${useVirtualHolderPaintHints ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
 
-                    content-visibility: ${useVirtualHolderPaintHints ? 'auto' : 'visible'};
+                    content-visibility: visible;
 
                 }
 
@@ -648,7 +644,7 @@ export const buildDataGridCssText = ({
 
                     box-sizing: border-box;
 
-                    contain: ${useVirtualHolderPaintHints ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
 
                 }
 
@@ -656,7 +652,7 @@ export const buildDataGridCssText = ({
 
                 .${gridId} .ant-table-tbody-virtual-holder .ant-table-row > .ant-table-cell {
 
-                    contain: ${useVirtualRowCellContain ? 'layout paint style' : 'none'};
+                    contain: none;
 
                 }
 
@@ -880,7 +876,7 @@ export const buildDataGridCssText = ({
 
                     position: relative;
 
-                    contain: ${useVirtualEditablePaintContain ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
 
                 }
 
@@ -918,9 +914,9 @@ export const buildDataGridCssText = ({
 
                 .${gridId} .ant-table-tbody-virtual-holder .editable-cell-value-wrap {
 
-                    content-visibility: ${useVirtualEditableVisibilityHints ? 'auto' : 'visible'};
+                    content-visibility: visible;
 
-                    contain-intrinsic-size: ${useVirtualEditableVisibilityHints ? '24px 160px' : 'auto'};
+                    contain-intrinsic-size: auto;
 
                 }
 

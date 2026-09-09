@@ -6,15 +6,14 @@
 
        body[data-ui-version="v2"]
 
-   is set by App.tsx (driven by the AppearanceSettings.uiVersion store
-   field). Legacy stays available as a rollback option in settings.
+   is set by App.tsx as the stable scope for the current UI.
 
    Strategy:
      1. Define design tokens (light + dark) as CSS variables on the body.
      2. Override the small handful of Ant Design / project class selectors
         that drive the visual impression: surfaces, typography, sidebar
         tree, tabs, buttons, tables, inputs, dropdowns, modals.
-     3. Keep specificity tight to the v2 scope so legacy is untouched.
+     3. Keep specificity tight to the application UI scope.
 
    Workbench-specific rules are imported after this file at app entry.
    ────────────────────────────────────────────────────────────────────── */
@@ -2092,14 +2091,12 @@ body[data-ui-version="v2"] .ant-modal-body input[type="number"] {
 /* ─── Redis viewer / Driver manager / overlay workbench ─── */
 /* These render their cards via inline styles read from workbenchTheme
    objects (see overlayWorkbenchTheme.ts, redisViewerWorkbenchTheme.ts,
-   driverManagerWorkbenchTheme.ts). Those files now branch on uiVersion
-   and supply v2 colors directly. The hooks below tighten edges that
+   driverManagerWorkbenchTheme.ts). The hooks below tighten edges that
    inline styles can't reach. */
 
 body[data-ui-version="v2"] .redis-viewer-workbench {
   background: var(--gn-bg-panel-2) !important;
-  /* the inner cards still read workbenchTheme — those return v2 palette
-     once the workbench theme files honor uiVersion */
+  /* the inner cards still read the shared workbench theme palette */
 }
 
 body[data-ui-version="v2"] .redis-tree-expander-button:hover {
@@ -2740,14 +2737,14 @@ body[data-ui-version="v2"] .gn-v2-explorer-search {
   border-bottom: none !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row {
+body[data-ui-version="v2"] .gn-v2-explorer-filter-row {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row .ant-input-affix-wrapper {
+body[data-ui-version="v2"] .gn-v2-explorer-filter-row .ant-input-affix-wrapper {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -6308,6 +6305,47 @@ body[data-ui-version="v2"] .gn-v2-action-menu-body > .ant-dropdown-menu {
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body > .gn-v2-sidebar-node-menu.ant-menu {
+  width: 100%;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-submenu-title {
+  width: 100%;
+  height: var(--gn-v2-menu-row-height, 28px);
+  min-height: var(--gn-v2-menu-row-height, 28px);
+  margin: 0 !important;
+  padding: 0 8px 0 10px !important;
+  border-radius: var(--gn-v2-menu-item-radius, 5px);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: var(--gn-v2-menu-row-height, 28px);
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup > .ant-menu {
+  min-width: 180px;
+  padding: 4px !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius, 10px) !important;
+  background: var(--gn-bg-panel) !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item-divider,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item-divider {
+  margin: 4px !important;
+  border-color: var(--gn-br-1) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildSidebarLegacyNodeMenuItems } from './sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebarNodeMenu';
 
 const findMenuItem = (items: any, key: string) => (
   (Array.isArray(items) ? items : []).find((item) => item?.key === key)
@@ -34,11 +34,11 @@ describe('Oracle object compilation sidebar actions', () => {
     };
 
     const routineAction = findMenuItem(
-      buildSidebarLegacyNodeMenuItems(routineNode, context),
+      buildSidebarNodeMenuItems(routineNode, context),
       'compile-oracle-object',
     );
     const triggerAction = findMenuItem(
-      buildSidebarLegacyNodeMenuItems(triggerNode, context),
+      buildSidebarNodeMenuItems(triggerNode, context),
       'compile-oracle-object',
     );
 
@@ -49,7 +49,7 @@ describe('Oracle object compilation sidebar actions', () => {
     expect(handleCompileOracleObject).toHaveBeenNthCalledWith(1, routineNode);
     expect(handleCompileOracleObject).toHaveBeenNthCalledWith(2, triggerNode);
 
-    const mysqlItems = buildSidebarLegacyNodeMenuItems(
+    const mysqlItems = buildSidebarNodeMenuItems(
       { ...routineNode, dataRef: { ...routineNode.dataRef, config: { type: 'mysql' } } },
       { ...context, getMetadataDialect: () => 'mysql' },
     );

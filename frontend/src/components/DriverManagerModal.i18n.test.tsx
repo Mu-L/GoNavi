@@ -13,7 +13,7 @@ const storeState = {
     setCurrentLanguage(languagePreference);
     notifyStoreSubscribers();
   }),
-  appearance: { uiVersion: 'legacy', opacity: 1 },
+  appearance: { opacity: 1 },
 };
 
 const storeSubscribers = new Set<() => void>();
@@ -221,7 +221,7 @@ describe('DriverManagerModal i18n', () => {
     storeState.theme = 'light';
     storeState.languagePreference = 'zh-CN';
     storeState.setLanguagePreference.mockClear();
-    storeState.appearance.uiVersion = 'legacy';
+
     storeState.appearance.opacity = 1;
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
@@ -302,12 +302,12 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it.each([
-    ['legacy', 'zh-CN', '驱动管理', '安装所有驱动', '搜索驱动名称/类型（如 DuckDB、clickhouse）', '日志', '安装目录：', '驱动可执行文件：', '当前驱动暂无操作日志。'],
-    ['v2', 'en-US', 'Driver Manager', 'Install all drivers', 'Search driver name/type (for example DuckDB, clickhouse)', 'Logs', 'Install directory:', 'Driver executable:', 'This driver has no operation logs yet.'],
+    ['zh-CN', '驱动管理', '安装所有驱动', '搜索驱动名称/类型（如 DuckDB、clickhouse）', '日志', '安装目录：', '驱动可执行文件：', '当前驱动暂无操作日志。'],
+    ['en-US', 'Driver Manager', 'Install all drivers', 'Search driver name/type (for example DuckDB, clickhouse)', 'Logs', 'Install directory:', 'Driver executable:', 'This driver has no operation logs yet.'],
   ] as const)(
-    'renders localized chrome and preserves raw network summary for %s %s',
-    async (uiVersion, language, titleText, toolbarText, searchText, logLabelText, logInstallDirText, logExecutableText, emptyLogText) => {
-      storeState.appearance.uiVersion = uiVersion;
+    'renders localized chrome and preserves raw network summary for %s',
+    async (language, titleText, toolbarText, searchText, logLabelText, logInstallDirText, logExecutableText, emptyLogText) => {
+
       const { setCurrentLanguage } = await import('../i18n');
       setCurrentLanguage(language);
       const { default: DriverManagerModal } = await import('./DriverManagerModal');
@@ -331,7 +331,7 @@ describe('DriverManagerModal i18n', () => {
   );
 
   it('renders the driver manager body in German without falling back to Simplified Chinese', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.languagePreference = 'de-DE';
     const { setCurrentLanguage } = await import('../i18n');
     setCurrentLanguage('de-DE');
@@ -354,10 +354,10 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it.each([
-    ['legacy', 'zh-CN', '暂无驱动数据'],
-    ['v2', 'en-US', 'No drivers available'],
-  ] as const)('renders localized empty state for %s %s', async (uiVersion, language, emptyText) => {
-    storeState.appearance.uiVersion = uiVersion;
+    ['zh-CN', '暂无驱动数据'],
+    ['en-US', 'No drivers available'],
+  ] as const)('renders localized empty state for %s', async (language, emptyText) => {
+
     backendApp.GetDriverStatusList.mockResolvedValueOnce({
       success: true,
       data: {
@@ -378,7 +378,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('renders localized card metadata and actions for en-US v2 while preserving raw driver detail', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const { setCurrentLanguage } = await import('../i18n');
     setCurrentLanguage('en-US');
     const { default: DriverManagerModal } = await import('./DriverManagerModal');
@@ -390,17 +390,17 @@ describe('DriverManagerModal i18n', () => {
 
     const content = textContent(renderer!.toJSON());
     expect(content).toContain('Size: 12 MB');
-    expect(content).toContain('Version: v1.2.3');
+    expect(content).toContain('v1.2.3 · 12 MB');
     expect(content).toContain('Driver version');
     expect(content).not.toContain('Status progress');
-    expect(content).toContain('Installed');
+    expect(content).toContain('Enabled');
     expect(content).not.toContain('v1.2.3 (installed)');
     expect(findButton(renderer!, 'Remove')).toBeTruthy();
     expect(content).toContain('HTTP 403 from GitHub release asset');
   });
 
   it('renders en-US driver card status shell without exposing backend Chinese wrappers', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
       data: {
@@ -509,7 +509,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('renders en-US network summary from structured fields instead of backend Chinese summary', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce({
       success: true,
       data: {
@@ -550,7 +550,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('renders checking copy while the network status request is pending', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.CheckDriverNetworkStatus.mockImplementationOnce(() => new Promise(() => {}));
     const { setCurrentLanguage } = await import('../i18n');
     setCurrentLanguage('en-US');
@@ -568,7 +568,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('shows the status loading state without a false zero-driver empty result', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     let resolveStatus!: (value: unknown) => void;
     let resolveNetwork!: (value: unknown) => void;
     backendApp.GetDriverStatusList.mockImplementation(() => new Promise((resolve) => {
@@ -616,7 +616,7 @@ describe('DriverManagerModal i18n', () => {
 
     const statusLoadedContent = textContent(renderer!.toJSON());
     expect(statusLoadedContent).toContain('ClickHouse');
-    expect(statusLoadedContent).toContain('1 drivers total');
+    expect(statusLoadedContent).toContain('Total1');
     expect(statusLoadedContent).not.toContain('Refreshing status...');
     expect(statusLoadedContent).toContain('Checking driver download network...');
 
@@ -711,7 +711,7 @@ describe('DriverManagerModal i18n', () => {
   ] as const)(
     'renders en-US network summary branch %s from structured status',
     async (_caseName, networkResult, expectedText, unexpectedText) => {
-      storeState.appearance.uiVersion = 'v2';
+
       backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce(networkResult);
       const { setCurrentLanguage } = await import('../i18n');
       setCurrentLanguage('en-US');
@@ -729,7 +729,7 @@ describe('DriverManagerModal i18n', () => {
   );
 
   it('renders en-US mirror network details while preserving raw error text', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce({
       success: true,
       data: {
@@ -797,7 +797,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('uses structured slim-build reason code instead of raw Chinese message when importing a directory', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
       data: {
@@ -839,7 +839,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('uses structured probe codes for mirror and fallback details', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce({
       success: true,
       data: {
@@ -893,7 +893,7 @@ describe('DriverManagerModal i18n', () => {
   });
 
   it('renders en-US frontend-generated operation log shell while preserving raw local import details', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
       data: {

@@ -93,7 +93,7 @@ describe('V2 window transparency contract', () => {
       ).toBe(true);
     }
 
-    expect(appSource).toContain("className={isV2Ui ? 'gn-v2-app-root' : undefined}");
+    expect(appSource).toContain('className="gn-v2-app-root"');
     expect(v2ThemeCss).toMatch(
       /body\[data-ui-version="v2"\] \.gn-v2-app-root\s*\{[^}]*background:\s*var\(--gn-bg-app\) !important;/s,
     );
@@ -104,10 +104,10 @@ describe('V2 window transparency contract', () => {
       /body\[data-ui-version="v2"\] \.ant-layout-sider\s*\{[^}]*background:\s*var\(--gn-bg-panel-2\) !important;/s,
     );
     expect(appSource).toContain(
-      "background: isV2Ui ? 'transparent' : bgContent, marginBottom:",
+      "background: 'transparent', marginBottom:",
     );
     expect(appSource).not.toContain(
-      "background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgContent, marginBottom:",
+      "background: 'var(--gn-bg-panel-2)', marginBottom:",
     );
   });
 

@@ -1284,6 +1284,16 @@ func (a *App) SelectSQLFileForExecution() connection.QueryResult {
 }
 
 func (a *App) SelectSQLDirectory(currentDir string) connection.QueryResult {
+	restoreFocus, focusGuardErr := suspendWailsWebViewFocus(a.ctx)
+	if focusGuardErr != nil {
+		logger.Warnf("安装 SQL 目录选择焦点保护失败：%v", focusGuardErr)
+	} else {
+		defer func() {
+			if err := restoreFocus(); err != nil {
+				logger.Warnf("恢复 SQL 目录选择焦点处理失败：%v", err)
+			}
+		}()
+	}
 	selection, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:            a.appText("file.backend.dialog.select_sql_directory", nil),
 		DefaultDirectory: normalizeDirectoryDialogPath(currentDir),

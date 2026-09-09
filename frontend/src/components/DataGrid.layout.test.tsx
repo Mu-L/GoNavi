@@ -255,11 +255,9 @@ describe('DataGrid layout', () => {
       const language = resolveLanguage('system', systemLanguages);
       return renderDataGridWithI18n(
         <DataGridColumnQuickFind
-          isV2Ui
-          darkMode={false}
+
           value=""
           options={[]}
-          hasTarget={false}
           translate={(key, params) => t(key, params, language)}
           onChange={() => {}}
           onSubmit={() => {}}
@@ -313,11 +311,9 @@ describe('DataGrid layout', () => {
     try {
       const markup = renderToStaticMarkup(
         <DataGridColumnQuickFind
-          isV2Ui
-          darkMode={false}
+
           value=""
           options={[]}
-          hasTarget={false}
           onChange={() => {}}
           onSubmit={() => {}}
         />,
@@ -395,7 +391,7 @@ describe('DataGrid layout', () => {
     const css = readV2ThemeCss();
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{
           current: 1,
           pageSize: 500,
@@ -403,8 +399,8 @@ describe('DataGrid layout', () => {
           totalKnown: false,
         }}
         paginationV2SummaryText="当前 500 条 / 未统计总数"
-        paginationSummaryText="当前 500 条 / 未统计总数"
-        paginationControlTotal={500}
+
+
         paginationTotalPages={1}
         paginationPageText="第 1 页"
         paginationPageSizeOptions={['500']}
@@ -431,11 +427,7 @@ describe('DataGrid layout', () => {
   });
 
   it('keeps V2 current-page find hidden until its floating table overlay is opened', () => {
-    const source = readDataGridShellSource();
-    const secondaryActionsSource = readDataGridSecondaryActionsSource();
     const css = readV2ThemeCss();
-    const v2BranchStart = secondaryActionsSource.indexOf('if (isV2Ui)');
-    const legacyBranchStart = secondaryActionsSource.lastIndexOf('  return (');
     expect(css).toMatch(/\.gn-v2-data-grid-page-find-overlay\s*\{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;[^}]*z-index:\s*40;[^}]*background:[^;]+;[^}]*box-shadow:/s);
     expect(css).toMatch(/\.gn-v2-data-grid-page-find-overlay\s*\{[^}]*width:\s*min\(360px,\s*calc\(100% - 16px\)\);/s);
     expect(css).toMatch(/\.gn-v2-data-grid-page-find\s*\{[^}]*width:\s*100%;[^}]*flex:\s*1 1 auto;[^}]*overflow:\s*hidden;/s);
@@ -634,32 +626,6 @@ describe('DataGrid layout', () => {
     expect(darkCss).toContain('var(--gn-warn-soft, rgba(255, 214, 102, 0.16))');
   });
 
-  it('avoids duplicating legacy pagination page text beside the pager', () => {
-    const markup = renderToStaticMarkup(
-      <DataGridPaginationBar
-        isV2Ui={false}
-        pagination={{
-          current: 1,
-          pageSize: 100,
-          total: 24,
-        }}
-        paginationV2SummaryText="24 行"
-        paginationSummaryText="当前 24 条 / 共 24 条"
-        paginationControlTotal={24}
-        paginationTotalPages={1}
-        paginationPageText="第 1 / 1 页"
-        paginationPageSizeOptions={['100', '200']}
-        showKnownPageCount
-        onPageChange={() => {}}
-        onPageSizeChange={() => {}}
-        onV2PageStep={() => {}}
-      />,
-    );
-
-    expect(markup).toContain('class="ant-pagination');
-    expect(markup).not.toContain('第 1 / 1 页');
-  });
-
   it('keeps detached DataGrid chrome text behind translateDataGrid', () => {
     const dataGridSource = readDataGridSource();
     const pageFindSource = readFileSync(new URL('./DataGridPageFind.tsx', import.meta.url), 'utf8');
@@ -819,7 +785,7 @@ describe('DataGrid layout', () => {
       '复制 DDL 失败',
     ].forEach((literal) => {
     });
-    expect(dataGridSource.match(/message\.info\(translateDataGrid\('data_grid\.message\.no_copyable_rows'\)\)/g) ?? []).toHaveLength(3);
+    expect(dataGridSource.match(/message\.info\(translateDataGrid\('data_grid\.message\.no_copyable_rows'\)\)/g) ?? []).toHaveLength(2);
 
     const ddlWorkspaceInlineLiterals = [
       '底部',
@@ -843,11 +809,11 @@ describe('DataGrid layout', () => {
     const bottomDdlMarkup = renderToStaticMarkup(
       <DataGridV2DdlView
         layout="bottom"
+        darkMode={false}
         tableName={rawTableName}
         ddlViewLayout="bottom"
         ddlLoading={false}
         ddlText={rawDdl}
-        darkMode={false}
         onDdlViewLayoutChange={() => {}}
         onReload={() => {}}
         onCopy={() => {}}
@@ -1075,7 +1041,6 @@ describe('DataGrid layout', () => {
         'data_grid.page_find.previous': 'Previous find match',
         'data_grid.page_find.next': 'Next find match',
         'data_grid.page_find.summary': `${params?.occurrences} hits / ${params?.cells} cells`,
-        'data_grid.pagination.result_set': 'Result set label',
         'data_grid.pagination.page_size_aria': 'Rows per page label',
         'data_grid.pagination.page_size_option': `${params?.count} rows per page`,
         'data_grid.pagination.first_page': 'First page label',
@@ -1120,8 +1085,6 @@ describe('DataGrid layout', () => {
 
     const pageFindMarkup = renderToStaticMarkup(
       <DataGridPageFind
-        isV2Ui
-        darkMode={false}
         pageFindText="al"
         normalizedPageFindText="al"
         hasMatches
@@ -1146,8 +1109,6 @@ describe('DataGrid layout', () => {
 
     const resultViewMarkup = renderToStaticMarkup(
       <DataGridResultViewSwitcher
-        isV2Ui={false}
-        darkMode={false}
         viewMode="table"
         translate={translate}
         onViewModeChange={() => {}}
@@ -1156,15 +1117,15 @@ describe('DataGrid layout', () => {
 
     const paginationMarkup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui={false}
+
         pagination={{
           current: 1,
           pageSize: 100,
           total: 24,
         }}
         paginationV2SummaryText="24 rows"
-        paginationSummaryText="24 rows"
-        paginationControlTotal={24}
+
+
         paginationTotalPages={2}
         paginationPageText="Page 1"
         paginationPageSizeOptions={['100', '200']}
@@ -1175,7 +1136,6 @@ describe('DataGrid layout', () => {
         onV2PageStep={() => {}}
       />,
     );
-    expect(paginationMarkup).toContain('Result set label');
     expect(paginationMarkup).toContain('First page label');
     expect(paginationMarkup).toContain('Last page label');
     expect(paginationMarkup).toContain('Jump label');
@@ -1186,7 +1146,7 @@ describe('DataGrid layout', () => {
 
     const secondaryMarkup = renderToStaticMarkup(
       <DataGridSecondaryActions
-        isV2Ui
+
         canViewDdl
         canOpenObjectDesigner={false}
         viewMode="table"
@@ -1196,14 +1156,9 @@ describe('DataGrid layout', () => {
         resultViewSwitcher={<span>view switcher</span>}
         columnInfoSettingContent={<span>column settings</span>}
         columnQuickFindContent={<span>quick find</span>}
-        pageFindContent={<span>page find</span>}
         paginationContent={<span>pagination</span>}
         translate={translate}
         onViewModeChange={() => {}}
-        dataPanelOpen={false}
-        isTableSurfaceActive
-        onToggleDataPanel={() => {}}
-        onOpenTableDdl={() => {}}
       />,
     );
     expect(secondaryMarkup).toContain('Data preview label');
@@ -1402,37 +1357,6 @@ describe('DataGrid layout', () => {
     expect(markup).toContain('跳页');
   });
 
-  it('keeps legacy unknown-total pagination sequential while still allowing direct page jumps', () => {
-    const markup = renderToStaticMarkup(
-      <DataGridPaginationBar
-        isV2Ui={false}
-        pagination={{
-          current: 3,
-          pageSize: 100,
-          total: 400,
-          totalKnown: false,
-        }}
-        paginationV2SummaryText="当前 300 条 / 未统计总数"
-        paginationSummaryText="当前 300 条 / 未统计总数"
-        paginationControlTotal={400}
-        paginationTotalPages={4}
-        paginationPageText="第 3 页"
-        paginationPageSizeOptions={['100', '200']}
-        showKnownPageCount={false}
-        translate={(key, params) => t(key, params, 'zh-CN')}
-        onPageChange={() => {}}
-        onPageSizeChange={() => {}}
-        onV2PageStep={() => {}}
-      />,
-    );
-
-    expect(markup).toContain('第 3 页');
-    expect(markup).toContain('data-grid-pagination-sequential="true"');
-    expect(markup).not.toContain('class="ant-pagination');
-    expect(markup).toContain('data-grid-pagination-jump="true"');
-    expect(markup).toContain('跳页');
-  });
-
   it('renders the v2 DataGrid toolbar using the redesigned topbar hooks', () => {
     const markup = renderDataGridWithI18n(
       <DataGrid
@@ -1517,8 +1441,6 @@ describe('DataGrid layout', () => {
 
     const resultViewMarkup = renderToStaticMarkup(
       <DataGridResultViewSwitcher
-        isV2Ui
-        darkMode={false}
         viewMode="table"
         translate={(key) => zhCnCatalog[key] ?? key}
         onViewModeChange={() => {}}

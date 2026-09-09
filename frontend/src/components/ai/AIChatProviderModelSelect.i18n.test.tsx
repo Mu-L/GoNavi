@@ -49,7 +49,7 @@ const baseProvider = {
   temperature: 0.2,
 };
 
-const renderModelSelect = (variant: 'legacy' | 'v2') => renderToStaticMarkup(
+const renderModelSelect = () => renderToStaticMarkup(
   <I18nProvider
     preference="en-US"
     systemLanguages={['en-US']}
@@ -59,25 +59,23 @@ const renderModelSelect = (variant: 'legacy' | 'v2') => renderToStaticMarkup(
       activeProvider={baseProvider}
       dynamicModels={[]}
       loadingModels={false}
-      variant={variant}
       onModelChange={() => undefined}
       onFetchModels={() => undefined}
     />
   </I18nProvider>,
 );
 
-const renderModelSelectWithoutProvider = (variant: 'legacy' | 'v2') => renderToStaticMarkup(
+const renderModelSelectWithoutProvider = () => renderToStaticMarkup(
   <AIChatProviderModelSelect
     activeProvider={baseProvider}
     dynamicModels={[]}
     loadingModels={false}
-    variant={variant}
     onModelChange={() => undefined}
     onFetchModels={() => undefined}
   />,
 );
 
-const renderLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToStaticMarkup(
+const renderLocalCLIModelSelect = () => renderToStaticMarkup(
   <I18nProvider
     preference="en-US"
     systemLanguages={['en-US']}
@@ -93,14 +91,13 @@ const renderLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToStaticMa
       }}
       dynamicModels={[]}
       loadingModels={false}
-      variant={variant}
       onModelChange={() => undefined}
       onFetchModels={() => undefined}
     />
   </I18nProvider>,
 );
 
-const renderInvalidLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToStaticMarkup(
+const renderInvalidLocalCLIModelSelect = () => renderToStaticMarkup(
   <I18nProvider
     preference="en-US"
     systemLanguages={['en-US']}
@@ -115,7 +112,6 @@ const renderInvalidLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToS
       }}
       dynamicModels={[]}
       loadingModels={false}
-      variant={variant}
       onModelChange={() => undefined}
       onFetchModels={() => undefined}
     />
@@ -124,25 +120,20 @@ const renderInvalidLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToS
 
 describe('AIChatProviderModelSelect i18n source guards', () => {
 
-  it('renders the localized placeholder for both legacy and v2 variants', () => {
-    expect(renderModelSelect('legacy')).toContain('Select model');
-    expect(renderModelSelect('v2')).toContain('Select model');
+  it('renders the localized placeholder', () => {
+    expect(renderModelSelect()).toContain('Select model');
   });
 
   it('falls back to the English placeholder without an i18n provider', () => {
-    expect(() => renderModelSelectWithoutProvider('legacy')).not.toThrow();
-    expect(() => renderModelSelectWithoutProvider('v2')).not.toThrow();
-    expect(renderModelSelectWithoutProvider('legacy')).toContain('Select model');
-    expect(renderModelSelectWithoutProvider('v2')).toContain('Select model');
+    expect(() => renderModelSelectWithoutProvider()).not.toThrow();
+    expect(renderModelSelectWithoutProvider()).toContain('Select model');
   });
 
   it('shows automatic model selection for local CLI subscriptions', () => {
-    expect(renderLocalCLIModelSelect('legacy')).toContain('Auto-selected');
-    expect(renderLocalCLIModelSelect('v2')).toContain('Auto-selected');
+    expect(renderLocalCLIModelSelect()).toContain('Auto-selected');
   });
 
   it('keeps the normal model prompt for unsupported local-cli combinations', () => {
-    expect(renderInvalidLocalCLIModelSelect('legacy')).toContain('Select model');
-    expect(renderInvalidLocalCLIModelSelect('v2')).toContain('Select model');
+    expect(renderInvalidLocalCLIModelSelect()).toContain('Select model');
   });
 });
