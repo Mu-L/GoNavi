@@ -233,6 +233,52 @@ func TestChromaSelectPassesWhereToGetAndCount(t *testing.T) {
 	}
 }
 
+func TestChromaQueryIgnoresLiteralCountAndPagination(t *testing.T) {
+	var capturedPath string
+	var capturedBody map[string]interface{}
+	server := newMockChromaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/heartbeat":
+			writeChromaJSON(w, map[string]interface{}{"ok": true})
+		case strings.HasSuffix(r.URL.Path, "/collections"):
+			writeChromaJSON(w, []chromaCollection{{ID: "col-products", Name: "products"}})
+		case strings.HasSuffix(r.URL.Path, "/collections/col-products/count"):
+			t.Fatal("literal count( must not use the count endpoint")
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/collections/col-products/get"):
+			capturedPath = r.URL.Path
+			capturedBody = map[string]interface{}{}
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			writeChromaJSON(w, chromaGetResponse{IDs: []string{"p1"}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	db := newTestChromaDB(t, server.URL)
+
+	rows, _, err := db.Query(`SELECT * FROM products WHERE category = 'count(' LIMIT 20 OFFSET 5`)
+	if err != nil {
+		t.Fatalf("literal count query failed: %v", err)
+	}
+	if len(rows) != 1 || capturedPath == "" {
+		t.Fatalf("literal count query path=%s rows=%#v", capturedPath, rows)
+	}
+	if include, _ := capturedBody["include"].([]interface{}); len(include) == 0 {
+		t.Fatalf("record query must fetch documents, body=%#v", capturedBody)
+	}
+	if intFromAny(capturedBody["limit"], 0) != 20 || intFromAny(capturedBody["offset"], -1) != 5 {
+		t.Fatalf("literal count query used wrong pagination: %#v", capturedBody)
+	}
+
+	capturedPath = ""
+	rows, _, err = db.Query(`SELECT * FROM products WHERE category = 'LIMIT 1' LIMIT 20 OFFSET 5`)
+	if err != nil {
+		t.Fatalf("literal LIMIT query failed: %v", err)
+	}
+	if len(rows) != 1 || intFromAny(capturedBody["limit"], 0) != 20 || intFromAny(capturedBody["offset"], -1) != 5 {
+		t.Fatalf("literal LIMIT query pagination = %#v path=%s", capturedBody, capturedPath)
+	}
+}
+
 func TestChromaCountWithWherePaginatesBeyondOneMillion(t *testing.T) {
 	const matchingDocuments = 1_000_001
 	var offsets []int

@@ -220,6 +220,44 @@ func TestQdrantSelectPassesWhereToScrollAndCount(t *testing.T) {
 	}
 }
 
+func TestQdrantQueryIgnoresLiteralCountAndPagination(t *testing.T) {
+	var capturedPath string
+	var capturedBody map[string]interface{}
+	server := newMockQdrantServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/collections":
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"collections": []interface{}{}}})
+		case strings.HasSuffix(r.URL.Path, "/points/count"):
+			t.Fatal("literal count( must not use the count endpoint")
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/points/scroll"):
+			capturedPath = r.URL.Path
+			capturedBody = map[string]interface{}{}
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"points": []interface{}{}}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	db := newTestQdrantDB(t, server.URL)
+
+	if _, _, err := db.Query(`SELECT * FROM products WHERE category = 'count(' LIMIT 20 OFFSET 5`); err != nil {
+		t.Fatalf("literal count query failed: %v", err)
+	}
+	if !strings.HasSuffix(capturedPath, "/points/scroll") {
+		t.Fatalf("literal count query path = %s, want scroll", capturedPath)
+	}
+	if intFromAny(capturedBody["limit"], 0) != 20 {
+		t.Fatalf("literal count query pagination = %#v", capturedBody)
+	}
+
+	if _, _, err := db.Query(`SELECT * FROM products WHERE category = 'LIMIT 1' LIMIT 20 OFFSET 5`); err != nil {
+		t.Fatalf("literal LIMIT query failed: %v", err)
+	}
+	if intFromAny(capturedBody["limit"], 0) != 20 {
+		t.Fatalf("literal LIMIT query pagination = %#v", capturedBody)
+	}
+}
+
 func TestQdrantSelectRejectsUnsupportedWhereWithoutDataRequest(t *testing.T) {
 	db := &QdrantDB{client: &http.Client{Transport: vectorWhereRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		t.Fatal("unsupported WHERE must not make an HTTP request")

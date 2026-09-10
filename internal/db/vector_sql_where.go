@@ -96,27 +96,16 @@ func validateQdrantWhereExpr(expr vectorWhereExpr) error {
 }
 
 func findSQLKeyword(text, keyword string, start int) int {
-	quote := rune(0)
 	for i := start; i < len(text); {
-		r := rune(text[i])
-		if quote != 0 {
-			if r == quote {
-				if i+1 < len(text) && rune(text[i+1]) == quote {
-					i += 2
-					continue
-				}
-				quote = 0
-			}
-			i++
+		if next, ok := skipSQLQuotedLiteral(text, i); ok {
+			i = next
 			continue
 		}
-		if r == '\'' || r == '"' || r == '`' {
-			quote = r
-			i++
+		if next, ok := skipSQLComment(text, i); ok {
+			i = next
 			continue
 		}
-		if i+len(keyword) <= len(text) && strings.EqualFold(text[i:i+len(keyword)], keyword) &&
-			(i == 0 || !isSQLWordByte(text[i-1])) && (i+len(keyword) == len(text) || !isSQLWordByte(text[i+len(keyword)])) {
+		if sqlKeywordAt(text, keyword, i) {
 			return i
 		}
 		i++
@@ -126,6 +115,197 @@ func findSQLKeyword(text, keyword string, start int) int {
 
 func isSQLWordByte(value byte) bool {
 	return value == '_' || value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
+}
+
+func sqlKeywordAt(text, keyword string, i int) bool {
+	return i+len(keyword) <= len(text) && strings.EqualFold(text[i:i+len(keyword)], keyword) &&
+		(i == 0 || !isSQLWordByte(text[i-1])) && (i+len(keyword) == len(text) || !isSQLWordByte(text[i+len(keyword)]))
+}
+
+func skipSQLQuotedLiteral(text string, i int) (int, bool) {
+	if i >= len(text) {
+		return i, false
+	}
+	quote := text[i]
+	if quote != '\'' && quote != '"' && quote != '`' {
+		return i, false
+	}
+	i++
+	for i < len(text) {
+		if text[i] == quote {
+			if i+1 < len(text) && text[i+1] == quote {
+				i += 2
+				continue
+			}
+			return i + 1, true
+		}
+		i++
+	}
+	return len(text), true
+}
+
+func skipSQLComment(text string, i int) (int, bool) {
+	if i+1 >= len(text) {
+		return i, false
+	}
+	if text[i] == '-' && text[i+1] == '-' {
+		i += 2
+		for i < len(text) && text[i] != '\n' {
+			i++
+		}
+		return i, true
+	}
+	if text[i] == '/' && text[i+1] == '*' {
+		i += 2
+		for i+1 < len(text) && !(text[i] == '*' && text[i+1] == '/') {
+			i++
+		}
+		if i+1 < len(text) {
+			return i + 2, true
+		}
+		return len(text), true
+	}
+	return i, false
+}
+
+func skipSQLSpaceAndComments(text string, i int) int {
+	for i < len(text) {
+		if unicode.IsSpace(rune(text[i])) {
+			i++
+			continue
+		}
+		if next, ok := skipSQLComment(text, i); ok {
+			i = next
+			continue
+		}
+		return i
+	}
+	return i
+}
+
+func sqlSelectProjection(text string) string {
+	selectAt := findSQLKeyword(text, "SELECT", 0)
+	if selectAt < 0 {
+		return ""
+	}
+	fromAt := findSQLKeyword(text, "FROM", selectAt+len("SELECT"))
+	if fromAt < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[selectAt+len("SELECT") : fromAt])
+}
+
+func sqlContainsFunctionCall(text, name string) bool {
+	for i := 0; i < len(text); {
+		if next, ok := skipSQLQuotedLiteral(text, i); ok {
+			i = next
+			continue
+		}
+		if next, ok := skipSQLComment(text, i); ok {
+			i = next
+			continue
+		}
+		if sqlKeywordAt(text, name, i) {
+			j := skipSQLSpaceAndComments(text, i+len(name))
+			if j < len(text) && text[j] == '(' {
+				return true
+			}
+			i += len(name)
+			continue
+		}
+		i++
+	}
+	return false
+}
+
+func parseSQLFromName(text string) string {
+	fromAt := findSQLKeyword(text, "FROM", 0)
+	if fromAt < 0 {
+		return ""
+	}
+	i := skipSQLSpaceAndComments(text, fromAt+len("FROM"))
+	if i >= len(text) {
+		return ""
+	}
+	if text[i] == '"' || text[i] == '`' {
+		quote := text[i]
+		i++
+		start := i
+		for i < len(text) && text[i] != quote {
+			i++
+		}
+		if i >= len(text) {
+			return ""
+		}
+		return strings.TrimSpace(text[start:i])
+	}
+	start := i
+	for i < len(text) && isSQLFromNameByte(text[i]) {
+		i++
+	}
+	return strings.TrimSpace(text[start:i])
+}
+
+func isSQLFromNameByte(value byte) bool {
+	return value == '_' || value == '.' || value == '-' ||
+		value >= '0' && value <= '9' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
+}
+
+func parseSQLLimitClause(text string) (int, bool) {
+	return parseSQLUnsignedKeywordValue(text, "LIMIT")
+}
+
+func parseSQLUnsignedOffset(text string) (int, bool) {
+	return parseSQLUnsignedKeywordValue(text, "OFFSET")
+}
+
+func parseSQLUnsignedKeywordValue(text, keyword string) (int, bool) {
+	for searchFrom := 0; searchFrom < len(text); {
+		idx := findSQLKeyword(text, keyword, searchFrom)
+		if idx < 0 {
+			return 0, false
+		}
+		i := skipSQLSpaceAndComments(text, idx+len(keyword))
+		if n, ok := parseSQLUnsignedInt(text[i:]); ok {
+			return n, true
+		}
+		searchFrom = idx + len(keyword)
+	}
+	return 0, false
+}
+
+func parseSQLUnsignedInt(text string) (int, bool) {
+	if text == "" || text[0] < '0' || text[0] > '9' {
+		return 0, false
+	}
+	end := 1
+	for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+		end++
+	}
+	n, err := strconv.Atoi(text[:end])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func parseSQLOffsetToken(text string) (string, bool) {
+	for searchFrom := 0; searchFrom < len(text); {
+		idx := findSQLKeyword(text, "OFFSET", searchFrom)
+		if idx < 0 {
+			return "", false
+		}
+		i := skipSQLSpaceAndComments(text, idx+len("OFFSET"))
+		start := i
+		for i < len(text) && isSQLFromNameByte(text[i]) {
+			i++
+		}
+		if i > start {
+			return text[start:i], true
+		}
+		searchFrom = idx + len("OFFSET")
+	}
+	return "", false
 }
 
 func tokenizeVectorWhere(text string) ([]string, error) {
