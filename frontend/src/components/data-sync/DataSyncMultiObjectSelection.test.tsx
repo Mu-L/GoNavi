@@ -54,6 +54,13 @@ const sourceObjectAction = (renderer: TestRenderer.ReactTestRenderer) =>
   buttonsWithText(renderer, '选择源对象')[0] ??
   buttonsWithText(renderer, '添加源对象')[0]!;
 
+const sourceObjectName = (node: TestRenderer.ReactTestInstance): string =>
+  typeof node.props.value === 'string'
+    ? node.props.value
+    : typeof node.props['data-object-name'] === 'string'
+      ? node.props['data-object-name']
+      : '';
+
 describe('data sync multi-object selection', () => {
   it('adds all current source tables, matches targets, and detects keys in one action', async () => {
     const draft = createDataSyncTaskDraft({
@@ -138,7 +145,7 @@ describe('data sync multi-object selection', () => {
     expect(
       renderer.root
         .findAllByProps({ 'data-object-side': 'source' })
-        .map((input) => input.props.value),
+        .map((input) => sourceObjectName(input)),
     ).toEqual(names);
   });
 
@@ -273,7 +280,7 @@ describe('data sync multi-object selection', () => {
       .find((row) =>
         row
           .findAllByProps({ 'data-object-side': 'source' })
-          .some((input) => input.props.value === 'orders'),
+          .some((input) => sourceObjectName(input) === 'orders'),
       )!;
     act(() =>
       orderRow
@@ -297,7 +304,7 @@ describe('data sync multi-object selection', () => {
     expect(
       renderer.root
         .findAllByProps({ 'data-object-side': 'source' })
-        .some((input) => input.props.value === 'orders'),
+        .some((input) => sourceObjectName(input) === 'orders'),
     ).toBe(false);
     expect(
       renderer.root.findByProps({ 'data-mapping-id': 'existing-map' }).props[

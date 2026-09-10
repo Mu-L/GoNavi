@@ -172,6 +172,16 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");
     expect(appSource).toContain("activeSettingsCenterPane.key === 'drivers'");
     expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenDriverManagerWorkbench\(\);/);
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'export')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'connection-health')");
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenConnectionHealth\(\);/);
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('schemaCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('dataCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('sync')");
+    expect(appSource).not.toContain('LazyDataSyncWorkbench');
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*addTab\(buildDataSyncWorkbenchTab/);
     expect(appSource).toContain('hideSidebar');
     expect(appSource).toContain('section={aiSettingsSection}');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");

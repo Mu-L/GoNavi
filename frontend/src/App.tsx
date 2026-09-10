@@ -617,6 +617,9 @@ type ConnectionPackageDialogMode = 'import' | 'export';
 type ToolCenterGroupKey = 'config' | 'workflow' | 'workspace';
 type ToolCenterPaneKey =
   | 'connection-package'
+  | 'import'
+  | 'export'
+  | 'connection-health'
   | 'data-root'
   | 'data-root-application'
   | 'data-root-agent'
@@ -648,6 +651,10 @@ type SettingsCenterPaneState = {
 const isToolCenterGroupKey = (group: SettingsCenterGroupKey): group is ToolCenterGroupKey => (
   group === 'config' || group === 'workflow' || group === 'workspace'
 );
+
+const isConnectionPackageSettingsPaneKey = (
+  key: SettingsCenterPaneKey | string | null | undefined,
+): boolean => key === 'connection-package' || key === 'import' || key === 'export';
 
 const resolveSettingsCenterGroupInitialPane = (group: SettingsCenterGroupKey): SettingsCenterPaneState | null => {
   switch (group) {
@@ -3478,7 +3485,7 @@ function App() {
       setPendingConnectionImportPayload(null);
       setToolCenterBackGroupKey(null);
       setActiveSettingsCenterPane((current) => (
-          current?.key === 'connection-package' ? resolveSettingsCenterGroupInitialPane('config') : current
+          isConnectionPackageSettingsPaneKey(current?.key) ? resolveSettingsCenterGroupInitialPane('config') : current
       ));
   }, []);
 
@@ -3563,7 +3570,7 @@ function App() {
               if (sourceGroup) {
                   setToolCenterBackGroupKey(sourceGroup);
                   setActiveSettingsCenterGroupKey(sourceGroup);
-                  setActiveSettingsCenterPane({ key: 'connection-package', group: sourceGroup });
+                  setActiveSettingsCenterPane({ key: 'import', group: sourceGroup });
               }
               setPendingConnectionImportPayload(raw);
               setConnectionPackageDialog({
@@ -3601,6 +3608,15 @@ function App() {
 
   const handleImportConnections = async (sourceGroup?: ToolCenterGroupKey) => {
       setToolCenterBackGroupKey(sourceGroup ?? null);
+      if (sourceGroup) {
+          setActiveSettingsCenterGroupKey(sourceGroup);
+          setActiveSettingsCenterPane({ key: 'import', group: sourceGroup });
+          setConnectionPackageDialog((current) => (
+              current.open && current.mode === 'import'
+                  ? current
+                  : { ...createClosedConnectionPackageDialogState(), mode: 'import' }
+          ));
+      }
       if (isWebRuntime) {
           const input = browserConnectionImportInputRef.current;
           if (!input) {
@@ -3626,15 +3642,10 @@ function App() {
   };
 
   const handleExportConnections = async (sourceGroup?: ToolCenterGroupKey) => {
-      if (connections.length === 0) {
-          void message.warning(t('app.connection_package.message.no_connections_to_export'));
-          return;
-      }
-
       setToolCenterBackGroupKey(sourceGroup ?? null);
       if (sourceGroup) {
           setActiveSettingsCenterGroupKey(sourceGroup);
-          setActiveSettingsCenterPane({ key: 'connection-package', group: sourceGroup });
+          setActiveSettingsCenterPane({ key: 'export', group: sourceGroup });
       }
       setConnectionPackageDialog({
           open: true,
@@ -3644,7 +3655,6 @@ function App() {
           password: '',
           error: '',
           confirmLoading: false,
-          // Default to all connections; user can deselect for partial export.
           selectedConnectionIds: connections.map((item) => item.id),
       });
   };
@@ -4125,10 +4135,21 @@ function App() {
       replaceGlobalProxy,
       t,
   ]);
+  const closeConnectionHealthSettingsPane = useCallback(() => {
+      setIsConnectionHealthModalOpen(false);
+      setConnectionHealthTargetIds([]);
+      setActiveSettingsCenterPane((current) => (
+          current?.key === 'connection-health' ? resolveSettingsCenterGroupInitialPane('config') : current
+      ));
+  }, []);
   const clearSettingsCenterTransientPaneState = useCallback(() => {
       setCapturingShortcutAction(null);
-      if (activeSettingsCenterPaneRef.current?.key === 'connection-package') {
+      if (isConnectionPackageSettingsPaneKey(activeSettingsCenterPaneRef.current?.key)) {
           closeConnectionPackageDialog();
+      }
+      if (activeSettingsCenterPaneRef.current?.key === 'connection-health') {
+          setIsConnectionHealthModalOpen(false);
+          setConnectionHealthTargetIds([]);
       }
       if (activeSettingsCenterPaneRef.current?.key === 'ai') {
           setFocusedAIProviderId(undefined);
@@ -4164,8 +4185,12 @@ function App() {
   }, [openSecurityUpdateSettings, securityUpdateRepairSource]);
   const handleCancelSettingsCenterPane = useCallback(() => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       const leavingAI = activeSettingsCenterPane?.key === 'ai';
-      if (activeSettingsCenterPane?.key === 'connection-package') {
+      if (isConnectionPackageSettingsPaneKey(activeSettingsCenterPane?.key)) {
           closeConnectionPackageDialog();
+      }
+      if (activeSettingsCenterPane?.key === 'connection-health') {
+          setIsConnectionHealthModalOpen(false);
+          setConnectionHealthTargetIds([]);
       }
       setCapturingShortcutAction(null);
       setToolCenterBackGroupKey(null);
@@ -4176,9 +4201,8 @@ function App() {
       }
   }), [activeSettingsCenterPane?.key, closeConnectionPackageDialog, closeSettingsCenterWorkbenchTab, finalizeSecurityRepairReturnFromAISettings]);
   const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryMode) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
-      handleCancelSettingsCenterPane();
       addTab(buildDataSyncWorkbenchTab({ entryMode }));
-  }), [addTab, handleCancelSettingsCenterPane]);
+  }), [addTab]);
   const isSettingsAboutPaneOpen = isSettingsModalOpen && activeSettingsCenterPane?.key === 'about-go-navi';
   const wasSettingsCenterTabOpenRef = useRef(false);
   useEffect(() => {
@@ -4188,8 +4212,12 @@ function App() {
           return;
       }
       // Tab closed via workbench chrome (X) — mirror cancel cleanup without re-entering leave guard.
-      if (activeSettingsCenterPaneRef.current?.key === 'connection-package') {
+      if (isConnectionPackageSettingsPaneKey(activeSettingsCenterPaneRef.current?.key)) {
           closeConnectionPackageDialog();
+      }
+      if (activeSettingsCenterPaneRef.current?.key === 'connection-health') {
+          setIsConnectionHealthModalOpen(false);
+          setConnectionHealthTargetIds([]);
       }
       const leavingAI = activeSettingsCenterPaneRef.current?.key === 'ai';
       setCapturingShortcutAction(null);
@@ -6638,10 +6666,12 @@ function App() {
                   <div className="gonavi-about-setting">
                       <div className="gonavi-about-field">
                           <div className="gonavi-about-field-label" style={{ color: overlayTheme.titleText }}>{t('app.about.field.auto_check_updates')}</div>
-                          <Switch
-                            checked={autoCheckForUpdates}
-                            onChange={(checked) => setAutoCheckForUpdates(checked)}
-                          />
+                          <span className="gonavi-about-field-control">
+                            <Switch
+                              checked={autoCheckForUpdates}
+                              onChange={(checked) => setAutoCheckForUpdates(checked)}
+                            />
+                          </span>
                       </div>
                       {autoCheckForUpdates ? (
                           <>
@@ -8443,7 +8473,7 @@ function App() {
           />
           )}
           <ConnectionHealthModal
-            open={isConnectionHealthModalOpen}
+            open={isConnectionHealthModalOpen && !(isSettingsModalOpen && activeSettingsCenterPane?.key === 'connection-health')}
             targetConnectionIds={connectionHealthTargetIds}
             onClose={() => setIsConnectionHealthModalOpen(false)}
             zIndex={isConnectionGroupManagementOpen ? APP_NESTED_MODAL_Z_INDEX : APP_FOREGROUND_MODAL_Z_INDEX}
@@ -8462,6 +8492,7 @@ function App() {
                     title: t('app.tools.entry.import.title'),
                     description: t('app.tools.entry.import.description'),
                     onClick: () => {
+                      handleOpenToolCenterPane('config', 'import');
                       void handleImportConnections('config');
                     },
                   },
@@ -8471,6 +8502,7 @@ function App() {
                     title: t('app.tools.entry.export.title'),
                     description: t('app.tools.entry.export.description'),
                     onClick: () => {
+                      handleOpenToolCenterPane('config', 'export');
                       void handleExportConnections('config');
                     },
                   },
@@ -8480,7 +8512,7 @@ function App() {
                     title: t('app.tools.entry.connection_health.title'),
                     description: t('app.tools.entry.connection_health.description'),
                     onClick: () => {
-                      handleCancelSettingsCenterPane();
+                      handleOpenToolCenterPane('config', 'connection-health');
                       handleOpenConnectionHealth();
                     },
                   },
@@ -8667,7 +8699,33 @@ function App() {
                 return null;
               }
 
-              if (activeSettingsCenterPane.key === 'connection-package') {
+              if (isConnectionPackageSettingsPaneKey(activeSettingsCenterPane.key)) {
+                if (!connectionPackageDialog.open) {
+                  const isImportPane = activeSettingsCenterPane.key === 'import'
+                    || connectionPackageDialog.mode === 'import';
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 0' }}>
+                      <div style={utilityPanelStyle}>
+                        <div style={utilityMutedTextStyle}>
+                          {isImportPane
+                            ? t('app.tools.entry.import.description')
+                            : t('app.tools.entry.export.description')}
+                        </div>
+                        {isImportPane ? (
+                          <div style={{ marginTop: 12 }}>
+                            <Button type="primary" icon={<UploadOutlined />} onClick={() => void handleImportConnections('config')}>
+                              {t('app.connection_package.action.start_import')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 12, ...utilityMutedTextStyle }}>
+                            {t('app.connection_package.message.no_connections_to_export')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <ConnectionPackagePasswordModal
                     embedded
@@ -8681,7 +8739,11 @@ function App() {
                     password={connectionPackageDialog.password}
                     error={connectionPackageDialog.error}
                     confirmLoading={connectionPackageDialog.confirmLoading}
-                    connectionOptions={connections.map((item) => ({ value: item.id, label: item.name || item.id }))}
+                    connectionOptions={connections.map((item) => ({
+                      value: item.id,
+                      label: item.name || item.id,
+                      type: item.config?.type,
+                    }))}
                     selectedConnectionIds={connectionPackageDialog.selectedConnectionIds}
                     onSelectedConnectionIdsChange={(ids) => {
                         setConnectionPackageDialog((current) => ({
@@ -8721,6 +8783,17 @@ function App() {
                         void handleConfirmConnectionPackageDialog();
                     }}
                     onCancel={closeConnectionPackageDialog}
+                  />
+                );
+              }
+
+              if (activeSettingsCenterPane.key === 'connection-health') {
+                return (
+                  <ConnectionHealthModal
+                    embedded
+                    open
+                    targetConnectionIds={connectionHealthTargetIds}
+                    onClose={closeConnectionHealthSettingsPane}
                   />
                 );
               }
@@ -9047,7 +9120,7 @@ function App() {
             surfaceOpacity={effectiveOpacity}
           />
           <ConnectionPackagePasswordModal
-            open={connectionPackageDialog.open && !(isSettingsModalOpen && activeSettingsCenterPane?.key === 'connection-package')}
+            open={connectionPackageDialog.open && !(isSettingsModalOpen && isConnectionPackageSettingsPaneKey(activeSettingsCenterPane?.key))}
             title={connectionPackageDialog.mode === 'export'
                 ? t('app.connection_package.dialog.export_title')
                 : t('app.connection_package.dialog.import_password_title')}

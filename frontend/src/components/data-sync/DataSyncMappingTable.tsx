@@ -242,6 +242,7 @@ export const DataSyncMappingTable: React.FC<{
   onInspectFields,
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState('');
   const [expandedMappingIds, setExpandedMappingIds] = useState<Set<string>>(
     new Set(),
   );
@@ -249,9 +250,6 @@ export const DataSyncMappingTable: React.FC<{
   const mappingListRef = useRef<HTMLDivElement | null>(null);
   const previousMappingIdsRef = useRef(
     new Set(mappings.map((mapping) => mapping.id)),
-  );
-  const [recentMappingIds, setRecentMappingIds] = useState<Set<string>>(
-    new Set(),
   );
   const querySink = taskKind === 'querySink';
   const endpointsReady =
@@ -311,49 +309,90 @@ export const DataSyncMappingTable: React.FC<{
     if (!querySink && sourceObjects.status === 'error') sourceObjects.reload();
     if (targetObjects.status === 'error') targetObjects.reload();
   };
-  const addedMappingIds = mappings
-    .filter((mapping) => !previousMappingIdsRef.current.has(mapping.id))
-    .map((mapping) => mapping.id);
-  const pinnedMappingIds =
-    addedMappingIds.length > 0 ? new Set(addedMappingIds) : recentMappingIds;
-  const pinnedMappings = mappings.filter((mapping) => pinnedMappingIds.has(mapping.id));
-  const visiblePinnedMappings = pinnedMappings.slice(0, visibleLimit);
-  const visibleMappings = [
-    ...visiblePinnedMappings,
-    ...mappings
-      .filter((mapping) => !pinnedMappingIds.has(mapping.id))
-      .slice(0, visibleLimit - visiblePinnedMappings.length),
-  ];
-  const remainingCount = mappings.length - visibleMappings.length;
+  const orderedMappings = useMemo(() => {
+    if (querySink || sourceObjects.items.length === 0) return mappings;
+    const catalogIndex = new Map(
+      sourceObjects.items.map((object, index) => [
+        normalizeName(object.name),
+        index,
+      ]),
+    );
+    return mappings
+      .map((mapping, index) => ({ mapping, index }))
+      .sort((left, right) => {
+        const leftRank = catalogIndex.get(normalizeName(left.mapping.sourceObject));
+        const rightRank = catalogIndex.get(
+          normalizeName(right.mapping.sourceObject),
+        );
+        if (leftRank == null && rightRank == null) return left.index - right.index;
+        if (leftRank == null) return 1;
+        if (rightRank == null) return -1;
+        return leftRank - rightRank || left.index - right.index;
+      })
+      .map((item) => item.mapping);
+  }, [mappings, querySink, sourceObjects.items]);
+  const visibleMappings = orderedMappings.slice(0, visibleLimit);
+  const remainingCount = orderedMappings.length - visibleMappings.length;
   const mappingIndexById = useMemo(
-    () => new Map(mappings.map((mapping, index) => [mapping.id, index + 1])),
+    () => new Map(orderedMappings.map((mapping, index) => [mapping.id, index + 1])),
+    [orderedMappings],
+  );
+  const mappedSourceNames = useMemo(
+    () => new Set(mappings.map((mapping) => normalizeName(mapping.sourceObject)).filter(Boolean)),
     [mappings],
   );
+  const catalogNeedle = normalizeName(catalogSearch);
+  const catalogObjects = useMemo(
+    () =>
+      sourceObjects.items.filter(
+        (object) =>
+          object.kind !== 'view' &&
+          (!catalogNeedle || normalizeName(object.name).includes(catalogNeedle)),
+      ),
+    [catalogNeedle, sourceObjects.items],
+  );
+  const showCatalog = !querySink && canPickSources;
+  const toggleCatalogObject = (objectName: string, checked: boolean) => {
+    if (checked) {
+      onAddMany([objectName]);
+      return;
+    }
+    const mapping = mappings.find(
+      (item) => normalizeName(item.sourceObject) === normalizeName(objectName),
+    );
+    if (mapping) onRemove(mapping.id);
+  };
 
   useEffect(() => {
     const currentIds = new Set(mappings.map((mapping) => mapping.id));
+    const addedIds = mappings
+      .filter((mapping) => !previousMappingIdsRef.current.has(mapping.id))
+      .map((mapping) => mapping.id);
     previousMappingIdsRef.current = currentIds;
-    if (addedMappingIds.length > 0) {
-      setRecentMappingIds(new Set(addedMappingIds));
-      return;
-    }
-    setRecentMappingIds((current) => {
-      const retained = new Set(
-        Array.from(current).filter((mappingId) => currentIds.has(mappingId)),
-      );
-      return retained.size === current.size ? current : retained;
-    });
-  }, [mappings]);
+    if (addedIds.length === 0) return;
+    const lastAddedIndex = Math.max(
+      ...addedIds.map((mappingId) =>
+        orderedMappings.findIndex((mapping) => mapping.id === mappingId),
+      ),
+      0,
+    );
+    setVisibleLimit((current) =>
+      lastAddedIndex < current ? current : lastAddedIndex + 1,
+    );
+  }, [mappings, orderedMappings]);
 
   return (
-    <section className="gn-data-sync-section" data-data-sync-mapping-section="true">
+    <section
+      className={`gn-data-sync-section${showCatalog ? ' gn-data-sync-section--mappings' : ''}`}
+      data-data-sync-mapping-section="true"
+    >
       <header className="gn-data-sync-section__header">
         <div>
           <h2>{t('mapping.title')}</h2>
           <p>{t(querySink ? 'mapping.query_help' : 'mapping.help')}</p>
         </div>
         {endpointsReady &&
-        (mappings.length > 0 || (querySink && targetObjects.status === 'ready')) ? (
+        (mappings.length > 0 || showCatalog || (querySink && targetObjects.status === 'ready')) ? (
           <button
             type="button"
             className="gn-data-sync-button gn-data-sync-button--primary"
@@ -371,7 +410,7 @@ export const DataSyncMappingTable: React.FC<{
         ) : null}
       </header>
 
-      {endpointsReady ? (
+      {endpointsReady && !showCatalog ? (
         <div className="gn-data-sync-object-status-line" aria-live="polite">
           {!querySink ? (
             <ObjectMetadataStatus
@@ -402,10 +441,53 @@ export const DataSyncMappingTable: React.FC<{
         />
       ) : null}
 
+      {showCatalog ? (
+        <aside className="gn-data-sync-mapping-catalog" data-mapping-catalog="true">
+          <header className="gn-data-sync-mapping-catalog__header">
+            <strong>{t('mapping.catalog_title')}</strong>
+            <span>{t('metadata.objects_count', { count: sourceObjects.items.length })}</span>
+          </header>
+          <label className="gn-data-sync-mapping-catalog__search">
+            <span className="gn-data-sync-visually-hidden">{t('mapping.search_objects')}</span>
+            <input
+              type="search"
+              value={catalogSearch}
+              placeholder={t('mapping.search_objects')}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+            />
+          </label>
+          <div className="gn-data-sync-mapping-catalog__list">
+            {catalogObjects.map((object) => {
+              const checked = mappedSourceNames.has(normalizeName(object.name));
+              return (
+                <label
+                  key={`${object.kind}:${object.name}`}
+                  className="gn-data-sync-mapping-catalog__item"
+                  data-checked={checked ? 'true' : 'false'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled || selectionBusy}
+                    onChange={(event) =>
+                      toggleCatalogObject(object.name, event.target.checked)
+                    }
+                  />
+                  <span className="gn-data-sync-mapping-catalog__name">{object.name}</span>
+                  <small>{t(`mapping.object_kind.${object.kind}`)}</small>
+                </label>
+              );
+            })}
+          </div>
+        </aside>
+      ) : null}
+
       {!endpointsReady || mappings.length === 0 ? (
-        <div className="gn-data-sync-mapping-empty" data-state={emptyState}>
-          {emptyState !== 'prerequisite' ? <strong>{emptyTitle}</strong> : null}
-          <p>{emptyDescription}</p>
+        <div className="gn-data-sync-mapping-empty" data-state={showCatalog ? 'catalog' : emptyState}>
+          {showCatalog || emptyState !== 'prerequisite' ? (
+            <strong>{showCatalog ? t('mapping.none_selected_title') : emptyTitle}</strong>
+          ) : null}
+          <p>{showCatalog ? t('mapping.none_selected_desc') : emptyDescription}</p>
           {emptyState === 'error' ? (
             <button
               type="button"
@@ -434,9 +516,17 @@ export const DataSyncMappingTable: React.FC<{
         </div>
       ) : (
         <div ref={mappingListRef} className="gn-data-sync-mapping-list">
+          {showCatalog ? (
+            <div className="gn-data-sync-mapping-list__columns" aria-hidden="true">
+              <span />
+              <span>{t('mapping.selected_source')}</span>
+              <span />
+              <span>{t('mapping.write_to')}</span>
+              <span />
+            </div>
+          ) : null}
           {visibleMappings.map((mapping, index) => {
             const targetState = targetStatus(mapping, targetObjects);
-            const targetPending = targetState === 'pending';
             const ready = mappingReady(mapping, taskKind, targetState);
             const detailsOpen = expandedMappingIds.has(mapping.id);
             return (
@@ -445,6 +535,8 @@ export const DataSyncMappingTable: React.FC<{
                 className="gn-data-sync-mapping-row"
                 data-mapping-id={mapping.id}
                 data-ready={ready ? 'true' : 'false'}
+                data-source-locked={showCatalog ? 'true' : 'false'}
+                data-expanded={detailsOpen ? 'true' : 'false'}
               >
                 <div className="gn-data-sync-mapping-row__route">
                   <label className="gn-data-sync-mapping-row__enabled">
@@ -459,30 +551,41 @@ export const DataSyncMappingTable: React.FC<{
                     />
                   <span>{mappingIndexById.get(mapping.id) ?? index + 1}</span>
                   </label>
-                  <div className="gn-data-sync-mapping-row__endpoint">
-                    <span>{t('mapping.source')}</span>
-                    {querySink ? (
-                      <strong className="gn-data-sync-query-source">
-                        {t('mapping.query_result_source')}
-                      </strong>
-                    ) : (
-                      <DataSyncObjectCombobox
-                        id={`${mapping.id}-source`}
-                        side="source"
-                        value={mapping.sourceObject}
-                        options={sourceObjects.items}
-                        disabled={disabled || !mapping.enabled}
-                        allowCustom={false}
-                        t={t}
-                        onChange={(sourceObject) =>
-                          onChange({ ...mapping, sourceObject, keyColumns: [], fields: [] })
-                        }
-                      />
-                    )}
-                  </div>
+                  {showCatalog ? (
+                    <div
+                      className="gn-data-sync-mapping-row__source-name"
+                      data-object-side="source"
+                      data-object-name={mapping.sourceObject}
+                      title={mapping.sourceObject}
+                    >
+                      {mapping.sourceObject}
+                    </div>
+                  ) : (
+                    <div className="gn-data-sync-mapping-row__endpoint">
+                      <span>{t('mapping.source')}</span>
+                      {querySink ? (
+                        <strong className="gn-data-sync-query-source">
+                          {t('mapping.query_result_source')}
+                        </strong>
+                      ) : (
+                        <DataSyncObjectCombobox
+                          id={`${mapping.id}-source`}
+                          side="source"
+                          value={mapping.sourceObject}
+                          options={sourceObjects.items}
+                          disabled={disabled || !mapping.enabled}
+                          allowCustom={false}
+                          t={t}
+                          onChange={(sourceObject) =>
+                            onChange({ ...mapping, sourceObject, keyColumns: [], fields: [] })
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
                   <span className="gn-data-sync-mapping-row__arrow" aria-hidden="true">→</span>
                   <div className="gn-data-sync-mapping-row__endpoint">
-                    <span>{t('mapping.target')}</span>
+                    {showCatalog ? null : <span>{t('mapping.target')}</span>}
                     <DataSyncObjectCombobox
                       id={`${mapping.id}-target`}
                       side="target"
@@ -495,31 +598,20 @@ export const DataSyncMappingTable: React.FC<{
                         onChange({ ...mapping, targetObject, fields: [] })
                       }
                     />
-                  </div>
-                  <div className="gn-data-sync-mapping-row__status">
-                    <span
-                      className="gn-data-sync-target-state"
+                    {targetState === 'exists' ? null : (
+                    <small
+                      className="gn-data-sync-mapping-row__hint"
+                      data-mapping-hint="target"
                       data-state={targetState}
                     >
-                      {t(`mapping.target_state.${targetState}`)}
-                    </span>
-                    <span
-                      className="gn-data-sync-state-label"
-                      data-state={targetPending ? 'pending' : ready ? 'ready' : 'warning'}
-                    >
-                      {t(
-                        targetPending
-                          ? 'mapping.confirming'
-                          : ready
-                            ? 'mapping.ready'
-                            : 'mapping.needs_attention',
-                      )}
-                    </span>
+                      {t(`mapping.target_hint.${targetState}`)}
+                    </small>
+                    )}
                   </div>
                   <div className="gn-data-sync-mapping-row__actions">
                     <button
                       type="button"
-                      className="gn-data-sync-link-button"
+                      className="gn-data-sync-link-button gn-data-sync-mapping-row__exceptions-toggle"
                       aria-expanded={detailsOpen}
                       onClick={() =>
                         setExpandedMappingIds((current) => {
@@ -530,11 +622,12 @@ export const DataSyncMappingTable: React.FC<{
                         })
                       }
                     >
-                      {t(
-                        detailsOpen
-                          ? 'mapping.collapse_exceptions'
-                          : 'mapping.edit_exceptions',
-                      )}
+                      <span data-exception-action="edit">
+                        {t('mapping.edit_exceptions')}
+                      </span>
+                      <span data-exception-action="collapse">
+                        {t('mapping.collapse_exceptions')}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -552,7 +645,16 @@ export const DataSyncMappingTable: React.FC<{
                   className="gn-data-sync-mapping-row__details"
                   data-mapping-details="true"
                 >
-                  <label>
+                  <p
+                    className="gn-data-sync-mapping-row__details-caption"
+                    data-mapping-exceptions-for={mapping.sourceObject}
+                  >
+                    {t('mapping.exceptions_caption', {
+                      source: mapping.sourceObject || t('mapping.query_result_source'),
+                      target: mapping.targetObject,
+                    })}
+                  </p>
+                  <label className="gn-data-sync-mapping-row__detail">
                     <span>{t('mapping.target_mode')}</span>
                     <select
                       className="gn-data-sync-table-input"
@@ -569,7 +671,7 @@ export const DataSyncMappingTable: React.FC<{
                       <option value="existing_only">{t('mapping.existing_only')}</option>
                     </select>
                   </label>
-                  <label>
+                  <label className="gn-data-sync-mapping-row__detail">
                     <span>{t('mapping.key_columns')}</span>
                     <input
                       className="gn-data-sync-table-input gn-data-sync-mono"
@@ -596,7 +698,7 @@ export const DataSyncMappingTable: React.FC<{
                     <span>{t('mapping.fields')}</span>
                     <button
                       type="button"
-                      className="gn-data-sync-link-button"
+                      className="gn-data-sync-mapping-row__fields-action"
                       disabled={
                         !mapping.enabled ||
                         (!querySink && !mapping.sourceObject.trim()) ||

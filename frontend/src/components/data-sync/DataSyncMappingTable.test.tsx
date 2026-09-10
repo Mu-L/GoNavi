@@ -63,6 +63,10 @@ const mappingRows = (renderer: TestRenderer.ReactTestRenderer) =>
     (node) => typeof node.props['data-mapping-id'] === 'string',
   );
 
+const buttonHasText = (button: TestRenderer.ReactTestInstance, text: string) =>
+  button.children.includes(text) ||
+  button.findAll((node) => node.children.includes(text)).length > 0;
+
 describe('DataSyncMappingTable', () => {
   it('renders mappings in batches of 100 while keeping the full mapping model', () => {
     const mappings = Array.from({ length: 205 }, (_, index) => ({
@@ -113,16 +117,21 @@ describe('DataSyncMappingTable', () => {
 
     const editExceptions = row
       .findAllByType('button')
-      .find((button) => button.children.includes('Edit exception'))!;
+      .find((button) => buttonHasText(button, 'Edit exception'))!;
     expect(editExceptions.props['aria-expanded']).toBe(false);
 
     act(() => editExceptions.props.onClick());
+    const details = renderer.root.findByProps({ 'data-mapping-details': 'true' });
+    expect(row.props['data-expanded']).toBe('true');
     expect(
-      renderer.root.findAllByProps({ 'data-mapping-details': 'true' }),
-    ).toHaveLength(1);
+      details.findByProps({ 'data-mapping-exceptions-for': 'orders' }).children,
+    ).toContain('Exceptions for orders');
+    expect(details.findAllByProps({ className: 'gn-data-sync-mapping-row__detail' })).toHaveLength(2);
+    expect(details.findByProps({ className: 'gn-data-sync-mapping-row__fields' })).toBeTruthy();
+    expect(details.findByProps({ className: 'gn-data-sync-mapping-row__fields-action' })).toBeTruthy();
   });
 
-  it('pins a newly appended mapping into the bounded visible batch', () => {
+  it('keeps catalog order and still reveals a newly appended mapping', () => {
     const mappings = Array.from({ length: 205 }, (_, index) => ({
       ...createDataSyncTableMapping(
         `existing-${index + 1}`,
@@ -139,10 +148,58 @@ describe('DataSyncMappingTable', () => {
 
     act(() => renderer.update(table([...mappings, recent])));
 
-    expect(mappingRows(renderer)).toHaveLength(100);
+    const rows = mappingRows(renderer);
+    expect(rows[0].props['data-mapping-id']).toBe('existing-1');
     expect(
       renderer.root.findByProps({ 'data-mapping-id': 'recent-mapping' }),
     ).toBeTruthy();
+    expect(rows[rows.length - 1].props['data-mapping-id']).toBe('recent-mapping');
+  });
+
+  it('lists selected mappings in catalog order instead of selection recency', () => {
+    const later = {
+      ...createDataSyncTableMapping('later', 'customers', 'customers'),
+      keyColumns: ['id'],
+    };
+    const earlier = {
+      ...createDataSyncTableMapping('earlier', 'orders', 'orders'),
+      keyColumns: ['id'],
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[later, earlier]}
+        taskKind="reconcile"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+        ])}
+        targetObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+        ])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    const rows = mappingRows(renderer);
+    expect(rows.map((row) => row.props['data-mapping-id'])).toEqual([
+      'earlier',
+      'later',
+    ]);
+    expect(
+      rows[0]
+        .findByProps({ className: 'gn-data-sync-mapping-row__enabled' })
+        .findByType('span').children,
+    ).toContain('1');
+    expect(
+      rows[1]
+        .findByProps({ className: 'gn-data-sync-mapping-row__enabled' })
+        .findByType('span').children,
+    ).toContain('2');
   });
 
   it('resets the visible batch and expanded rows when the task changes', () => {
@@ -168,7 +225,7 @@ describe('DataSyncMappingTable', () => {
     act(() =>
       firstRow
         .findAllByType('button')
-        .find((button) => button.children.includes('Edit exception'))!
+        .find((button) => buttonHasText(button, 'Edit exception'))!
         .props.onClick(),
     );
     expect(mappingRows(renderer)).toHaveLength(200);
@@ -292,12 +349,117 @@ describe('DataSyncMappingTable', () => {
     expect(row.props['data-ready']).toBe('false');
     expect(
       row.findByProps({
-        className: 'gn-data-sync-target-state',
+        'data-mapping-hint': 'target',
         'data-state': 'pending',
       }).children,
-    ).toContain('Target pending');
-    expect(row.findAllByProps({ children: 'Confirming' })).toHaveLength(1);
+    ).toContain('Checking whether this table already exists on the target');
+    expect(row.findAllByProps({ children: 'Confirming' })).toHaveLength(0);
+    expect(row.findAllByProps({ children: 'Configured' })).toHaveLength(0);
     expect(row.findAllByProps({ children: 'Needs attention' })).toHaveLength(0);
-    expect(row.findAllByProps({ children: 'Will create' })).toHaveLength(0);
+    expect(row.findAllByProps({ className: 'gn-data-sync-mapping-row__status' })).toHaveLength(0);
+  });
+
+  it('keeps a matched existing target quiet and only shows actions on the right', () => {
+    const mapping = {
+      ...createDataSyncTableMapping('ready-map', 'orders', 'orders'),
+      keyColumns: ['id'],
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[mapping]}
+        taskKind="reconcile"
+        sourceObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    const row = renderer.root.findByProps({ 'data-mapping-id': 'ready-map' });
+    expect(row.props['data-ready']).toBe('true');
+    expect(row.findAllByProps({ 'data-mapping-hint': 'target' })).toHaveLength(0);
+    expect(row.findAllByProps({ children: 'Writes to the existing table' })).toHaveLength(0);
+    expect(row.findAllByProps({ children: 'Configured' })).toHaveLength(0);
+
+    const actions = row.findByProps({ className: 'gn-data-sync-mapping-row__actions' });
+    const actionButtons = actions.findAllByType('button');
+    expect(actionButtons).toHaveLength(2);
+    expect(buttonHasText(actionButtons[0], 'Edit exception')).toBe(true);
+    expect(buttonHasText(actionButtons[0], 'Collapse')).toBe(true);
+    expect(actionButtons[0].props['aria-expanded']).toBe(false);
+    expect(buttonHasText(actionButtons[1], 'Remove')).toBe(true);
+  });
+
+  it('explains when the target table is missing and will be created', () => {
+    const mapping = {
+      ...createDataSyncTableMapping('create-map', 'orders', 'orders_archive'),
+      keyColumns: ['id'],
+      targetMode: 'create_or_reuse' as const,
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[mapping]}
+        taskKind="reconcile"
+        sourceObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        targetObjects={metadata([])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    const row = renderer.root.findByProps({ 'data-mapping-id': 'create-map' });
+    expect(
+      row.findByProps({ 'data-mapping-hint': 'target', 'data-state': 'create' }).children,
+    ).toContain('This table is not on the target yet; it will be created during sync');
+  });
+
+  it('lets the source catalog add and remove mappings without opening the picker', () => {
+    const onAddMany = vi.fn();
+    const onRemove = vi.fn();
+    const mapping = {
+      ...createDataSyncTableMapping('mapped-orders', 'orders', 'orders'),
+      keyColumns: ['id'],
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[mapping]}
+        taskKind="reconcile"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={onAddMany}
+        onChange={() => undefined}
+        onRemove={onRemove}
+      />,
+    );
+
+    const catalog = renderer.root.findByProps({ 'data-mapping-catalog': 'true' });
+    const items = catalog.findAllByProps({ className: 'gn-data-sync-mapping-catalog__item' });
+    expect(items).toHaveLength(2);
+    expect(items[0].props['data-checked']).toBe('true');
+    expect(items[1].props['data-checked']).toBe('false');
+
+    const row = renderer.root.findByProps({ 'data-mapping-id': 'mapped-orders' });
+    expect(row.props['data-source-locked']).toBe('true');
+    expect(
+      row.findByProps({ 'data-object-side': 'source', 'data-object-name': 'orders' }).children,
+    ).toContain('orders');
+    expect(row.findAllByProps({ 'data-object-side': 'source', role: 'combobox' })).toHaveLength(0);
+    expect(row.findByProps({ 'data-object-side': 'target' })).toBeTruthy();
+
+    act(() => items[1].findByType('input').props.onChange({ target: { checked: true } }));
+    expect(onAddMany).toHaveBeenCalledWith(['customers']);
+    act(() => items[0].findByType('input').props.onChange({ target: { checked: false } }));
+    expect(onRemove).toHaveBeenCalledWith('mapped-orders');
   });
 });
