@@ -4362,6 +4362,7 @@
   "connection_modal.step1.hint.file": "ローカルファイル接続",
   "connection_modal.step1.hint.goldendb": "MySQL 互換 / 分散トランザクション",
   "connection_modal.step1.hint.jvm": "JMX / Endpoint / Agent",
+  "connection_modal.step1.hint.cache": "SuperServer ポート経由のネームスペース参照と Caché SQL",
   "connection_modal.step1.hint.mongodb": "シングルノード / レプリカセット",
   "connection_modal.step1.hint.oceanBase": "MySQL / Oracle テナント",
   "connection_modal.step1.hint.qdrant": "Collection 閲覧、ベクトル検索、Payload フィルター",

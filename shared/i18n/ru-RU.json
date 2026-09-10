@@ -4362,6 +4362,7 @@
   "connection_modal.step1.hint.file": "Подключение к локальному файлу",
   "connection_modal.step1.hint.goldendb": "Совместимость с MySQL / распределенные транзакции",
   "connection_modal.step1.hint.jvm": "JMX / Endpoint / Agent",
+  "connection_modal.step1.hint.cache": "Просмотр пространств имён и Caché SQL через порт SuperServer",
   "connection_modal.step1.hint.mongodb": "Одиночный узел / Replica Set",
   "connection_modal.step1.hint.oceanBase": "MySQL / Oracle арендатор",
   "connection_modal.step1.hint.qdrant": "Просмотр Collection, векторный поиск и фильтрация Payload",

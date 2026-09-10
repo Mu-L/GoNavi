@@ -4362,6 +4362,7 @@
   "connection_modal.step1.hint.file": "Lokale Dateiverbindung",
   "connection_modal.step1.hint.goldendb": "MySQL-kompatibel / verteilte Transaktionen",
   "connection_modal.step1.hint.jvm": "JMX / Endpoint / Agent",
+  "connection_modal.step1.hint.cache": "Namespace-Browsing und Caché-SQL über den SuperServer-Port",
   "connection_modal.step1.hint.mongodb": "Einzelknoten / Replikatset",
   "connection_modal.step1.hint.oceanBase": "MySQL / Oracle-Mandant",
   "connection_modal.step1.hint.qdrant": "Collection-Browsing, Vektorsuche und Payload-Filter",

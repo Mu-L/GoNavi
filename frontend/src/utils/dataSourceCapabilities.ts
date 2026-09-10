@@ -89,6 +89,19 @@ const normalizeDataSourceToken = (raw: string): string => {
     case 'inter-systems':
     case 'inter-systems-iris':
       return 'iris';
+    case 'caché':
+    case 'intersystems cache':
+    case 'intersystems caché':
+    case 'intersystems-cache':
+    case 'intersystems-caché':
+    case 'intersystemscache':
+    case 'intersystemscaché':
+    case 'inter-systems-cache':
+    case 'inter-systems-caché':
+    case 'intersystems-cache-database':
+    case 'cache-db':
+    case 'cachedb':
+      return 'cache';
     default:
       return normalized;
   }

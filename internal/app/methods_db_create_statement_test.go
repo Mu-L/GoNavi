@@ -153,6 +153,7 @@ func TestResolveDDLDBType_CustomDriverAlias(t *testing.T) {
 		{name: "dm alias", driver: "dm8", want: "dameng"},
 		{name: "sqlite alias", driver: "sqlite3", want: "sqlite"},
 		{name: "iris alias", driver: "InterSystems IRIS", want: "iris"},
+		{name: "cache alias", driver: "InterSystems Caché", want: "iris"},
 	}
 
 	for _, tc := range testCases {
@@ -192,6 +193,20 @@ func TestResolveDDLDBType_IRISTypeAlias(t *testing.T) {
 
 	if got := resolveDDLDBType(connection.ConnectionConfig{Type: "InterSystemsIRIS"}); got != "iris" {
 		t.Fatalf("expected InterSystemsIRIS type alias to resolve to iris, got %q", got)
+	}
+}
+
+func TestResolveDDLDBType_CacheTypeAliasesUseIRISDialect(t *testing.T) {
+	t.Parallel()
+
+	for _, dbType := range []string{"cache", "Caché", "InterSystems Cache", "InterSystems Caché"} {
+		dbType := dbType
+		t.Run(dbType, func(t *testing.T) {
+			t.Parallel()
+			if got := resolveDDLDBType(connection.ConnectionConfig{Type: dbType}); got != "iris" {
+				t.Fatalf("expected %q type alias to use iris DDL dialect, got %q", dbType, got)
+			}
+		})
 	}
 }
 

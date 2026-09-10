@@ -116,6 +116,14 @@ func TestDefaultPortByType_NacosProxyTargetUsesDefaultPort(t *testing.T) {
 	}
 }
 
+func TestDefaultPortByType_CacheAliasesUseSuperServerPort(t *testing.T) {
+	for _, dbType := range []string{"cache", "InterSystems Cache", "InterSystems Caché"} {
+		if got := defaultPortByType(dbType); got != 1972 {
+			t.Fatalf("defaultPortByType(%q) = %d, want 1972", dbType, got)
+		}
+	}
+}
+
 func TestResolveDialConfigWithProxy_NacosKeepsRemoteAuthority(t *testing.T) {
 	proxytunnel.CloseAllForwarders()
 	t.Cleanup(proxytunnel.CloseAllForwarders)

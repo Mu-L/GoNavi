@@ -4362,6 +4362,7 @@
   "connection_modal.step1.hint.file": "本機檔案連線",
   "connection_modal.step1.hint.goldendb": "MySQL 相容 / 分散式交易",
   "connection_modal.step1.hint.jvm": "JMX / Endpoint / Agent",
+  "connection_modal.step1.hint.cache": "透過 SuperServer 連接埠瀏覽命名空間並執行 Caché SQL",
   "connection_modal.step1.hint.mongodb": "單機 / Replica Set",
   "connection_modal.step1.hint.oceanBase": "MySQL / Oracle 租戶",
   "connection_modal.step1.hint.qdrant": "Collection 瀏覽、向量搜尋與 Payload 過濾",

@@ -4362,6 +4362,7 @@
   "connection_modal.step1.hint.file": "本地文件连接",
   "connection_modal.step1.hint.goldendb": "MySQL 兼容 / 分布式事务",
   "connection_modal.step1.hint.jvm": "JMX / Endpoint / Agent",
+  "connection_modal.step1.hint.cache": "通过 SuperServer 端口浏览命名空间并执行 Caché SQL",
   "connection_modal.step1.hint.mongodb": "单机 / 副本集",
   "connection_modal.step1.hint.oceanBase": "MySQL / Oracle 租户",
   "connection_modal.step1.hint.qdrant": "Collection 浏览、向量搜索和 Payload 过滤",

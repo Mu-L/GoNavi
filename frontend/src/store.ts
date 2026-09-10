@@ -657,6 +657,16 @@ const normalizeConnectionType = (value: unknown): string => {
     return "kafka";
   }
   if (
+    type === "intersystems-cache" ||
+    type === "intersystemscache" ||
+    type === "inter-systems-cache" ||
+    type === "intersystems-cache-database" ||
+    type === "cache-db" ||
+    type === "cachedb"
+  ) {
+    return "cache";
+  }
+  if (
     type === "inter-systems" ||
     type === "inter-systems-iris" ||
     type === "intersystems" ||
