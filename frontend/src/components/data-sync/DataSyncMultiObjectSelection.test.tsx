@@ -50,9 +50,26 @@ const buttonWithText = (
   text: string,
 ) => buttonsWithText(renderer, text)[0]!;
 
-const sourceObjectAction = (renderer: TestRenderer.ReactTestRenderer) =>
-  buttonsWithText(renderer, '选择源对象')[0] ??
-  buttonsWithText(renderer, '添加源对象')[0]!;
+const catalogItem = (
+  renderer: TestRenderer.ReactTestRenderer,
+  name: string,
+) =>
+  renderer.root
+    .findByProps({ 'data-mapping-catalog': 'true' })
+    .findAllByProps({ className: 'gn-data-sync-mapping-catalog__item' })
+    .find((item) => item.findAll((node) => node.children.includes(name)).length > 0)!;
+
+const toggleCatalogObject = (
+  renderer: TestRenderer.ReactTestRenderer,
+  name: string,
+  checked: boolean,
+) => {
+  act(() =>
+    catalogItem(renderer, name)
+      .findByType('input')
+      .props.onChange({ target: { checked } }),
+  );
+};
 
 const sourceObjectName = (node: TestRenderer.ReactTestInstance): string =>
   typeof node.props.value === 'string'
@@ -132,13 +149,10 @@ describe('data sync multi-object selection', () => {
 
     act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
     await flush();
-    act(() => buttonWithText(renderer, '选择源对象').props.onClick());
-    const selectAll = renderer.root.findByProps({
-      'data-object-picker-control': 'select-filtered',
-    });
-    act(() => selectAll.props.onChange({ target: { checked: true } }));
-    act(() => buttonWithText(renderer, '添加 3 个对象').props.onClick());
-    await flush();
+    for (const name of names) {
+      toggleCatalogObject(renderer, name, true);
+      await flush();
+    }
     await flush();
 
     expect(renderer.root.findAllByProps({ 'data-ready': 'true' })).toHaveLength(3);
@@ -190,12 +204,17 @@ describe('data sync multi-object selection', () => {
     act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
     await flush();
 
+    expect(renderer.root.findAllByProps({ 'data-mapping-catalog': 'true' })).toHaveLength(0);
     expect(buttonsWithText(renderer, '选择源对象')).toHaveLength(0);
+    expect(buttonsWithText(renderer, '添加源对象')).toHaveLength(0);
     await act(async () => {
       targetObjects.resolve([{ name: 'orders', kind: 'table' }]);
       await targetObjects.promise;
     });
-    expect(buttonWithText(renderer, '选择源对象').props.disabled).toBeUndefined();
+    expect(renderer.root.findByProps({ 'data-mapping-catalog': 'true' })).toBeTruthy();
+    expect(catalogItem(renderer, 'orders').findByType('input').props.disabled).toBe(false);
+    expect(buttonsWithText(renderer, '选择源对象')).toHaveLength(0);
+    expect(buttonsWithText(renderer, '添加源对象')).toHaveLength(0);
   });
 
   it('preserves edits and deletions made while background key detection is running', async () => {
@@ -254,19 +273,8 @@ describe('data sync multi-object selection', () => {
     await flush();
     act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
     await flush();
-    act(() => buttonWithText(renderer, '添加源对象').props.onClick());
-    act(() =>
-      renderer.root
-        .findByProps({ 'data-object-name': 'orders' })
-        .findByType('input')
-        .props.onChange({ target: { checked: true } }),
-    );
-    act(() => buttonWithText(renderer, '添加 1 个对象').props.onClick());
+    toggleCatalogObject(renderer, 'orders', true);
     await flush();
-
-    expect(
-      renderer.root.findAllByProps({ 'data-data-sync-object-picker': 'true' }),
-    ).toHaveLength(0);
     expect(renderer.root.findByProps({ 'data-mapping-probe': 'running' })).toBeTruthy();
 
     const existingTarget = renderer.root
@@ -434,18 +442,11 @@ describe('data sync multi-object selection', () => {
     await flush();
 
     const selectObject = async (name: string) => {
-      act(() => sourceObjectAction(renderer).props.onClick());
-      act(() =>
-        renderer.root
-          .findByProps({ 'data-object-name': name })
-          .findByType('input')
-          .props.onChange({ target: { checked: true } }),
-      );
-      act(() => buttonWithText(renderer, '添加 1 个对象').props.onClick());
+      toggleCatalogObject(renderer, name, true);
       await flush();
     };
     await selectObject('alpha');
-    expect(buttonWithText(renderer, '添加源对象').props.disabled).toBe(true);
+    expect(catalogItem(renderer, 'beta').findByType('input').props.disabled).toBe(true);
 
     const detectedFields: DataSyncFieldMetadata[] = [
       { name: 'id', type: 'bigint', nullable: false, ordinal: 1, key: true },
@@ -456,7 +457,7 @@ describe('data sync multi-object selection', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(buttonWithText(renderer, '添加源对象').props.disabled).toBe(false);
+    expect(catalogItem(renderer, 'beta').findByType('input').props.disabled).toBe(false);
 
     await selectObject('beta');
     await act(async () => {

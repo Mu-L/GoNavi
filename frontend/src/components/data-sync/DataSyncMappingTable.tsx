@@ -1,6 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 
-import { DataSyncObjectPicker } from './DataSyncObjectPicker';
 import type {
   DataSyncObjectMetadata,
   DataSyncTableMapping,
@@ -12,6 +19,9 @@ import type { DataSyncMetadataResult } from './useDataSyncMetadata';
 const normalizeName = (value: string): string => value.trim().toLowerCase();
 
 const MAPPING_BATCH_SIZE = 100;
+const OBJECT_COMBOBOX_MENU_GAP = 3;
+const OBJECT_COMBOBOX_MENU_MAX_HEIGHT = 260;
+const OBJECT_COMBOBOX_MENU_MIN_HEIGHT = 120;
 
 type MappingTargetStatus = 'exists' | 'create' | 'missing' | 'pending';
 
@@ -69,13 +79,19 @@ const DataSyncObjectCombobox: React.FC<{
   options: DataSyncObjectMetadata[];
   disabled: boolean;
   allowCustom: boolean;
+  labelledBy?: string;
   t: DataSyncWorkbenchTranslate;
   onChange: (value: string) => void;
-}> = ({ id, side, value, options, disabled, allowCustom, t, onChange }) => {
+}> = ({ id, side, value, options, disabled, allowCustom, labelledBy, t, onChange }) => {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const listId = `gn-data-sync-object-list-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  const canPortal = typeof document !== 'undefined';
   const filtered = useMemo(() => {
     const needle = showAll ? '' : normalizeName(value);
     return options
@@ -86,22 +102,136 @@ const DataSyncObjectCombobox: React.FC<{
   const exactMatch = options.some(
     (object) => normalizeName(object.name) === normalizeName(value),
   );
+  const updateMenuPosition = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || typeof root.getBoundingClientRect !== 'function') return;
+    const rect = root.getBoundingClientRect();
+    const viewportHeight = Math.max(globalThis.innerHeight || 0, 1);
+    const viewportWidth = Math.max(globalThis.innerWidth || 0, rect.width);
+    const spaceBelow = viewportHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const openUpward =
+      spaceBelow < OBJECT_COMBOBOX_MENU_MIN_HEIGHT && spaceAbove > spaceBelow;
+    const available = openUpward ? spaceAbove : spaceBelow;
+    const maxHeight = Math.max(
+      80,
+      Math.min(
+        OBJECT_COMBOBOX_MENU_MAX_HEIGHT,
+        Number.isFinite(available) && available > 0
+          ? available
+          : OBJECT_COMBOBOX_MENU_MAX_HEIGHT,
+      ),
+    );
+    const width = Math.max(rect.width, 0);
+    const left = Math.max(
+      8,
+      Math.min(rect.left, Math.max(8, viewportWidth - width - 8)),
+    );
+    setMenuStyle({
+      position: 'fixed',
+      top: openUpward ? undefined : rect.bottom + OBJECT_COMBOBOX_MENU_GAP,
+      bottom: openUpward
+        ? viewportHeight - rect.top + OBJECT_COMBOBOX_MENU_GAP
+        : undefined,
+      left,
+      width: width || undefined,
+      maxHeight,
+      zIndex: 2100,
+    });
+  }, []);
 
   useEffect(() => {
     setActiveIndex(-1);
   }, [filtered.length, open, showAll, value]);
 
+  useLayoutEffect(() => {
+    if (!open || !canPortal) return undefined;
+    updateMenuPosition();
+    const onReposition = () => updateMenuPosition();
+    globalThis.addEventListener?.('resize', onReposition);
+    document.addEventListener('scroll', onReposition, true);
+    return () => {
+      globalThis.removeEventListener?.('resize', onReposition);
+      document.removeEventListener('scroll', onReposition, true);
+    };
+  }, [canPortal, filtered.length, open, updateMenuPosition, value]);
+
+  useEffect(() => {
+    if (!open || !canPortal) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (typeof Node === 'undefined' || !(target instanceof Node)) return;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [canPortal, open]);
+
+  const menu = open ? (
+    <div
+      ref={menuRef}
+      id={listId}
+      className="gn-data-sync-object-combobox__menu"
+      role="listbox"
+      data-object-combobox-menu="true"
+      data-portaled={canPortal ? 'true' : 'false'}
+      style={canPortal ? menuStyle : undefined}
+    >
+      {filtered.map((object, optionIndex) => (
+        <button
+          id={`${listId}-option-${optionIndex}`}
+          type="button"
+          role="option"
+          aria-selected={normalizeName(object.name) === normalizeName(value)}
+          data-active={activeIndex === optionIndex ? 'true' : 'false'}
+          key={`${object.kind}:${object.name}`}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onChange(object.name);
+            setOpen(false);
+            setShowAll(false);
+          }}
+        >
+          <span>{object.name}</span>
+          <small>{t(`mapping.object_kind.${object.kind}`)}</small>
+        </button>
+      ))}
+      {filtered.length === 0 ? (
+        allowCustom && value.trim() ? (
+          <div className="gn-data-sync-object-combobox__custom">
+            {t('mapping.will_create_named', { name: value.trim() })}
+          </div>
+        ) : (
+          <div className="gn-data-sync-object-combobox__empty">
+            {t('mapping.no_matching_objects')}
+          </div>
+        )
+      ) : null}
+      {allowCustom && value.trim() && !exactMatch && filtered.length > 0 ? (
+        <div className="gn-data-sync-object-combobox__custom">
+          {t('mapping.will_create_named', { name: value.trim() })}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <div
+      ref={rootRef}
       className="gn-data-sync-object-combobox"
       data-open={open ? 'true' : 'false'}
     >
       <input
+        ref={inputRef}
         className="gn-data-sync-table-input gn-data-sync-mono"
         data-object-side={side}
         role="combobox"
         aria-autocomplete="list"
         aria-expanded={open}
+        aria-labelledby={labelledBy}
         aria-controls={listId}
         aria-activedescendant={
           open && activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined
@@ -112,7 +242,7 @@ const DataSyncObjectCombobox: React.FC<{
         autoComplete="off"
         onFocus={() => {
           setOpen(true);
-          setShowAll(false);
+          setShowAll(true);
         }}
         onBlur={() => globalThis.setTimeout(() => setOpen(false), 0)}
         onChange={(event) => {
@@ -146,51 +276,18 @@ const DataSyncObjectCombobox: React.FC<{
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
+          if (open && showAll) {
+            setOpen(false);
+            return;
+          }
           setShowAll(true);
-          setOpen((valueOpen) => !valueOpen);
+          setOpen(true);
+          inputRef.current?.focus();
         }}
       >
         ▾
       </button>
-      {open ? (
-        <div id={listId} className="gn-data-sync-object-combobox__menu" role="listbox">
-          {filtered.map((object, optionIndex) => (
-            <button
-              id={`${listId}-option-${optionIndex}`}
-              type="button"
-              role="option"
-              aria-selected={normalizeName(object.name) === normalizeName(value)}
-              data-active={activeIndex === optionIndex ? 'true' : 'false'}
-              key={`${object.kind}:${object.name}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onChange(object.name);
-                setOpen(false);
-                setShowAll(false);
-              }}
-            >
-              <span>{object.name}</span>
-              <small>{t(`mapping.object_kind.${object.kind}`)}</small>
-            </button>
-          ))}
-          {filtered.length === 0 ? (
-            allowCustom && value.trim() ? (
-              <div className="gn-data-sync-object-combobox__custom">
-                {t('mapping.will_create_named', { name: value.trim() })}
-              </div>
-            ) : (
-              <div className="gn-data-sync-object-combobox__empty">
-                {t('mapping.no_matching_objects')}
-              </div>
-            )
-          ) : null}
-          {allowCustom && value.trim() && !exactMatch && filtered.length > 0 ? (
-            <div className="gn-data-sync-object-combobox__custom">
-              {t('mapping.will_create_named', { name: value.trim() })}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {canPortal && menu ? createPortal(menu, document.body) : menu}
     </div>
   );
 };
@@ -241,7 +338,6 @@ export const DataSyncMappingTable: React.FC<{
   onRemove,
   onInspectFields,
 }) => {
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [expandedMappingIds, setExpandedMappingIds] = useState<Set<string>>(
     new Set(),
@@ -354,7 +450,15 @@ export const DataSyncMappingTable: React.FC<{
   const showCatalog = !querySink && canPickSources;
   const toggleCatalogObject = (objectName: string, checked: boolean) => {
     if (checked) {
-      onAddMany([objectName]);
+      const selected = mappings
+        .map((mapping) => mapping.sourceObject.trim())
+        .filter(Boolean);
+      if (
+        !selected.some((name) => normalizeName(name) === normalizeName(objectName))
+      ) {
+        selected.push(objectName);
+      }
+      onAddMany(selected);
       return;
     }
     const mapping = mappings.find(
@@ -391,21 +495,15 @@ export const DataSyncMappingTable: React.FC<{
           <h2>{t('mapping.title')}</h2>
           <p>{t(querySink ? 'mapping.query_help' : 'mapping.help')}</p>
         </div>
-        {endpointsReady &&
-        (mappings.length > 0 || showCatalog || (querySink && targetObjects.status === 'ready')) ? (
+        {endpointsReady && querySink && targetObjects.status === 'ready' ? (
           <button
             type="button"
             className="gn-data-sync-button gn-data-sync-button--primary"
-            disabled={
-              disabled ||
-              selectionBusy ||
-              (querySink && mappings.length >= 1) ||
-              (!querySink && !canPickSources)
-            }
+            disabled={disabled || selectionBusy || mappings.length >= 1}
             title={selectionBusy ? t('mapping.probe_running') : undefined}
-            onClick={() => (querySink ? onAdd() : setPickerOpen(true))}
+            onClick={onAdd}
           >
-            {t(querySink ? 'mapping.add_target' : 'mapping.add_source_objects')}
+            {t('mapping.add_target')}
           </button>
         ) : null}
       </header>
@@ -427,18 +525,6 @@ export const DataSyncMappingTable: React.FC<{
             showRetry={mappings.length > 0 || emptyState !== 'error'}
           />
         </div>
-      ) : null}
-
-      {endpointsReady ? (
-        <DataSyncObjectPicker
-          open={pickerOpen}
-          objects={sourceObjects.items}
-          mappedSourceNames={mappings.map((mapping) => mapping.sourceObject)}
-          disabled={disabled || selectionBusy}
-          t={t}
-          onClose={() => setPickerOpen(false)}
-          onConfirm={onAddMany}
-        />
       ) : null}
 
       {showCatalog ? (
@@ -504,27 +590,10 @@ export const DataSyncMappingTable: React.FC<{
             >
               {t('mapping.refresh_objects')}
             </button>
-          ) : !querySink && canPickSources && !disabled && !selectionBusy ? (
-            <button
-              type="button"
-              className="gn-data-sync-button gn-data-sync-button--primary"
-              onClick={() => setPickerOpen(true)}
-            >
-              {t('mapping.select_objects')}
-            </button>
           ) : null}
         </div>
       ) : (
         <div ref={mappingListRef} className="gn-data-sync-mapping-list">
-          {showCatalog ? (
-            <div className="gn-data-sync-mapping-list__columns" aria-hidden="true">
-              <span />
-              <span>{t('mapping.selected_source')}</span>
-              <span />
-              <span>{t('mapping.write_to')}</span>
-              <span />
-            </div>
-          ) : null}
           {visibleMappings.map((mapping, index) => {
             const targetState = targetStatus(mapping, targetObjects);
             const ready = mappingReady(mapping, taskKind, targetState);
@@ -552,17 +621,26 @@ export const DataSyncMappingTable: React.FC<{
                   <span>{mappingIndexById.get(mapping.id) ?? index + 1}</span>
                   </label>
                   {showCatalog ? (
-                    <div
-                      className="gn-data-sync-mapping-row__source-name"
-                      data-object-side="source"
-                      data-object-name={mapping.sourceObject}
-                      title={mapping.sourceObject}
-                    >
-                      {mapping.sourceObject}
+                    <div className="gn-data-sync-mapping-row__endpoint">
+                      <span
+                        id={`${mapping.id}-source-label`}
+                        data-mapping-field-label="source"
+                      >
+                        {t('mapping.selected_source')}
+                      </span>
+                      <div
+                        className="gn-data-sync-mapping-row__source-name"
+                        data-object-side="source"
+                        data-object-name={mapping.sourceObject}
+                        title={mapping.sourceObject}
+                        aria-labelledby={`${mapping.id}-source-label`}
+                      >
+                        {mapping.sourceObject}
+                      </div>
                     </div>
                   ) : (
                     <div className="gn-data-sync-mapping-row__endpoint">
-                      <span>{t('mapping.source')}</span>
+                      <span id={`${mapping.id}-source-label`}>{t('mapping.source')}</span>
                       {querySink ? (
                         <strong className="gn-data-sync-query-source">
                           {t('mapping.query_result_source')}
@@ -575,6 +653,7 @@ export const DataSyncMappingTable: React.FC<{
                           options={sourceObjects.items}
                           disabled={disabled || !mapping.enabled}
                           allowCustom={false}
+                          labelledBy={`${mapping.id}-source-label`}
                           t={t}
                           onChange={(sourceObject) =>
                             onChange({ ...mapping, sourceObject, keyColumns: [], fields: [] })
@@ -585,19 +664,54 @@ export const DataSyncMappingTable: React.FC<{
                   )}
                   <span className="gn-data-sync-mapping-row__arrow" aria-hidden="true">→</span>
                   <div className="gn-data-sync-mapping-row__endpoint">
-                    {showCatalog ? null : <span>{t('mapping.target')}</span>}
-                    <DataSyncObjectCombobox
-                      id={`${mapping.id}-target`}
-                      side="target"
-                      value={mapping.targetObject}
-                      options={targetObjects.items}
-                      disabled={disabled || !mapping.enabled}
-                      allowCustom={mapping.targetMode === 'create_or_reuse'}
-                      t={t}
-                      onChange={(targetObject) =>
-                        onChange({ ...mapping, targetObject, fields: [] })
-                      }
-                    />
+                    <span
+                      id={`${mapping.id}-target-label`}
+                      data-mapping-field-label="target"
+                    >
+                      {t(showCatalog ? 'mapping.write_to' : 'mapping.target')}
+                    </span>
+                    <div className="gn-data-sync-mapping-row__target-controls">
+                      <DataSyncObjectCombobox
+                        id={`${mapping.id}-target`}
+                        side="target"
+                        value={mapping.targetObject}
+                        options={targetObjects.items}
+                        labelledBy={`${mapping.id}-target-label`}
+                        disabled={disabled || !mapping.enabled}
+                        allowCustom={mapping.targetMode === 'create_or_reuse'}
+                        t={t}
+                        onChange={(targetObject) =>
+                          onChange({ ...mapping, targetObject, fields: [] })
+                        }
+                      />
+                      <div className="gn-data-sync-mapping-row__actions">
+                        <button
+                          type="button"
+                          className="gn-data-sync-link-button gn-data-sync-mapping-row__exceptions-toggle"
+                          aria-expanded={detailsOpen}
+                          onClick={() =>
+                            setExpandedMappingIds((current) => {
+                              const next = new Set(current);
+                              if (next.has(mapping.id)) next.delete(mapping.id);
+                              else next.add(mapping.id);
+                              return next;
+                            })
+                          }
+                        >
+                          {detailsOpen
+                            ? t('mapping.collapse_exceptions')
+                            : t('mapping.edit_exceptions')}
+                        </button>
+                        <button
+                          type="button"
+                          className="gn-data-sync-link-button gn-data-sync-link-button--danger"
+                          disabled={disabled || (querySink && mappings.length === 1)}
+                          onClick={() => onRemove(mapping.id)}
+                        >
+                          {t('mapping.remove')}
+                        </button>
+                      </div>
+                    </div>
                     {targetState === 'exists' ? null : (
                     <small
                       className="gn-data-sync-mapping-row__hint"
@@ -607,36 +721,6 @@ export const DataSyncMappingTable: React.FC<{
                       {t(`mapping.target_hint.${targetState}`)}
                     </small>
                     )}
-                  </div>
-                  <div className="gn-data-sync-mapping-row__actions">
-                    <button
-                      type="button"
-                      className="gn-data-sync-link-button gn-data-sync-mapping-row__exceptions-toggle"
-                      aria-expanded={detailsOpen}
-                      onClick={() =>
-                        setExpandedMappingIds((current) => {
-                          const next = new Set(current);
-                          if (next.has(mapping.id)) next.delete(mapping.id);
-                          else next.add(mapping.id);
-                          return next;
-                        })
-                      }
-                    >
-                      <span data-exception-action="edit">
-                        {t('mapping.edit_exceptions')}
-                      </span>
-                      <span data-exception-action="collapse">
-                        {t('mapping.collapse_exceptions')}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="gn-data-sync-link-button gn-data-sync-link-button--danger"
-                      disabled={disabled || (querySink && mappings.length === 1)}
-                      onClick={() => onRemove(mapping.id)}
-                    >
-                      {t('mapping.remove')}
-                    </button>
                   </div>
                 </div>
 

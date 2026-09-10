@@ -3,7 +3,6 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DataSyncMappingTable } from './DataSyncMappingTable';
-import { DataSyncObjectPicker } from './DataSyncObjectPicker';
 import {
   createDataSyncTableMapping,
   type DataSyncObjectMetadata,
@@ -81,7 +80,9 @@ describe('DataSyncMappingTable', () => {
 
     expect(mappingRows(renderer)).toHaveLength(100);
     expect(
-      renderer.root.findByType(DataSyncObjectPicker).props.mappedSourceNames,
+      renderer.root
+        .findByProps({ 'data-mapping-catalog': 'true' })
+        .findAllByProps({ className: 'gn-data-sync-mapping-catalog__item' }),
     ).toHaveLength(205);
 
     const showMore = () =>
@@ -388,9 +389,13 @@ describe('DataSyncMappingTable', () => {
     const actionButtons = actions.findAllByType('button');
     expect(actionButtons).toHaveLength(2);
     expect(buttonHasText(actionButtons[0], 'Edit exception')).toBe(true);
-    expect(buttonHasText(actionButtons[0], 'Collapse')).toBe(true);
+    expect(buttonHasText(actionButtons[0], 'Collapse')).toBe(false);
     expect(actionButtons[0].props['aria-expanded']).toBe(false);
     expect(buttonHasText(actionButtons[1], 'Remove')).toBe(true);
+    act(() => actionButtons[0].props.onClick());
+    expect(buttonHasText(actionButtons[0], 'Collapse')).toBe(true);
+    expect(buttonHasText(actionButtons[0], 'Edit exception')).toBe(false);
+    expect(actionButtons[0].props['aria-expanded']).toBe(true);
   });
 
   it('explains when the target table is missing and will be created', () => {
@@ -454,12 +459,110 @@ describe('DataSyncMappingTable', () => {
     expect(
       row.findByProps({ 'data-object-side': 'source', 'data-object-name': 'orders' }).children,
     ).toContain('orders');
+    expect(row.findByProps({ 'data-mapping-field-label': 'source' }).children).toContain(
+      'Selected table',
+    );
+    expect(row.findByProps({ 'data-mapping-field-label': 'target' }).children).toContain(
+      'Write to',
+    );
     expect(row.findAllByProps({ 'data-object-side': 'source', role: 'combobox' })).toHaveLength(0);
-    expect(row.findByProps({ 'data-object-side': 'target' })).toBeTruthy();
+    const targetCombobox = row.findByProps({ 'data-object-side': 'target', role: 'combobox' });
+    expect(targetCombobox).toBeTruthy();
+    expect(targetCombobox.props['aria-labelledby']).toBe('mapped-orders-target-label');
 
     act(() => items[1].findByType('input').props.onChange({ target: { checked: true } }));
-    expect(onAddMany).toHaveBeenCalledWith(['customers']);
+    expect(onAddMany).toHaveBeenCalledWith(['orders', 'customers']);
     act(() => items[0].findByType('input').props.onChange({ target: { checked: false } }));
     expect(onRemove).toHaveBeenCalledWith('mapped-orders');
+  });
+
+  it('does not offer a second picker when the source catalog is visible', () => {
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[]}
+        taskKind="reconcile"
+        sourceObjects={metadata([
+          { name: 'admin_users', kind: 'table' },
+          { name: 'messages', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'admin_users', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('zh-CN')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    expect(renderer.root.findByProps({ 'data-mapping-catalog': 'true' })).toBeTruthy();
+    const empty = renderer.root.findByProps({
+      className: 'gn-data-sync-mapping-empty',
+    });
+    expect(empty.props['data-state']).toBe('catalog');
+    expect(empty.findAllByType('button')).toHaveLength(0);
+    expect(
+      renderer.root.findAllByType('button').filter((button) =>
+        buttonHasText(button, '选择源对象') || buttonHasText(button, '添加源对象'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('opens the target object list above overflow clipping and shows every table', () => {
+    const onChange = vi.fn();
+    const mapping = {
+      ...createDataSyncTableMapping('mapped-users', 'admin_users', 'admin_users'),
+      keyColumns: ['id'],
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[mapping]}
+        taskKind="reconcile"
+        sourceObjects={metadata([
+          { name: 'admin_users', kind: 'table' },
+          { name: 'messages', kind: 'table' },
+        ])}
+        targetObjects={metadata([
+          { name: 'admin_users', kind: 'table' },
+          { name: 'messages', kind: 'table' },
+          { name: 'push_records', kind: 'table' },
+        ])}
+        t={createDataSyncWorkbenchTranslate('zh-CN')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={onChange}
+        onRemove={() => undefined}
+      />,
+    );
+
+    const combobox = renderer.root.findByProps({
+      'data-object-side': 'target',
+      role: 'combobox',
+    });
+    expect(combobox.props['aria-expanded']).toBe(false);
+    expect(
+      renderer.root.findAllByProps({ 'data-object-combobox-menu': 'true' }),
+    ).toHaveLength(0);
+
+    act(() =>
+      renderer.root
+        .findByProps({ className: 'gn-data-sync-object-combobox__toggle' })
+        .props.onClick(),
+    );
+
+    const menu = renderer.root.findByProps({ 'data-object-combobox-menu': 'true' });
+    expect(menu.props.role).toBe('listbox');
+    expect(combobox.props['aria-expanded']).toBe(true);
+    const options = menu.findAllByProps({ role: 'option' });
+    expect(
+      options.map((option) => option.findByType('span').children[0]),
+    ).toEqual(['admin_users', 'messages', 'push_records']);
+
+    act(() => options[1].props.onMouseDown({ preventDefault() {} }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ targetObject: 'messages' }),
+    );
+    expect(
+      renderer.root.findAllByProps({ 'data-object-combobox-menu': 'true' }),
+    ).toHaveLength(0);
   });
 });
