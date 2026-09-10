@@ -83,4 +83,55 @@ describe('resolver-based native virtual scrolling', () => {
     expect(container.querySelector('[data-row-id="fixed-60"]')).not.toBeNull();
     expect(container.querySelector('[data-row-id="fixed-61"]')).toBeNull();
   });
+
+  it('commits a native scroll window without writing scrollTop back to WebKit', () => {
+    const rows: Row[] = Array.from({ length: 200 }, (_, index) => ({
+      id: `native-${index}`,
+      height: 10,
+    }));
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <VirtualList
+          data={rows}
+          height={300}
+          itemHeight={10}
+          itemHeightFixed
+          itemKey="id"
+        >
+          {(row) => <div data-row-id={row.id}>{row.id}</div>}
+        </VirtualList>,
+      );
+    });
+
+    const holder = container.querySelector<HTMLElement>('.rc-virtual-list-holder');
+    expect(holder).not.toBeNull();
+
+    let nativeScrollTop = 1200;
+    const scrollTopWrites: number[] = [];
+    Object.defineProperty(holder, 'scrollTop', {
+      configurable: true,
+      get: () => nativeScrollTop,
+      set: (value: number) => {
+        scrollTopWrites.push(value);
+        nativeScrollTop = value;
+      },
+    });
+
+    let targetRowWasMountedBeforeScrollReturned = false;
+    holder?.addEventListener('scroll', () => {
+      targetRowWasMountedBeforeScrollReturned = !!container?.querySelector('[data-row-id="native-120"]');
+    });
+
+    const previousActEnvironment = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    holder?.dispatchEvent(new Event('scroll', { bubbles: true }));
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+
+    expect(targetRowWasMountedBeforeScrollReturned).toBe(true);
+    expect(scrollTopWrites).toEqual([]);
+  });
 });

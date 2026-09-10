@@ -14,7 +14,7 @@ index c517366..1421b17 100644
      fullHeight?: boolean;
      itemKey: React.Key | ((item: T) => React.Key);
 diff --git a/node_modules/rc-virtual-list/es/List.js b/node_modules/rc-virtual-list/es/List.js
-index 2926056..b1b9ee4 100644
+index 2926056..31e8994 100644
 --- a/node_modules/rc-virtual-list/es/List.js
 +++ b/node_modules/rc-virtual-list/es/List.js
 @@ -4,7 +4,7 @@ import _objectSpread from "@babel/runtime/helpers/esm/objectSpread2";
@@ -188,7 +188,23 @@ index 2926056..b1b9ee4 100644
  
    // ================================= Size =================================
    var _React$useState = React.useState({
-@@ -388,6 +482,9 @@ export function RawList(props, ref) {
+@@ -312,5 +406,14 @@ export function RawList(props, ref) {
+   function onFallbackScroll(e) {
+     var newScrollTop = e.currentTarget.scrollTop;
+     if (newScrollTop !== offsetTop) {
+-      syncScrollTop(newScrollTop);
++      if (nativeVerticalScroll) {
++        // WebKit may paint the composited scroll position before React commits
++        // the next window. Commit rows before returning from the native event,
++        // but never write scrollTop back while the browser owns scrolling.
++        flushSync(function () {
++          setOffsetTop(keepInRange(newScrollTop));
++        });
++      } else {
++        syncScrollTop(newScrollTop);
++      }
+     }
+@@ -388,6 +491,9 @@ export function RawList(props, ref) {
        }
      }
      var componentEle = componentRef.current;
@@ -198,7 +214,7 @@ index 2926056..b1b9ee4 100644
      componentEle.addEventListener('wheel', onRawWheel, {
        passive: false
      });
-@@ -402,7 +499,7 @@ export function RawList(props, ref) {
+@@ -402,7 +508,7 @@ export function RawList(props, ref) {
        componentEle.removeEventListener('DOMMouseScroll', onFireFoxScroll);
        componentEle.removeEventListener('MozMousePixelScroll', onMozMousePixelScroll);
      };
@@ -207,7 +223,7 @@ index 2926056..b1b9ee4 100644
  
    // Sync scroll left
    useLayoutEffect(function () {
-@@ -423,7 +520,7 @@ export function RawList(props, ref) {
+@@ -423,7 +529,7 @@ export function RawList(props, ref) {
    };
    var _scrollTo = useScrollTo(componentRef, mergedData, heights, itemHeight, getKey, function () {
      return collectHeight(true);
@@ -216,7 +232,7 @@ index 2926056..b1b9ee4 100644
    React.useImperativeHandle(ref, function () {
      return {
        nativeElement: containerRef.current,
-@@ -457,7 +554,7 @@ export function RawList(props, ref) {
+@@ -457,7 +563,7 @@ export function RawList(props, ref) {
    }, [start, end, mergedData]);
  
    // ================================ Extra =================================
@@ -225,7 +241,7 @@ index 2926056..b1b9ee4 100644
    var extraContent = extraRender === null || extraRender === void 0 ? void 0 : extraRender({
      start: start,
      end: end,
-@@ -474,7 +571,7 @@ export function RawList(props, ref) {
+@@ -474,7 +580,7 @@ export function RawList(props, ref) {
    if (height) {
      componentStyle = _objectSpread(_defineProperty({}, fullHeight ? 'height' : 'maxHeight', height), ScrollStyle);
      if (useVirtual) {
@@ -234,7 +250,7 @@ index 2926056..b1b9ee4 100644
        if (scrollWidth) {
          componentStyle.overflowX = 'hidden';
        }
-@@ -512,7 +609,7 @@ export function RawList(props, ref) {
+@@ -512,7 +618,7 @@ export function RawList(props, ref) {
      innerProps: innerProps,
      rtl: isRTL,
      extra: extraContent
@@ -243,7 +259,7 @@ index 2926056..b1b9ee4 100644
      ref: verticalScrollBarRef,
      prefixCls: prefixCls,
      scrollOffset: offsetTop,
-@@ -545,4 +642,4 @@ export function RawList(props, ref) {
+@@ -545,4 +651,4 @@ export function RawList(props, ref) {
  }
  var List = /*#__PURE__*/React.forwardRef(RawList);
  List.displayName = 'List';
@@ -492,7 +508,7 @@ index c517366..1421b17 100644
      fullHeight?: boolean;
      itemKey: React.Key | ((item: T) => React.Key);
 diff --git a/node_modules/rc-virtual-list/lib/List.js b/node_modules/rc-virtual-list/lib/List.js
-index f0cb64d..33408d7 100644
+index f0cb64d..72c9afc 100644
 --- a/node_modules/rc-virtual-list/lib/List.js
 +++ b/node_modules/rc-virtual-list/lib/List.js
 @@ -32,7 +32,7 @@ var _useScrollDrag = _interopRequireDefault(require("./hooks/useScrollDrag"));
@@ -666,7 +682,23 @@ index f0cb64d..33408d7 100644
  
    // ================================= Size =================================
    var _React$useState = React.useState({
-@@ -397,6 +491,9 @@ function RawList(props, ref) {
+@@ -321,5 +415,14 @@ function RawList(props, ref) {
+   function onFallbackScroll(e) {
+     var newScrollTop = e.currentTarget.scrollTop;
+     if (newScrollTop !== offsetTop) {
+-      syncScrollTop(newScrollTop);
++      if (nativeVerticalScroll) {
++        // WebKit may paint the composited scroll position before React commits
++        // the next window. Commit rows before returning from the native event,
++        // but never write scrollTop back while the browser owns scrolling.
++        (0, _reactDom.flushSync)(function () {
++          setOffsetTop(keepInRange(newScrollTop));
++        });
++      } else {
++        syncScrollTop(newScrollTop);
++      }
+     }
+@@ -397,6 +500,9 @@ function RawList(props, ref) {
        }
      }
      var componentEle = componentRef.current;
@@ -676,7 +708,7 @@ index f0cb64d..33408d7 100644
      componentEle.addEventListener('wheel', onRawWheel, {
        passive: false
      });
-@@ -411,7 +508,7 @@ function RawList(props, ref) {
+@@ -411,7 +517,7 @@ function RawList(props, ref) {
        componentEle.removeEventListener('DOMMouseScroll', onFireFoxScroll);
        componentEle.removeEventListener('MozMousePixelScroll', onMozMousePixelScroll);
      };
@@ -685,7 +717,7 @@ index f0cb64d..33408d7 100644
  
    // Sync scroll left
    (0, _useLayoutEffect.default)(function () {
-@@ -432,7 +529,7 @@ function RawList(props, ref) {
+@@ -432,7 +538,7 @@ function RawList(props, ref) {
    };
    var _scrollTo = (0, _useScrollTo.default)(componentRef, mergedData, heights, itemHeight, getKey, function () {
      return collectHeight(true);
@@ -694,7 +726,7 @@ index f0cb64d..33408d7 100644
    React.useImperativeHandle(ref, function () {
      return {
        nativeElement: containerRef.current,
-@@ -466,7 +563,7 @@ function RawList(props, ref) {
+@@ -466,7 +572,7 @@ function RawList(props, ref) {
    }, [start, end, mergedData]);
  
    // ================================ Extra =================================
@@ -703,7 +735,7 @@ index f0cb64d..33408d7 100644
    var extraContent = extraRender === null || extraRender === void 0 ? void 0 : extraRender({
      start: start,
      end: end,
-@@ -483,7 +580,7 @@ function RawList(props, ref) {
+@@ -483,7 +589,7 @@ function RawList(props, ref) {
    if (height) {
      componentStyle = (0, _objectSpread3.default)((0, _defineProperty2.default)({}, fullHeight ? 'height' : 'maxHeight', height), ScrollStyle);
      if (useVirtual) {
@@ -712,7 +744,7 @@ index f0cb64d..33408d7 100644
        if (scrollWidth) {
          componentStyle.overflowX = 'hidden';
        }
-@@ -521,7 +618,7 @@ function RawList(props, ref) {
+@@ -521,7 +627,7 @@ function RawList(props, ref) {
      innerProps: innerProps,
      rtl: isRTL,
      extra: extraContent
@@ -721,7 +753,7 @@ index f0cb64d..33408d7 100644
      ref: verticalScrollBarRef,
      prefixCls: prefixCls,
      scrollOffset: offsetTop,
-@@ -554,4 +651,4 @@ function RawList(props, ref) {
+@@ -554,4 +660,4 @@ function RawList(props, ref) {
  }
  var List = /*#__PURE__*/React.forwardRef(RawList);
  List.displayName = 'List';
