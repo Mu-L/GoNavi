@@ -1,6 +1,6 @@
 import React from 'react';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, create as createRenderer, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
@@ -81,6 +81,13 @@ vi.mock('./common/ResizableDraggableModal', () => ({
 
 import ConnectionHealthModal from './ConnectionHealthModal';
 
+const mountedRenderers: ReactTestRenderer[] = [];
+const create = (element: React.ReactElement): ReactTestRenderer => {
+  const renderer = createRenderer(element);
+  mountedRenderers.push(renderer);
+  return renderer;
+};
+
 const healthRun = (status: string, overrides: Record<string, unknown> = {}) => ({
   runId: 'health-run-1',
   status,
@@ -121,6 +128,12 @@ describe('ConnectionHealthModal', () => {
     };
   });
 
+  afterEach(() => {
+    act(() => {
+      mountedRenderers.splice(0).forEach((renderer) => renderer.unmount());
+    });
+  });
+
   it('cancels a run that resolves after the user closes the modal', async () => {
     let resolveStart!: (value: unknown) => void;
     mocks.start.mockReturnValue(new Promise((resolve) => { resolveStart = resolve; }));
@@ -139,6 +152,27 @@ describe('ConnectionHealthModal', () => {
     });
 
     expect(mocks.close).toHaveBeenCalledTimes(1);
+    expect(mocks.cancel).toHaveBeenCalledWith('health-run-1');
+  });
+
+  it('cancels a run that resolves after its embedded settings pane unmounts', async () => {
+    let resolveStart!: (value: unknown) => void;
+    mocks.start.mockReturnValue(new Promise((resolve) => { resolveStart = resolve; }));
+    mocks.cancel.mockResolvedValue(healthRun('cancelling'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ConnectionHealthModal embedded open onClose={mocks.close} />);
+      await flush();
+      findButton(renderer, '运行检查').props.onClick();
+      await flush();
+    });
+
+    await act(async () => {
+      renderer.unmount();
+      resolveStart(healthRun('running'));
+      await flush();
+    });
+
     expect(mocks.cancel).toHaveBeenCalledWith('health-run-1');
   });
 
