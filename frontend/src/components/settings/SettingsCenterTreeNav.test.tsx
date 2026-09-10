@@ -1,4 +1,7 @@
-import React from 'react';
+/** @vitest-environment jsdom */
+
+import React, { act as reactAct } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,8 +14,12 @@ vi.mock('@ant-design/icons', () => ({
 import SettingsCenterTreeNav, {
   SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
   flattenVisibleSettingsCenterTree,
+  focusSettingsCenterTreeNode,
+  nextSettingsCenterTreeFocusIndex,
   settingsCenterTreeNodeId,
 } from './SettingsCenterTreeNav';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ensureLocalStorage = () => {
   if (typeof globalThis.localStorage !== 'undefined' && typeof globalThis.localStorage.clear === 'function') {
@@ -474,6 +481,510 @@ describe('SettingsCenterTreeNav', () => {
     act(() => {
       aboutNode.props.onClick();
     });
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+});
+
+const pressKey = (target: EventTarget | null, key: string) => {
+  expect(target).toBeTruthy();
+  reactAct(() => {
+    (target as Element).dispatchEvent(new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
+};
+
+const treeNode = (container: HTMLElement, id: string) => {
+  const node = container.querySelector(`[data-settings-tree-node="${id}"]`);
+  expect(node).toBeInstanceOf(HTMLElement);
+  return node as HTMLElement;
+};
+
+describe('SettingsCenterTreeNav keyboard focus', () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  beforeEach(() => {
+    ensureLocalStorage();
+    localStorage.clear();
+    localStorage.setItem(
+      SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
+      JSON.stringify(['group:preferences', 'group:services']),
+    );
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    reactAct(() => root?.unmount());
+    container?.remove();
+    container = null;
+    root = null;
+    localStorage.clear();
+  });
+
+  it('focusSettingsCenterTreeNode no-ops without a tree or matching node', () => {
+    expect(focusSettingsCenterTreeNode(null, 'group:preferences')).toBeNull();
+    expect(focusSettingsCenterTreeNode(undefined, 'group:preferences')).toBeNull();
+    const tree = document.createElement('div');
+    expect(focusSettingsCenterTreeNode(tree, 'group:preferences')).toBeNull();
+  });
+
+  it('focusSettingsCenterTreeNode focuses the matching tree item', () => {
+    const tree = document.createElement('div');
+    const node = document.createElement('div');
+    node.setAttribute('data-settings-tree-node', 'group:preferences');
+    node.tabIndex = -1;
+    tree.append(node);
+    document.body.append(tree);
+    expect(focusSettingsCenterTreeNode(tree, 'group:preferences')).toBe(node);
+    expect(document.activeElement).toBe(node);
+    tree.remove();
+  });
+
+  it('computes wrapped and fallback focus indices', () => {
+    const nodes = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(nextSettingsCenterTreeFocusIndex([], 'a', 1)).toBeNull();
+    expect(nextSettingsCenterTreeFocusIndex(nodes, 'missing', 1)).toBe(0);
+    expect(nextSettingsCenterTreeFocusIndex(nodes, 'a', 1)).toBe(1);
+    expect(nextSettingsCenterTreeFocusIndex(nodes, 'c', 1)).toBe(0);
+    expect(nextSettingsCenterTreeFocusIndex(nodes, 'a', -1)).toBe(2);
+  });
+
+  it('advances two items with consecutive ArrowDown and keeps document.activeElement in sync', () => {
+    const onLanguageClick = vi.fn();
+    const onThemeClick = vi.fn();
+    const groups = createGroups(onLanguageClick);
+    groups[0].items[1].onClick = onThemeClick;
+
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="preferences"
+          activeItemKey={null}
+          darkMode
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const group = treeNode(container!, 'group:preferences');
+    reactAct(() => {
+      group.focus();
+    });
+    expect(document.activeElement).toBe(group);
+    expect(group.tabIndex).toBe(0);
+
+    pressKey(document.activeElement, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:language'));
+    expect(treeNode(container!, 'item:preferences:language').tabIndex).toBe(0);
+    expect(treeNode(container!, 'group:preferences').tabIndex).toBe(-1);
+    expect(onLanguageClick).toHaveBeenCalledTimes(1);
+
+    pressKey(document.activeElement, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
+    expect(treeNode(container!, 'item:preferences:theme').tabIndex).toBe(0);
+    expect(onThemeClick).toHaveBeenCalledTimes(1);
+
+    pressKey(document.activeElement, 'Enter');
+    expect(onThemeClick).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
+  });
+
+  it('advances twice even when both ArrowDown events fire on the original DOM node', () => {
+    const onLanguageClick = vi.fn();
+    const onThemeClick = vi.fn();
+    const groups = createGroups(onLanguageClick);
+    groups[0].items[1].onClick = onThemeClick;
+
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="preferences"
+          activeItemKey={null}
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const group = treeNode(container!, 'group:preferences');
+    reactAct(() => {
+      group.focus();
+    });
+
+    pressKey(group, 'ArrowDown');
+    pressKey(group, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
+    expect(onLanguageClick).toHaveBeenCalledTimes(1);
+    expect(onThemeClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('activates the keyboard-focused leaf with Space and wraps ArrowUp', () => {
+    const onLanguageClick = vi.fn();
+    const onProxyClick = vi.fn();
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={createGroups(onLanguageClick, onProxyClick)}
+          activeGroupKey="preferences"
+          activeItemKey="language"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const language = treeNode(container!, 'item:preferences:language');
+    reactAct(() => {
+      language.focus();
+    });
+    pressKey(document.activeElement, ' ');
+    expect(onLanguageClick).toHaveBeenCalledTimes(1);
+
+    pressKey(document.activeElement, 'ArrowUp');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+
+    pressKey(document.activeElement, 'ArrowUp');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:services:proxy'));
+  });
+
+  it('jumps with Home/End and ignores unrelated keys', () => {
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={createGroups()}
+          activeGroupKey="preferences"
+          activeItemKey="language"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const language = treeNode(container!, 'item:preferences:language');
+    reactAct(() => {
+      language.focus();
+    });
+    pressKey(document.activeElement, 'End');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:services:proxy'));
+
+    pressKey(document.activeElement, 'Home');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+
+    pressKey(document.activeElement, 'Tab');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+  });
+
+  it('expands, moves into, and collapses groups with horizontal arrows', () => {
+    localStorage.setItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY, JSON.stringify([]));
+    const onSelectGroup = vi.fn();
+    const onLanguageClick = vi.fn();
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={createGroups(onLanguageClick)}
+          activeGroupKey="services"
+          activeItemKey="proxy"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={onSelectGroup}
+        />,
+      );
+    });
+
+    const group = treeNode(container!, 'group:preferences');
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+    reactAct(() => {
+      group.focus();
+    });
+
+    pressKey(document.activeElement, 'ArrowRight');
+    expect(treeNode(container!, 'group:preferences').getAttribute('aria-expanded')).toBe('true');
+    expect(container!.querySelector('[data-settings-pane-key="language"]')).not.toBeNull();
+
+    pressKey(document.activeElement, 'ArrowRight');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:language'));
+    expect(onLanguageClick).toHaveBeenCalledTimes(1);
+
+    pressKey(document.activeElement, 'ArrowLeft');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+
+    pressKey(document.activeElement, 'ArrowLeft');
+    expect(treeNode(container!, 'group:preferences').getAttribute('aria-expanded')).toBe('false');
+    expect(container!.querySelector('[data-settings-pane-key="language"]')).toBeNull();
+
+    pressKey(document.activeElement, 'ArrowLeft');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+
+    pressKey(document.activeElement, 'Enter');
+    expect(treeNode(container!, 'group:preferences').getAttribute('aria-expanded')).toBe('true');
+    expect(onSelectGroup).toHaveBeenCalledWith('preferences');
+  });
+
+  it('moves nested keyboard focus to the parent item and activates another group', () => {
+    const onThemeClick = vi.fn();
+    const onAppearanceClick = vi.fn();
+    const onSelectGroup = vi.fn();
+    const groups = [{
+      key: 'preferences',
+      title: '偏好设置',
+      description: '语言与外观',
+      items: [{
+        key: 'theme',
+        title: '主题与外观',
+        description: '主题设置',
+        onClick: onThemeClick,
+        children: [
+          {
+            key: 'theme-appearance',
+            title: '显示与字体',
+            description: '缩放字体',
+            onClick: onAppearanceClick,
+          },
+        ],
+      }],
+    }, {
+      key: 'services',
+      title: '服务配置',
+      description: '代理与下载',
+      items: [{
+        key: 'proxy',
+        title: '代理',
+        description: '网络代理',
+        onClick: vi.fn(),
+      }],
+    }];
+    localStorage.setItem(
+      SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY,
+      JSON.stringify(['group:preferences', 'item:preferences:theme', 'group:services']),
+    );
+
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="preferences"
+          activeItemKey="theme-appearance"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={onSelectGroup}
+        />,
+      );
+    });
+
+    const appearance = treeNode(container!, 'item:preferences:theme-appearance');
+    reactAct(() => {
+      appearance.focus();
+    });
+    pressKey(document.activeElement, 'ArrowLeft');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
+
+    pressKey(document.activeElement, 'Enter');
+    expect(onThemeClick).toHaveBeenCalledTimes(1);
+    expect(treeNode(container!, 'item:preferences:theme').getAttribute('aria-expanded')).toBe('true');
+
+    pressKey(document.activeElement, 'ArrowRight');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme-appearance'));
+
+    const leaf = treeNode(container!, 'item:preferences:theme-appearance');
+    pressKey(leaf, 'ArrowRight');
+    expect(document.activeElement).toBe(leaf);
+
+    pressKey(document.activeElement, 'End');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:services:proxy'));
+    pressKey(document.activeElement, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:preferences'));
+
+    reactAct(() => {
+      treeNode(container!, 'item:preferences:theme').click();
+    });
+    expect(onThemeClick).toHaveBeenCalledTimes(2);
+
+    const services = treeNode(container!, 'group:services');
+    reactAct(() => {
+      services.click();
+    });
+    expect(onSelectGroup).toHaveBeenCalledWith('services');
+  });
+
+  it('falls back to the event node when the stored focus id is no longer visible', () => {
+    const onLanguageClick = vi.fn();
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={createGroups(onLanguageClick)}
+          activeGroupKey="preferences"
+          activeItemKey="language"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const language = treeNode(container!, 'item:preferences:language');
+    reactAct(() => {
+      language.focus();
+    });
+
+    reactAct(() => {
+      const caret = container!.querySelector('[data-settings-tree-toggle="group:preferences"]');
+      expect(caret).toBeInstanceOf(HTMLElement);
+      (caret as HTMLElement).click();
+    });
+    expect(container!.querySelector('[data-settings-tree-node="item:preferences:language"]')).toBeNull();
+
+    const group = treeNode(container!, 'group:preferences');
+    pressKey(group, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'group:services'));
+  });
+
+  it('keeps mouse and programmatic navigation on the selected settings page', () => {
+    const onConnectedClick = vi.fn();
+    const groups = [{
+      key: 'services',
+      title: '服务配置',
+      description: '服务',
+      items: [{
+        key: 'ai',
+        title: 'AI 设置',
+        description: 'AI',
+        onClick: vi.fn(),
+        children: [{
+          key: 'ai-providers',
+          title: '模型供应商',
+          description: '供应商',
+          onClick: vi.fn(),
+          children: [{
+            key: 'ai-providers-connected',
+            title: '已接入',
+            description: '已保存配置',
+            onClick: onConnectedClick,
+          }],
+        }],
+      }],
+    }];
+    localStorage.removeItem(SETTINGS_CENTER_EXPANDED_KEYS_STORAGE_KEY);
+
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="services"
+          activeItemKey="ai-providers-connected"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+
+    const connected = treeNode(container!, 'item:services:ai-providers-connected');
+    expect(connected.getAttribute('aria-selected')).toBe('true');
+    reactAct(() => {
+      connected.click();
+    });
+    expect(onConnectedClick).toHaveBeenCalledTimes(1);
+
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="services"
+          activeItemKey="ai-providers"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+    expect(treeNode(container!, 'item:services:ai-providers').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('ignores movement keys when the tree has no visible nodes', () => {
+    const onSelectGroup = vi.fn();
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={[]}
+          activeGroupKey="preferences"
+          activeItemKey={null}
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={onSelectGroup}
+        />,
+      );
+    });
+
+    const tree = container!.querySelector('[role="tree"]');
+    expect(tree).toBeInstanceOf(HTMLElement);
+    reactAct(() => {
+      (tree as HTMLElement).focus();
+    });
+    expect(document.activeElement).toBe(tree);
+
+    pressKey(tree, 'ArrowDown');
+    pressKey(tree, 'ArrowUp');
+    pressKey(tree, 'Home');
+    pressKey(tree, 'End');
+    pressKey(tree, 'Enter');
+    pressKey(tree, 'ArrowLeft');
+    pressKey(tree, 'ArrowRight');
+    expect(document.activeElement).toBe(tree);
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('keeps keyboard focus on a leaf group', () => {
+    const onSelectGroup = vi.fn();
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={[{
+            key: 'about',
+            title: '关于 GoNavi',
+            description: '版本与更新',
+            items: [],
+          }]}
+          activeGroupKey="about"
+          activeItemKey={null}
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={onSelectGroup}
+        />,
+      );
+    });
+
+    const about = treeNode(container!, 'group:about');
+    reactAct(() => {
+      about.focus();
+    });
+    pressKey(about, 'ArrowDown');
+    expect(document.activeElement).toBe(about);
+    pressKey(about, 'ArrowRight');
+    pressKey(about, 'ArrowLeft');
+    pressKey(about, 'Enter');
+    expect(document.activeElement).toBe(about);
     expect(onSelectGroup).not.toHaveBeenCalled();
   });
 });
