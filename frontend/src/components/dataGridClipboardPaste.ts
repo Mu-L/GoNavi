@@ -1,3 +1,9 @@
+import {
+  DATA_GRID_IN_APP_HTML_ATTR,
+  DATA_GRID_IN_APP_JSON_MARKER,
+  DATA_GRID_IN_APP_NULL_ATTR,
+} from './dataGridClipboardPayload';
+
 export type DataGridClipboardValue = string | null;
 
 export interface DataGridClipboardDataReader {
@@ -17,12 +23,16 @@ const toClipboardValue = (value: string): DataGridClipboardValue => (
   value === 'NULL' ? null : value
 );
 
+const toPlainTextClipboardValue = (value: string): DataGridClipboardValue => (
+  value === '"NULL"' ? 'NULL' : toClipboardValue(value)
+);
+
 export const parseDataGridClipboardText = (text: string): DataGridClipboardValue[][] => {
   const normalized = text.replace(/\r\n?/g, '\n');
   const content = normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized;
 
   return content.split('\n').map((line) => (
-    line.split('\t').map(toClipboardValue)
+    line.split('\t').map(toPlainTextClipboardValue)
   ));
 };
 
@@ -99,24 +109,58 @@ const normalizeHtmlCellContent = (html: string): string => (
   )
 );
 
+const isInAppClipboardHtml = (html: string): boolean => (
+  new RegExp(`\\b${DATA_GRID_IN_APP_HTML_ATTR}\\b`).test(html)
+);
+
+const hasInAppNullAttr = (attrs: string): boolean => (
+  new RegExp(`\\b${DATA_GRID_IN_APP_NULL_ATTR}\\b`).test(attrs)
+);
+
+const toHtmlClipboardValue = (
+  attrs: string,
+  rawContent: string,
+  inAppClipboard: boolean,
+): DataGridClipboardValue => {
+  if (hasInAppNullAttr(attrs)) return null;
+  const text = normalizeHtmlCellContent(rawContent);
+  return inAppClipboard ? text : toClipboardValue(text);
+};
+
 export const parseDataGridClipboardHtml = (html: string): DataGridClipboardValue[][] => {
   if (!String(html || '').trim()) return [];
   const rows: DataGridClipboardValue[][] = [];
+  const inAppClipboard = isInAppClipboardHtml(html);
   const rowPattern = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
   let rowMatch: RegExpExecArray | null;
 
   while ((rowMatch = rowPattern.exec(html)) !== null) {
     const rowHtml = rowMatch[1] || '';
     const cells: DataGridClipboardValue[] = [];
-    const cellPattern = /<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi;
+    const cellPattern = /<t[hd]\b([^>]*)>([\s\S]*?)<\/t[hd]>/gi;
     let cellMatch: RegExpExecArray | null;
     while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
-      cells.push(toClipboardValue(normalizeHtmlCellContent(cellMatch[1] || '')));
+      cells.push(toHtmlClipboardValue(cellMatch[1] || '', cellMatch[2] || '', inAppClipboard));
     }
     if (cells.length > 0) rows.push(cells);
   }
 
   return rows;
+};
+
+const isClipboardCell = (value: unknown): value is DataGridClipboardValue => (
+  value === null || typeof value === 'string'
+);
+
+const parseDataGridClipboardInAppJson = (text: string): DataGridClipboardValue[][] => {
+  try {
+    const parsed = JSON.parse(text) as { [DATA_GRID_IN_APP_JSON_MARKER]?: unknown; values?: unknown };
+    if (parsed?.[DATA_GRID_IN_APP_JSON_MARKER] !== 1 || !Array.isArray(parsed.values)) return [];
+    if (!parsed.values.every((row) => Array.isArray(row) && row.every(isClipboardCell))) return [];
+    return parsed.values as DataGridClipboardValue[][];
+  } catch {
+    return [];
+  }
 };
 
 const getClipboardTypes = (clipboardData: DataGridClipboardDataReader): string[] => (
@@ -135,6 +179,11 @@ export const parseDataGridClipboardData = (
   clipboardData: DataGridClipboardDataReader | null | undefined,
 ): DataGridClipboardValue[][] => {
   if (!clipboardData) return [];
+
+  if (hasClipboardType(clipboardData, 'application/json')) {
+    const matrix = parseDataGridClipboardInAppJson(clipboardData.getData('application/json'));
+    if (hasPasteMatrixValues(matrix)) return matrix;
+  }
 
   if (hasClipboardType(clipboardData, 'text/html')) {
     const matrix = parseDataGridClipboardHtml(clipboardData.getData('text/html'));

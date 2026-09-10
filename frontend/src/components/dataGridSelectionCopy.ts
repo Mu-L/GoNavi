@@ -19,9 +19,13 @@ const normalizeUnsafePlainTextCell = (value: string): string => (
   value.replace(/\r\n/g, '\n').replace(/[\t\n\r]+/g, ' ').trim()
 );
 
-const normalizeClipboardCellValue = (value: unknown, options: { preserveCellWhitespace?: boolean } = {}): string => {
+const formatClipboardMatrixCell = (value: string | null): string => (
+  value === null ? 'NULL' : value
+);
+
+const normalizeClipboardCellValue = (value: unknown, options: { preserveCellWhitespace?: boolean } = {}): string | null => {
   if (value === null || value === undefined) {
-    return 'NULL';
+    return null;
   }
 
   if (typeof value === 'string') {
@@ -63,7 +67,7 @@ export const buildSelectedCellClipboardText = ({
     rowKeyField,
   });
 
-  return matrix.map((row) => row.join('\t')).join('\n');
+  return matrix.map((row) => row.map(formatClipboardMatrixCell).join('\t')).join('\n');
 };
 
 const buildSelectedCellClipboardMatrix = ({
@@ -78,7 +82,7 @@ const buildSelectedCellClipboardMatrix = ({
   columnOrder: string[];
   rowKeyField: string;
   preserveCellWhitespace?: boolean;
-}): string[][] => {
+}): Array<Array<string | null>> => {
   if (!selectedCells.length || !rows.length || !columnOrder.length || !rowKeyField) {
     return [];
   }
@@ -125,5 +129,5 @@ export const buildSelectedCellClipboardPayload = ({
     rowKeyField,
     preserveCellWhitespace: true,
   });
-  return buildTabularClipboardPayload({ rows: matrix });
+  return buildTabularClipboardPayload({ rows: matrix, preserveCellTypes: true });
 };
