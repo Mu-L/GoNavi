@@ -648,7 +648,7 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       fg1: '#ebe2d6', fg2: '#d5c9b8', fg3: '#b6a790', fg4: '#9a8b74', fg5: '#8f806b',
       border1: 'rgba(232, 214, 188, 0.06)', border2: 'rgba(232, 214, 188, 0.11)', border3: 'rgba(232, 214, 188, 0.18)',
       accent: '#c49456', accent2: '#b3844a', accentSoft: 'rgba(196, 148, 86, 0.16)', accentSoftHover: 'rgba(196, 148, 86, 0.24)', accentOutline: 'rgba(212, 168, 108, 0.40)', onAccent: '#23180e',
-      info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#ae5f55', dangerHover: '#a3574e', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
+      info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#aa5b51', dangerHover: '#9e564c', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
       shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(232, 214, 188, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
       kbdBg: '#3a322a', kbdFg: '#d5c9b8',
     },
