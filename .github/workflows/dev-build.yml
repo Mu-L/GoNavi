@@ -81,7 +81,7 @@ jobs:
           test -s frontend/dist.zip
 
       - name: Test frontend virtual scrolling
-        run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/DataGrid.layout.test.tsx
+        run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/virtualListNativeScroll.test.tsx src/components/DataGrid.layout.test.tsx
 
       - name: Pack frontend dist
         shell: bash

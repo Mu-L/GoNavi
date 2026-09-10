@@ -51,6 +51,8 @@ type DataGridTableSurfaceProps = {
   virtualListItemColumnVirtual: boolean;
   virtualListItemHeight?: number;
   virtualListItemHeightFixed: boolean;
+  virtualListItemNativeScrollbarControlled: boolean;
+  virtualListItemHorizontalOffsetComposited: boolean;
 };
 
 const TABLE_SORTER_TOOLTIP = { target: 'sorter-icon' } as const;
@@ -82,6 +84,8 @@ const DataGridTableSurfaceComponent: React.FC<DataGridTableSurfaceProps> = ({
   virtualListItemColumnVirtual,
   virtualListItemHeight,
   virtualListItemHeightFixed,
+  virtualListItemNativeScrollbarControlled,
+  virtualListItemHorizontalOffsetComposited,
 }) => (
   <Form component={false} form={form}>
     <CellContextMenuContext.Provider value={cellContextMenuValue}>
@@ -97,6 +101,8 @@ const DataGridTableSurfaceComponent: React.FC<DataGridTableSurfaceProps> = ({
                 ? {
                     listItemHeight: virtualListItemHeight,
                     listItemHeightFixed: virtualListItemHeightFixed,
+                    listItemNativeScrollbarControlled: virtualListItemNativeScrollbarControlled,
+                    listItemHorizontalOffsetComposited: virtualListItemHorizontalOffsetComposited,
                     listItemColumnVirtual: virtualListItemColumnVirtual,
                   }
                 : {})}
@@ -444,6 +450,8 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     viewMode,
     virtualListItemHeight,
     virtualListItemHeightFixed,
+    virtualListItemNativeScrollbarControlled,
+    virtualListItemHorizontalOffsetComposited,
     virtualListItemColumnVirtual,
     window,
   } = props;
@@ -490,6 +498,8 @@ const renderDataTableView = () => (
               virtualListItemColumnVirtual={virtualListItemColumnVirtual}
               virtualListItemHeight={virtualListItemHeight}
               virtualListItemHeightFixed={virtualListItemHeightFixed}
+              virtualListItemNativeScrollbarControlled={virtualListItemNativeScrollbarControlled}
+              virtualListItemHorizontalOffsetComposited={virtualListItemHorizontalOffsetComposited}
           />
           <div
               ref={externalHorizontalScrollRef}
