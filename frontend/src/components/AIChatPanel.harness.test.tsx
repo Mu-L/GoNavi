@@ -43,6 +43,7 @@ const harnessMock = vi.hoisted(() => {
         updatedAt: 1,
       }],
     },
+    missingService: false,
   };
 });
 
@@ -74,7 +75,7 @@ vi.mock('./ai/useAIChatRunEventSubscription', () => ({
 vi.mock('./ai/aiRunHarnessClient', () => ({
   controlAgentRun: harnessMock.controlAgentRun,
   createRunPendingMessageId: (runId: string) => `agent-run-${runId}-pending`,
-  getAIRunHarnessService: () => harnessMock.service,
+  getAIRunHarnessService: () => (harnessMock.missingService ? undefined : harnessMock.service),
   getRunPolicy: harnessMock.getRunPolicy,
   hasAIRunHarness: () => true,
   mergeAIChatSessionMessages: (durable: unknown[]) => durable,
@@ -235,6 +236,8 @@ describe('AIChatPanel agent run branch submission', () => {
   });
 
   afterEach(() => {
+    harnessMock.missingService = false;
+    harnessMock.service.AIControlAgentRun = harnessMock.controlAgentRun;
     vi.unstubAllGlobals();
     useStore.setState(originalStore, true);
   });
@@ -692,6 +695,224 @@ describe('AIChatPanel agent run branch submission', () => {
       argsHash: 'sha256:exact-args',
       expectedRevision: 17,
     }), harnessMock.service);
+    await act(async () => renderer?.unmount());
+  });
+
+  const startActiveRun = async () => {
+    harnessMock.submitAgentInput.mockResolvedValue(submitReceipt('source-session'));
+    await act(async () => {
+      harnessMock.inputProps?.setInput('Keep generating');
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+  };
+
+  it('keeps stop available and shows a user-visible error when cancel is rejected', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    harnessMock.controlAgentRun.mockRejectedValueOnce(new Error('cancel rejected'));
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await startActiveRun();
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(harnessMock.controlAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: 'run-1',
+      sessionId: 'source-session',
+      action: 'cancel',
+      expectedRevision: 1,
+    }), harnessMock.service);
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+    expect(useStore.getState().aiChatHistory['source-session']).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'ai_chat.panel.message.stop_failed',
+        rawError: 'cancel rejected',
+        excludeFromAIContext: true,
+        loading: false,
+      }),
+    ]));
+    expect(warn).toHaveBeenCalledWith('Failed to stop chat stream', expect.any(Error));
+    warn.mockRestore();
+    await act(async () => renderer?.unmount());
+  });
+
+  it('retries stop after a non-error cancel rejection and still waits for a terminal event', async () => {
+    harnessMock.controlAgentRun
+      .mockRejectedValueOnce('backend unavailable')
+      .mockResolvedValueOnce({ state: 'canceled', revision: 2 });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await startActiveRun();
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+    expect(harnessMock.controlAgentRun).toHaveBeenCalledTimes(2);
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+
+    await act(async () => {
+      harnessMock.runSubscriptionProps?.onRunStateChange('run-1', 'canceled', 2);
+    });
+    expect(harnessMock.inputProps?.sending).toBe(false);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(false);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('clears sending only after a confirmed terminal event following a successful cancel', async () => {
+    harnessMock.controlAgentRun.mockResolvedValueOnce({ state: 'canceled', revision: 2 });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await startActiveRun();
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+
+    await act(async () => {
+      harnessMock.runSubscriptionProps?.onRunStateChange('run-1', 'canceled', 2);
+    });
+    expect(harnessMock.inputProps?.sending).toBe(false);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(false);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('does not issue a cancel when no active run exists', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(harnessMock.controlAgentRun).not.toHaveBeenCalled();
+    expect(harnessMock.inputProps?.sending).toBe(false);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('ignores stop after the active run has already reached a terminal state', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await startActiveRun();
+    await act(async () => {
+      harnessMock.runSubscriptionProps?.onRunStateChange('run-1', 'canceled', 2);
+    });
+    expect(harnessMock.inputProps?.sending).toBe(false);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(false);
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(harnessMock.controlAgentRun).not.toHaveBeenCalled();
+    await act(async () => renderer?.unmount());
+  });
+
+  it('shows a user-visible error when the run harness service is missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    harnessMock.missingService = true;
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(useStore.getState().aiChatHistory['source-session']).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        content: 'ai_chat.panel.message.stop_failed',
+        rawError: 'AIControlAgentRun is unavailable',
+        excludeFromAIContext: true,
+      }),
+    ]));
+    expect(warn).toHaveBeenCalledWith('Failed to stop chat stream', expect.any(Error));
+    warn.mockRestore();
+    await act(async () => renderer?.unmount());
+  });
+
+  it('shows a user-visible error when the cancel control RPC is unavailable', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await startActiveRun();
+    harnessMock.service.AIControlAgentRun = undefined;
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(harnessMock.inputProps?.sending).toBe(true);
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+    expect(useStore.getState().aiChatHistory['source-session']).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        content: 'ai_chat.panel.message.stop_failed',
+        rawError: 'AIControlAgentRun is unavailable',
+        excludeFromAIContext: true,
+      }),
+    ]));
+    expect(warn).toHaveBeenCalledWith('Failed to stop chat stream', expect.any(Error));
+    harnessMock.service.AIControlAgentRun = harnessMock.controlAgentRun;
+    warn.mockRestore();
+    await act(async () => renderer?.unmount());
+  });
+
+  it('keeps the run active and reports a stop error when the run revision cannot be resolved', async () => {
+    harnessMock.readAgentRun.mockResolvedValueOnce({
+      run: { state: 'running', revision: 0, sessionId: 'source-session' },
+      events: [],
+      hasMore: false,
+    });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await act(async () => {
+      harnessMock.runSubscriptionProps?.onRunStateChange('run-no-revision', 'running', 0);
+    });
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+
+    await act(async () => {
+      await harnessMock.inputProps?.onStop();
+    });
+
+    expect(harnessMock.controlAgentRun).not.toHaveBeenCalled();
+    expect(harnessMock.inputProps?.hasActiveRun).toBe(true);
+    expect(useStore.getState().aiChatHistory['source-session']).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        content: 'ai_chat.panel.message.stop_failed',
+        rawError: 'AI agent run revision is unavailable',
+        excludeFromAIContext: true,
+      }),
+    ]));
     await act(async () => renderer?.unmount());
   });
 });

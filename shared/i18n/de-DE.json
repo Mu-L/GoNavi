@@ -1472,6 +1472,7 @@
   "ai_chat.panel.message.error": "❌ Fehler: {{detail}}",
   "ai_chat.panel.message.request_interrupted": "❌ Anfrage unterbrochen: Es wurde keine konkrete Antwort empfangen.",
   "ai_chat.panel.message.send_failed": "❌ Senden fehlgeschlagen: {{detail}}",
+  "ai_chat.panel.message.stop_failed": "❌ Stoppen fehlgeschlagen: {{detail}}. Sie können das Stoppen erneut versuchen.",
   "ai_chat.run.approval.approve": "Genehmigen",
   "ai_chat.run.approval.deny": "Ablehnen",
   "ai_chat.run.approval.pending": "Wartet",

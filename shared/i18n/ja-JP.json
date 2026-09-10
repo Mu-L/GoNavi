@@ -1472,6 +1472,7 @@
   "ai_chat.panel.message.error": "❌ エラー: {{detail}}",
   "ai_chat.panel.message.request_interrupted": "❌ リクエストが中断されました。具体的な応答を受信していません。",
   "ai_chat.panel.message.send_failed": "❌ 送信に失敗しました: {{detail}}",
+  "ai_chat.panel.message.stop_failed": "❌ 停止に失敗しました: {{detail}}。もう一度停止を試せます。",
   "ai_chat.run.approval.approve": "承認",
   "ai_chat.run.approval.deny": "拒否",
   "ai_chat.run.approval.pending": "確認待ち",

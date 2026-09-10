@@ -927,9 +927,22 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             }, service);
         } catch (error) {
             console.warn('Failed to stop chat stream', error);
-            setSending(false);
+            const detail = error instanceof Error ? error.message : String(error);
+            addAIChatMessage(sid, {
+                id: genId(),
+                role: 'assistant',
+                content: t('ai_chat.panel.message.stop_failed', { detail }),
+                rawError: detail,
+                timestamp: Date.now(),
+                loading: false,
+                phase: 'idle',
+                excludeFromAIContext: true,
+            });
+            // Keep the in-progress composer state until a terminal run event
+            // confirms the Ledger run is no longer active. Clearing `sending`
+            // here hides the stop control while the run can still continue.
         }
-    }, [resolveRunRevision, sid]);
+    }, [addAIChatMessage, resolveRunRevision, sid, t]);
 
     const handleCreateSession = useCallback(() => {
         if (sending || interactionDisabled) return;

@@ -1472,6 +1472,7 @@
   "ai_chat.panel.message.error": "❌ Ошибка: {{detail}}",
   "ai_chat.panel.message.request_interrupted": "❌ Запрос прерван: конкретный ответ не получен.",
   "ai_chat.panel.message.send_failed": "❌ Не удалось отправить: {{detail}}",
+  "ai_chat.panel.message.stop_failed": "❌ Не удалось остановить: {{detail}}. Можно попробовать остановить снова.",
   "ai_chat.run.approval.approve": "Одобрить",
   "ai_chat.run.approval.deny": "Отклонить",
   "ai_chat.run.approval.pending": "Ожидание",
