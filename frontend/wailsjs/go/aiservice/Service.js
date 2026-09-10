@@ -82,16 +82,16 @@ export function AIGetProviders() {
   return window['go']['aiservice']['Service']['AIGetProviders']();
 }
 
+export function AIGetResultMaskingSettings() {
+  return window['go']['aiservice']['Service']['AIGetResultMaskingSettings']();
+}
+
 export function AIGetRunPolicy() {
   return window['go']['aiservice']['Service']['AIGetRunPolicy']();
 }
 
 export function AIGetSafetyLevel() {
   return window['go']['aiservice']['Service']['AIGetSafetyLevel']();
-}
-
-export function AIGetResultMaskingSettings() {
-  return window['go']['aiservice']['Service']['AIGetResultMaskingSettings']();
 }
 
 export function AIGetSkills() {
@@ -178,6 +178,10 @@ export function AISaveProvider(arg1) {
   return window['go']['aiservice']['Service']['AISaveProvider'](arg1);
 }
 
+export function AISaveResultMaskingSettings(arg1) {
+  return window['go']['aiservice']['Service']['AISaveResultMaskingSettings'](arg1);
+}
+
 export function AISaveRunPolicy(arg1) {
   return window['go']['aiservice']['Service']['AISaveRunPolicy'](arg1);
 }
@@ -188,10 +192,6 @@ export function AISaveSkill(arg1) {
 
 export function AISaveUserPromptSettings(arg1) {
   return window['go']['aiservice']['Service']['AISaveUserPromptSettings'](arg1);
-}
-
-export function AISaveResultMaskingSettings(arg1) {
-  return window['go']['aiservice']['Service']['AISaveResultMaskingSettings'](arg1);
 }
 
 export function AISelectAgentDataDirectory(arg1) {
