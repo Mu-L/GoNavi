@@ -84,11 +84,13 @@ import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLi
 	  AppstoreOutlined,
 	  AuditOutlined,
 	  CaretDownFilled,
+	  ClockCircleOutlined,
 	  CloudOutlined,
 	  CloudDownloadOutlined,
 	  CodeOutlined,
 	  DatabaseOutlined,
 	  DownloadOutlined,
+	  EyeOutlined,
 	  GlobalOutlined,
 	  HistoryOutlined,
 	  TableOutlined,
@@ -515,6 +517,16 @@ const V2_EXPLORER_FILTER_OPTIONS: Array<{ key: V2ExplorerFilter; labelKey: strin
   { key: 'packages', labelKey: 'sidebar.command_search.object_kind.packages' },
   { key: 'events', labelKey: 'sidebar.command_search.object_kind.events' },
 ];
+
+const V2_EXPLORER_FILTER_ICONS: Record<V2ExplorerFilter, React.ReactNode> = {
+  all: <AppstoreOutlined />,
+  tables: <TableOutlined />,
+  views: <EyeOutlined />,
+  sequences: <KeyOutlined />,
+  routines: <CodeOutlined />,
+  packages: <SwitcherOutlined />,
+  events: <ClockCircleOutlined />,
+};
 
 const buildConnectionReloadSignature = (conn?: SavedConnection | null): string => {
   if (!conn) return '';
@@ -4743,17 +4755,23 @@ const Sidebar: React.FC<{
 
         {showV2ObjectKindFilters && (
             <div className="gn-v2-explorer-filter-tabs" aria-label={t('sidebar.command_search.object_kind.filter_aria')}>
-                {V2_EXPLORER_FILTER_OPTIONS.map((item) => (
+                {V2_EXPLORER_FILTER_OPTIONS.map((item) => {
+                    const label = t(item.labelKey);
+                    return (
+                    <Tooltip key={item.key} title={label} mouseEnterDelay={0.25}>
                     <button
-                        key={item.key}
                         type="button"
                         className={v2ExplorerFilter === item.key ? 'is-active' : undefined}
+                        aria-label={label}
                         aria-pressed={v2ExplorerFilter === item.key}
+                        data-object-kind-filter={item.key}
                         onClick={() => setV2ExplorerFilter(item.key)}
                     >
-                        {t(item.labelKey)}
+                        {V2_EXPLORER_FILTER_ICONS[item.key]}
                     </button>
-                ))}
+                    </Tooltip>
+                    );
+                })}
             </div>
         )}
 
