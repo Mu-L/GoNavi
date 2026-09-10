@@ -1538,7 +1538,7 @@ describe('Sidebar locate toolbar', () => {
     const css = readV2ThemeCss();
     const source = readSidebarSource();
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \{[^}]*--gn-v2-tree-horizontal-scroll-reserve: 32px;[^}]*--gn-v2-tree-trailing-inset: 12px;[^}]*overflow: hidden !important;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 6px 8px 8px;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.sidebar-tree-scroll-content \{[^}]*display: flex;[^}]*height: 100%;[^}]*padding: 6px max\(8px, var\(--gonavi-sidebar-resize-inner-hit-width, 8px\)\) 8px 8px;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree \{[^}]*flex: 1 1 auto;[^}]*width: 100%;[^}]*min-width: 0;[^}]*height: 100%;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list \{[^}]*position: relative;[^}]*height: 100%;[^}]*min-height: 0;[^}]*box-sizing: border-box;/s);
     expect(css).toMatch(/\.gn-v2-explorer-tree-shell \.ant-tree-list-holder-inner \{[^}]*width: 100%;[^}]*min-width: 100%;/s);
@@ -1681,7 +1681,6 @@ describe('Sidebar locate toolbar', () => {
     );
     expect(idleScrollbarCss).toContain('visibility: hidden !important;');
     expect(idleScrollbarCss).toContain('pointer-events: none;');
-    expect(idleScrollbarCss).toContain('z-index: 4;');
 
     const activeScrollbarCss = readCssRuleBlock(
       css,

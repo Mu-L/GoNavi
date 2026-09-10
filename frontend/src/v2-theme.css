@@ -3127,7 +3127,9 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .sidebar-tree-scroll-conte
   min-height: 0;
   height: 100%;
   box-sizing: border-box;
-  padding: 6px 8px 8px;
+  /* Keep the native vertical scrollbar outside the inner half of the
+     sidebar resize hit area. The other half stays over the workbench. */
+  padding: 6px max(8px, var(--gonavi-sidebar-resize-inner-hit-width, 8px)) 8px 8px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree {
@@ -3158,8 +3160,6 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder {
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical {
   visibility: hidden !important;
   pointer-events: none;
-  /* Keep the visible 8px scrollbar above App's 16px sidebar resize hit area. */
-  z-index: 4;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell.is-vertical-scrolling .ant-tree-list-scrollbar-vertical {

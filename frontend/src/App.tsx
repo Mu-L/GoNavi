@@ -8140,6 +8140,7 @@ function App() {
                 position: 'relative',
                 background: 'var(--gn-bg-panel-2)',
                 ['--gonavi-sidebar-collapsed-width' as any]: `${sidebarCollapsedWidth}px`,
+                ['--gonavi-sidebar-resize-inner-hit-width' as any]: `${sidebarResizeHandleWidth / 2}px`,
             }}
           >
             <div
@@ -8212,33 +8213,34 @@ function App() {
                             </div>
                         </div>
                     )}
-                    {!isSidebarCollapsed && <div
-                        onMouseDown={handleSidebarMouseDown}
-                        onContextMenu={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                        }}
-                        role="separator"
-                        aria-orientation="vertical"
-                        title={t('app.sidebar.resize_width')}
-                        style={{
-                            position: 'absolute',
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            width: sidebarResizeHandleWidth,
-                            cursor: 'col-resize',
-                            zIndex: 3,
-                            touchAction: 'none',
-                            userSelect: 'none',
-                            WebkitUserSelect: 'none',
-                            background: 'transparent',
-                        }}
-                    />}
                 </div>
 
 
             </div>
+            {!isSidebarCollapsed && <div
+                data-sidebar-resize-handle="true"
+                onMouseDown={handleSidebarMouseDown}
+                onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }}
+                role="separator"
+                aria-orientation="vertical"
+                title={t('app.sidebar.resize_width')}
+                style={{
+                    position: 'absolute',
+                    right: -(sidebarResizeHandleWidth / 2),
+                    top: 0,
+                    bottom: 0,
+                    width: sidebarResizeHandleWidth,
+                    cursor: 'col-resize',
+                    zIndex: 3,
+                    touchAction: 'none',
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                    background: 'transparent',
+                }}
+            />}
           </Sider>
            <Content
              style={{ background: 'var(--gn-bg-panel-2)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
