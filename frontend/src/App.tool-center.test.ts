@@ -205,6 +205,29 @@ describe('settings center tool entries', () => {
     expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
   });
 
+  it('keeps connection import, export, and health checks inside settings panes', () => {
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'import'");
+    expect(appSource).toContain('<ConnectionImportSettingsPanel');
+    expect(appSource).toContain("setActiveSettingsCenterPane({ key: 'export', group: sourceGroup })");
+    expect(appSource).toMatch(/isConnectionPackageSettingsPaneKey\(activeSettingsCenterPane\.key\)[\s\S]*?<ConnectionPackagePasswordModal[\s\S]*?embedded/);
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).toMatch(/activeSettingsCenterPane\.key === 'connection-health'[\s\S]*?<ConnectionHealthModal[\s\S]*?embedded/);
+    expect(appSource).not.toContain('isConnectionHealthModalOpen');
+
+    const toolCenterGroupsStart = appSource.indexOf('const toolCenterGroups:');
+    const importEntryStart = appSource.indexOf("key: 'import',", toolCenterGroupsStart);
+    const exportEntryStart = appSource.indexOf("key: 'export',", importEntryStart);
+    const importEntrySource = appSource.slice(importEntryStart, exportEntryStart);
+    expect(importEntrySource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(importEntrySource).not.toContain('handleImportConnections');
+
+    const titlebarImportStart = appSource.indexOf("if (spec.action === 'import-connections')");
+    const titlebarExportStart = appSource.indexOf("if (spec.action === 'export-connections')", titlebarImportStart);
+    const titlebarImportSource = appSource.slice(titlebarImportStart, titlebarExportStart);
+    expect(titlebarImportSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(titlebarImportSource).not.toContain('handleImportConnections');
+  });
+
   it('keeps button loading indicators animated when reduced motion is enabled', () => {
     expect(appCss).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.gonavi-settings-center-modal \.ant-btn-loading-icon \.anticon-spin \{[^}]*animation-duration: 1s !important;[^}]*animation-iteration-count: infinite !important;[^}]*\}/,

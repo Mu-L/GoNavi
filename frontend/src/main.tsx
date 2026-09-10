@@ -867,7 +867,7 @@ if (
                             connectionTags: cloneBrowserMockValue(input.connectionTags),
                             sidebarRootOrder: cloneBrowserMockValue(input.sidebarRootOrder || []),
                             rootSortMode: 'manual',
-                            rootConnectionSortMode: input?.rootConnectionSortMode === 'name' ? 'name' : 'createdAt',
+                            rootConnectionSortMode: input?.rootConnectionSortMode === 'manual' || input?.rootConnectionSortMode === 'name' ? input.rootConnectionSortMode : 'createdAt',
                         };
                     }
                     return cloneBrowserMockValue(mockConnectionSidebarLayout);
@@ -886,7 +886,7 @@ if (
                         connectionTags: cloneBrowserMockValue(layout.connectionTags || []),
                         sidebarRootOrder: cloneBrowserMockValue(layout.sidebarRootOrder || []),
                         rootSortMode: 'manual',
-                        rootConnectionSortMode: layout.rootConnectionSortMode === 'name' ? 'name' : 'createdAt',
+                        rootConnectionSortMode: layout.rootConnectionSortMode === 'manual' || layout.rootConnectionSortMode === 'name' ? layout.rootConnectionSortMode : 'createdAt',
                     };
                     return {
                         conflict: false,

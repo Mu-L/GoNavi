@@ -135,6 +135,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
       setRun(nextRun);
       setReports(nextRun.reports);
       if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        activeRunIDRef.current = '';
         setRunning(false);
         setCancelling(false);
       }
@@ -171,6 +172,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
       setRun(nextRun);
       setReports(nextRun.reports);
       if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        activeRunIDRef.current = '';
         setRunning(false);
         setCancelling(false);
       }
@@ -215,6 +217,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
         setRun(nextRun);
         setReports(nextRun.reports);
         if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+          activeRunIDRef.current = '';
           setRunning(false);
           setCancelling(false);
         }
@@ -245,11 +248,13 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   };
 
   useEffect(() => () => {
+    const pendingStart = pendingRunStartRef.current;
+    if (pendingStart) pendingStart.cancelWhenStarted = true;
     const runID = activeRunIDRef.current;
-    if (!runID) return;
+    if (!runID || cancellingRunIDRef.current === runID) return;
     const backend = (window as any).go?.app?.App;
     if (typeof backend?.CancelSavedConnectionsHealthRun === 'function') {
-      void backend.CancelSavedConnectionsHealthRun(runID);
+      void Promise.resolve(backend.CancelSavedConnectionsHealthRun(runID)).catch(() => undefined);
     }
   }, []);
 
