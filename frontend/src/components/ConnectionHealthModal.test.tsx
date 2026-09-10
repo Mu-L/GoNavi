@@ -20,12 +20,16 @@ vi.mock('../store', () => ({
 vi.mock('../i18n', () => ({
   t: (key: string, params: Record<string, unknown> = {}) => {
     const catalog: Record<string, string> = {
+      'app.connection_package.dialog.export_connections_summary': '已选 {{selected}} / {{total}} 个连接',
+      'app.tools.entry.connection_health.description': '对已保存连接或连接组运行只读健康探测。',
       'connection_health.action.cancel': '取消检查',
       'connection_health.action.close': '关闭',
       'connection_health.action.export': '导出报告',
       'connection_health.action.run': '运行检查',
       'connection_health.description': '说明',
       'connection_health.empty.reports': '暂无报告',
+      'data_export.action.clear': '清空',
+      'data_export.action.select_all': '全选',
       'connection_health.progress.completed': '连接健康检查已完成。',
       'connection_health.progress.count': '进度：{{completed}} / {{total}}',
       'connection_health.progress.remaining_title': '未检查的连接',
@@ -57,15 +61,18 @@ vi.mock('@ant-design/icons', () => ({
   CheckCircleFilled: () => null,
   CloseCircleFilled: () => null,
   DownloadOutlined: () => null,
+  InfoCircleOutlined: () => null,
   MinusCircleOutlined: () => null,
   ReloadOutlined: () => null,
   SafetyCertificateOutlined: () => null,
 }));
 
 vi.mock('./common/ResizableDraggableModal', () => ({
-  default: ({ children, footer, onCancel, open }: any) => open ? (
+  default: ({ children, footer, onCancel, open, embedded, closable }: any) => open ? (
     <section>
-      <button data-close-modal onClick={onCancel}>close modal</button>
+      {embedded || closable === false ? null : (
+        <button data-close-modal onClick={onCancel}>close modal</button>
+      )}
       {children}
       {footer}
     </section>
@@ -343,5 +350,19 @@ describe('ConnectionHealthModal', () => {
     });
 
     expect(mocks.cancel).toHaveBeenCalledWith('health-run-1');
+  });
+
+  it('keeps the health checks in the settings pane without a standalone close control', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ConnectionHealthModal embedded open onClose={mocks.close} />);
+      await flush();
+    });
+
+    const rendered = JSON.stringify(renderer.toJSON());
+    expect(rendered).toContain('选择连接');
+    expect(rendered).not.toContain('close modal');
+    expect(rendered).not.toContain('关闭');
+    expect(renderer.root.findAllByProps({ 'data-close-modal': true })).toHaveLength(0);
   });
 });
