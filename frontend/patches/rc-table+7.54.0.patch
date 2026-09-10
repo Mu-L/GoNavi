@@ -31,8 +31,8 @@ index 42dcde8..eedd501 100644
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
-
-  // =========================== Ref ============================
+ 
+   // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
 +  var columnVirtualWindowRef = React.useRef(null);
@@ -49,8 +49,8 @@ index 42dcde8..eedd501 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
-
-  // =========================== Data ===========================
+ 
+   // =========================== Data ===========================
    var flattenData = useFlattenRecords(data, childrenColumnName, expandedKeys, getRowKey);
 @@ -49,6 +68,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        return colWidth[2];
@@ -81,8 +81,8 @@ index 42dcde8..eedd501 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
-
-    // Do nothing if no data
+ 
+     // Do nothing if no data
      if (end < 0) {
 @@ -198,6 +230,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
@@ -228,8 +228,8 @@ index c760819..c38321a 100644
 +      expandContent: expandContent
 +    });
    }
-
-  // ========================== Render ==========================
+ 
+   // ========================== Render ==========================
 @@ -71,12 +96,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
      rowStyle.pointerEvents = 'none';
@@ -434,8 +434,8 @@ index fb00e9b..4e6c23e 100644
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
 +  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemColumnVirtual, getComponent, onInternalScroll]);
-
-  // ========================== Render ==========================
+ 
+   // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(StaticContext.Provider, {
 diff --git a/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js
 index 9bfe1b6..64176f0 100644
@@ -451,8 +451,8 @@ index 9bfe1b6..64176f0 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -32,7 +33,6 @@ export default function useWidthColumns(flattenColumns, scrollWidth, clientWidth
        });
-
-      // Fill width
+ 
+       // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);
        var restCount = missWidthCount;
@@ -464,6 +464,7 @@ index 9bfe1b6..64176f0 100644
 -  }, [flattenColumns, scrollWidth, clientWidth]);
 +  }, [flattenColumns, scrollWidth, maxFitWidth]);
  }
+\ No newline at end of file
 diff --git a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js b/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
 index dee2539..2c2395c 100644
 --- a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
@@ -499,8 +500,8 @@ index dee2539..2c2395c 100644
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
-
-  // =========================== Ref ============================
+ 
+   // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
 +  var columnVirtualWindowRef = React.useRef(null);
@@ -516,8 +517,8 @@ index dee2539..2c2395c 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
-
-  // =========================== Data ===========================
+ 
+   // =========================== Data ===========================
    var flattenData = (0, _useFlattenRecords.default)(data, childrenColumnName, expandedKeys, getRowKey);
 @@ -59,6 +77,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        return colWidth[2];
@@ -548,8 +549,8 @@ index dee2539..2c2395c 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
-
-    // Do nothing if no data
+ 
+     // Do nothing if no data
      if (end < 0) {
 @@ -208,6 +239,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
@@ -686,8 +687,8 @@ index e1275fb..1ca8756 100644
 +      expandContent: expandContent
 +    });
    }
-
-  // ========================== Render ==========================
+ 
+   // ========================== Render ==========================
 @@ -81,12 +106,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
      rowStyle.pointerEvents = 'none';
@@ -896,8 +897,8 @@ index 8e31a9b..18e6aab 100644
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
 +  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemColumnVirtual, getComponent, onInternalScroll]);
-
-  // ========================== Render ==========================
+ 
+   // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(_context.StaticContext.Provider, {
 diff --git a/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js
 index 9c6b738..7c62501 100644
@@ -913,8 +914,8 @@ index 9c6b738..7c62501 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -42,7 +43,6 @@ function useWidthColumns(flattenColumns, scrollWidth, clientWidth) {
        });
-
-      // Fill width
+ 
+       // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);
        var restCount = missWidthCount;
@@ -926,3 +927,4 @@ index 9c6b738..7c62501 100644
 -  }, [flattenColumns, scrollWidth, clientWidth]);
 +  }, [flattenColumns, scrollWidth, maxFitWidth]);
  }
+\ No newline at end of file

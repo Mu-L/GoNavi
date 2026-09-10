@@ -319,7 +319,7 @@ describe("FindInDatabaseModal i18n", () => {
         { tableName: "offline", name: "name", type: "text" },
       ],
     });
-    mocks.dbQuery
+    mocks.dbQueryApplicationWithCancel
       .mockResolvedValueOnce({ success: false, message: "permission denied" })
       .mockRejectedValueOnce(new Error("connection lost"));
     const renderer = renderFindModal();
@@ -337,7 +337,7 @@ describe("FindInDatabaseModal i18n", () => {
     });
 
     const renderedText = textContent(renderer.toJSON());
-    expect(mocks.dbQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(2);
     expect(mocks.message.error).toHaveBeenCalledWith("Search failed for all 2 searchable tables");
     expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
     expect(renderedText).toContain("denied: permission denied");
@@ -355,7 +355,7 @@ describe("FindInDatabaseModal i18n", () => {
         { tableName: "restricted", name: "name", type: "varchar(255)" },
       ],
     });
-    mocks.dbQuery
+    mocks.dbQueryApplicationWithCancel
       .mockResolvedValueOnce({ success: true, data: [{ name: "Alice" }] })
       .mockResolvedValueOnce({ success: false, message: "permission denied" });
     const renderer = renderFindModal();
@@ -388,7 +388,7 @@ describe("FindInDatabaseModal i18n", () => {
         { tableName: "orders", name: "note", type: "text" },
       ],
     });
-    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    mocks.dbQueryApplicationWithCancel.mockResolvedValue({ success: true, data: [] });
     const renderer = renderFindModal();
 
     const input = renderer.root.findByType("input");
@@ -403,7 +403,7 @@ describe("FindInDatabaseModal i18n", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.dbQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(2);
     expect(mocks.message.info).toHaveBeenCalledWith("No matching data found");
     expect(mocks.message.warning).not.toHaveBeenCalled();
     expect(mocks.message.error).not.toHaveBeenCalled();
@@ -419,7 +419,7 @@ describe("FindInDatabaseModal i18n", () => {
         { tableName: "orders", name: "note", type: "text" },
       ],
     });
-    mocks.dbQuery.mockReturnValue(new Promise((resolve) => {
+    mocks.dbQueryApplicationWithCancel.mockReturnValue(new Promise((resolve) => {
       resolveQuery = resolve;
     }));
     const renderer = renderFindModal();
@@ -443,7 +443,7 @@ describe("FindInDatabaseModal i18n", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.dbQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.dbQueryApplicationWithCancel).toHaveBeenCalledTimes(1);
     expect(mocks.message.error).not.toHaveBeenCalled();
     expect(mocks.message.warning).not.toHaveBeenCalled();
     expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
