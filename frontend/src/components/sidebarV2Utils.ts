@@ -1241,11 +1241,12 @@ export const buildV2CommandSearchTreeIndex = (
         dataRef.viewName,
         dataRef.sequenceName,
         dataRef.packageName,
+        dataRef.tableComment,
         dataRef.dbName,
         dataRef.name,
         dataRef.config?.host,
       ].filter(Boolean).join(' ').toLowerCase(),
-      normalizedObjectText: `${normalizedPrimaryObjectText} ${normalizedTitle}`.trim(),
+      normalizedObjectText: `${normalizedPrimaryObjectText} ${String(dataRef.tableComment || '').trim().toLowerCase()} ${normalizedTitle}`.trim(),
       objectNode: isV2CommandSearchObjectNode(item.node),
     }];
   });
