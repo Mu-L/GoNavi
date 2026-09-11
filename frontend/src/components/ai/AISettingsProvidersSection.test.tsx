@@ -44,6 +44,10 @@ const REQUIRED_KEYS = [
   'ai_settings.models.sync_empty',
   'ai_settings.provider.save_changes',
   'ai_settings.action.test',
+  'ai_settings.test.error.details',
+  'ai_settings.test.error.hide',
+  'ai_settings.test.error.copy',
+  'ai_settings.test.error.copied',
   'common.edit',
   'common.cancel',
 ] as const;
@@ -118,6 +122,12 @@ describe('AISettingsProvidersSection', () => {
     expect(providerStyles).toContain('.gonavi-ai-provider-model-sync');
     expect(providerStyles).toContain('.gonavi-ai-provider-cli-path-field { width: min(100%, 680px); }');
     expect(providerStyles).toContain('.gonavi-ai-provider-cli-path-mode.is-auto');
+    expect(providerStyles).toContain('.gonavi-ai-provider-footer { flex-shrink: 0; display: flex; flex-direction: column; min-width: 0; }');
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-actions \{[^}]*flex-wrap: nowrap;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-summary \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-disclosure \{[^}]*justify-content: flex-end;[^}]*min-width: 0;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-toggle,[^{]*\{[^}]*max-width: 100%;[^}]*text-overflow: ellipsis;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-body \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/);
   });
 
   it('lets enlarged model actions define the form label row height without clipping', () => {
@@ -198,6 +208,29 @@ describe('AISettingsProvidersSection', () => {
     expect(markup).toContain('gonavi-ai-provider-kv-add');
     expect(markup).not.toContain('gonavi-ai-provider-connection-fields is-inline');
     expect(markup).not.toContain('Connection field layout');
+  });
+
+  it('keeps a long test error in the alert and exposes a details entry without dropping Test or Save', () => {
+    const trailingReason = 'TLS handshake failed: certificate has expired';
+    const message = `${'upstream rejected the request at https://api.example.invalid/v1/chat/completions. '.repeat(3)}${trailingReason}`;
+    const markup = wrap({
+      isEditing: true,
+      editingProvider: provider,
+      watchedPresetKey: 'openai',
+      watchedApiFormat: 'openai',
+      testStatus: 'error',
+      testResult: { success: false, checkKind: 'none', modelVerified: false, message },
+    });
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('data-error="true"');
+    expect(markup).toContain(trailingReason);
+    expect(markup).toContain('View full error');
+    expect(markup).toContain('aria-controls="gonavi-ai-provider-test-error-details"');
+    expect(markup).toContain('gonavi-ai-provider-test-result-toggle');
+    expect(markup).toContain('Test connection');
+    expect(markup).toContain('Save changes');
+    expect(markup).toContain('gonavi-ai-provider-footer');
+    expect(markup).not.toContain('class="gonavi-ai-provider-test-error-details"');
   });
 
   it('keeps a single API format as a read-only input', () => {

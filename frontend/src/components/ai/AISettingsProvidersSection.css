@@ -244,7 +244,9 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
   border-color: var(--provider-control-border); color: var(--provider-text); background: var(--provider-control-bg);
 }
 /* Test, its result and save stay on one line; the result truncates instead of
-   wrapping, so the row never steals a second line from the form above it. */
+   wrapping, so the row never steals a second line from the form above it.
+   Full failed-test text is opened below that row, so Test/Save stay reachable. */
+.gonavi-ai-provider-footer { flex-shrink: 0; display: flex; flex-direction: column; min-width: 0; }
 .gonavi-ai-provider-actions { flex-shrink: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 0 0; margin-top: 0; min-height: 40px; box-sizing: border-box; }
 .gonavi-ai-provider-check-action { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 .gonavi-ai-provider-check-action small { font-size: 10px; color: var(--provider-muted); }
@@ -264,9 +266,54 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-save-as-item { display: grid; gap: 4px; min-width: 220px; max-width: 22em; }
 .gonavi-ai-provider-save-as-item > strong { font-size: 13px; font-weight: 600; color: var(--provider-text, inherit); }
 .gonavi-ai-provider-save-as-item > small { color: var(--provider-muted, #6b7280); font-size: 11px; line-height: 1.5; white-space: normal; }
-.gonavi-ai-provider-test-result { flex: 1 1 60px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--provider-muted); font-size: 11px; }
+.gonavi-ai-provider-test-result { flex: 1 1 60px; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; color: var(--provider-muted); font-size: 11px; }
+.gonavi-ai-provider-test-result-summary { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gonavi-ai-provider-test-result-toggle,
+.gonavi-ai-provider-test-error-copy {
+  flex-shrink: 0;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--provider-control-border);
+  border-radius: 6px;
+  background: var(--provider-control-bg);
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gonavi-ai-provider-test-result-toggle:focus-visible,
+.gonavi-ai-provider-test-error-copy:focus-visible { outline: 2px solid var(--provider-active); outline-offset: 2px; }
 .gonavi-ai-provider-test-result .anticon { color: var(--provider-active); }
 .gonavi-ai-provider-test-result[data-error='true'] { color: var(--gn-danger, #cf4343); }
+.gonavi-ai-provider-test-error-disclosure { display: flex; justify-content: flex-end; min-width: 0; padding-top: 4px; color: var(--gn-danger, #cf4343); }
+.gonavi-ai-provider-test-error-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--gn-danger, #cf4343) 35%, var(--provider-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gn-danger, #cf4343) 8%, transparent);
+}
+.gonavi-ai-provider-test-error-body {
+  margin: 0;
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--gn-danger, #cf4343);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.gonavi-ai-provider-test-error-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gonavi-ai-provider-test-error-copy-failed { color: var(--gn-danger, #cf4343); font-size: 11px; }
 /* The drawer fills the workspace instead of leaving the scrim bare on its right.
    Its shell background is only 98% opaque, so the editor underneath is hidden
    rather than allowed to bleed through as unreadable ghost text. */

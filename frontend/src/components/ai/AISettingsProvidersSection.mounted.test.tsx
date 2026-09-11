@@ -268,6 +268,29 @@ describe('provider settings mounted controls', () => {
     expect(props.onSaveProvider).toHaveBeenCalledOnce();
   });
 
+  it('lets a keyboard user open and copy a long truncated test error', async () => {
+    const trailingReason = 'model qwen3-coder is not enabled for this key';
+    const message = `${'POST https://api.example.invalid/v1/chat/completions failed with 403. '.repeat(4)}${trailingReason}`;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await render({
+      isEditing: true, editingProvider: { id: 'a' }, testStatus: 'error',
+      testResult: { success: false, checkKind: 'none', modelVerified: false, message },
+    });
+    const alert = renderer!.root.findByProps({ role: 'alert' });
+    expect(elementText(alert)).toContain(trailingReason);
+    const toggle = renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-result-toggle' });
+    expect(toggle.props.type).toBe('button');
+    expect(renderedText(toggle)).toBe('View full error');
+    await act(async () => toggle.props.onClick());
+    expect(elementText(renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-error-body' }))).toContain(trailingReason);
+    await act(async () => renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-error-copy' }).props.onClick());
+    expect(writeText).toHaveBeenCalledWith(message);
+    const buttons = renderer!.root.findAllByType('button');
+    expect(buttons.some((button) => renderedText(button) === 'Test connection')).toBe(true);
+    expect(buttons.some((button) => renderedText(button) === 'Save changes')).toBe(true);
+  });
+
   it('omits the provider description, collapse action and connection disclosure', async () => {
     await render({ isEditing: true, editingProvider: { id: 'a' } });
     const text = renderedText(renderer!.toJSON());

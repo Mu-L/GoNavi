@@ -30,6 +30,7 @@ import type { ai } from '../../../wailsjs/go/models';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import AIProviderPresetSelect from './AIProviderPresetSelect';
 import AIProviderKeyValueRows from './AIProviderKeyValueRows';
+import AISettingsProviderTestResult from './AISettingsProviderTestResult';
 
 // A rejected add or save often marks a field below the fold, which reads as
 // "nothing happened". Both antd field errors and the standalone alerts are matched,
@@ -840,13 +841,13 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
               </Form.Item>
               </>}
           </div>
-          <div className="gonavi-ai-provider-actions">
-            <div className="gonavi-ai-provider-check-action"><Button size="middle" onClick={handleTestProvider} loading={testing} disabled={duplicateCLI}>{copy('ai_settings.action.test')}</Button>
-              <small>{copy(dirty ? 'ai_settings.provider.unsaved' : 'ai_settings.provider.saved')}</small></div>
-            <div className="gonavi-ai-provider-test-result" role={testStatus === 'error' ? 'alert' : 'status'} data-error={testStatus === 'error'}>
-              {testResult && (testResult.success ? <><CheckOutlined /> {copy(`ai_settings.test.${testResult.checkKind}`)}</> : testResult.message)}
-            </div>
-            <div className="gonavi-ai-provider-save-actions">{canSaveAsCopy
+          <AISettingsProviderTestResult
+            testStatus={testStatus}
+            testResult={testResult}
+            copy={copy}
+            testAction={<div className="gonavi-ai-provider-check-action"><Button size="middle" onClick={handleTestProvider} loading={testing} disabled={duplicateCLI}>{copy('ai_settings.action.test')}</Button>
+              <small>{copy(dirty ? 'ai_settings.provider.unsaved' : 'ai_settings.provider.saved')}</small></div>}
+            saveAction={<div className="gonavi-ai-provider-save-actions">{canSaveAsCopy
               ? <Dropdown.Button size="middle" type="primary" onClick={handleSaveProvider} icon={<DownOutlined />}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}
                 placement="topRight" trigger={['click']} arrow overlayClassName="gonavi-ai-provider-save-as-menu"
@@ -857,8 +858,8 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 {saveActionLabel}</Dropdown.Button>
               : <Button size="middle" type="primary" onClick={handleSaveProvider}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}>{saveActionLabel}</Button>}
-            </div>
-          </div>
+            </div>}
+          />
         </Form>}
       </div>
     </div>
