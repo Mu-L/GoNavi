@@ -256,6 +256,14 @@ func TestQdrantQueryIgnoresLiteralCountAndPagination(t *testing.T) {
 	if intFromAny(capturedBody["limit"], 0) != 20 {
 		t.Fatalf("literal LIMIT query pagination = %#v", capturedBody)
 	}
+
+	capturedPath = ""
+	if _, _, err := db.Query(`SELECT * FROM products WHERE category = 'it\'s COUNT( LIMIT 1 OFFSET wrong' LIMIT 20 OFFSET point-2`); err != nil {
+		t.Fatalf("backslash-escaped literal query failed: %v", err)
+	}
+	if !strings.HasSuffix(capturedPath, "/points/scroll") || intFromAny(capturedBody["limit"], 0) != 20 || capturedBody["offset"] != "point-2" {
+		t.Fatalf("backslash-escaped literal query pagination = %#v path=%s", capturedBody, capturedPath)
+	}
 }
 
 func TestQdrantSelectSingleWhereUsesOfficialFilterForScrollAndCount(t *testing.T) {

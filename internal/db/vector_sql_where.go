@@ -132,6 +132,10 @@ func skipSQLQuotedLiteral(text string, i int) (int, bool) {
 	}
 	i++
 	for i < len(text) {
+		if text[i] == '\\' && quote == '\'' && i+1 < len(text) {
+			i += 2
+			continue
+		}
 		if text[i] == quote {
 			if i+1 < len(text) && text[i+1] == quote {
 				i += 2

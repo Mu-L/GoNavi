@@ -277,6 +277,15 @@ func TestChromaQueryIgnoresLiteralCountAndPagination(t *testing.T) {
 	if len(rows) != 1 || intFromAny(capturedBody["limit"], 0) != 20 || intFromAny(capturedBody["offset"], -1) != 5 {
 		t.Fatalf("literal LIMIT query pagination = %#v path=%s", capturedBody, capturedPath)
 	}
+
+	capturedPath = ""
+	rows, _, err = db.Query(`SELECT * FROM products WHERE category = 'it\'s COUNT( LIMIT 1 OFFSET 9' LIMIT 20 OFFSET 5`)
+	if err != nil {
+		t.Fatalf("backslash-escaped literal query failed: %v", err)
+	}
+	if len(rows) != 1 || capturedPath == "" || intFromAny(capturedBody["limit"], 0) != 20 || intFromAny(capturedBody["offset"], -1) != 5 {
+		t.Fatalf("backslash-escaped literal query pagination = %#v path=%s", capturedBody, capturedPath)
+	}
 }
 
 func TestChromaCountWithWherePaginatesBeyondOneMillion(t *testing.T) {

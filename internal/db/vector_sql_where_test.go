@@ -106,6 +106,16 @@ func TestChromaSQLIgnoresLiteralCountAndPagination(t *testing.T) {
 		t.Fatalf("literal OFFSET = %#v ok=%v, want outer OFFSET 5", parsed, ok)
 	}
 
+	parsed, ok = parseChromaSQL(`SELECT * FROM products WHERE category = 'it\'s LIMIT 1 OFFSET 9' LIMIT 20 OFFSET 5`)
+	if !ok || parsed.Count || parsed.Limit != 20 || parsed.Offset != 5 || parsed.WhereError != nil {
+		t.Fatalf("backslash-escaped literal = %#v ok=%v, want outer pagination", parsed, ok)
+	}
+
+	parsed, ok = parseChromaSQL(`SELECT 'it\'s COUNT(' FROM products`)
+	if !ok || parsed.Count {
+		t.Fatalf("backslash-escaped projection = %#v ok=%v, want record query", parsed, ok)
+	}
+
 	parsed, ok = parseChromaSQL(`SELECT * FROM products WHERE name = 'O''LIMIT 1' LIMIT 20 OFFSET /* skip */ 3`)
 	if !ok || parsed.Limit != 20 || parsed.Offset != 3 {
 		t.Fatalf("escaped literal LIMIT = %#v ok=%v", parsed, ok)
@@ -158,6 +168,16 @@ func TestQdrantSQLIgnoresLiteralCountAndPagination(t *testing.T) {
 		t.Fatalf("comment OFFSET token = %#v ok=%v", parsed, ok)
 	}
 
+	parsed, ok = parseQdrantSQL(`SELECT * FROM products WHERE category = 'it\'s LIMIT 1 OFFSET wrong' LIMIT 20 OFFSET point-2`)
+	if !ok || parsed.Count || parsed.Limit != 20 || parsed.Offset != "point-2" || parsed.WhereError != nil {
+		t.Fatalf("backslash-escaped literal = %#v ok=%v, want outer pagination", parsed, ok)
+	}
+
+	parsed, ok = parseQdrantSQL(`SELECT 'it\'s COUNT(' FROM products`)
+	if !ok || parsed.Count {
+		t.Fatalf("backslash-escaped projection = %#v ok=%v, want record query", parsed, ok)
+	}
+
 	parsed, ok = parseQdrantSQL(`SELECT COUNT(*) FROM products`)
 	if !ok || !parsed.Count {
 		t.Fatalf("real COUNT = %#v ok=%v", parsed, ok)
@@ -182,6 +202,10 @@ func TestVectorWhereSQLLexingSkipsQuotesAndComments(t *testing.T) {
 	}
 	if next, ok := skipSQLQuotedLiteral("id", 0); ok || next != 0 {
 		t.Fatalf("skip quoted ident = (%d, %v)", next, ok)
+	}
+	escapedLiteral := `'it\'s LIMIT 1'`
+	if next, ok := skipSQLQuotedLiteral(escapedLiteral+" trailing", 0); !ok || next != len(escapedLiteral) {
+		t.Fatalf("skip backslash-escaped literal = (%d, %v), want (%d, true)", next, ok, len(escapedLiteral))
 	}
 	if next, ok := skipSQLComment("", 0); ok || next != 0 {
 		t.Fatalf("skip comment empty = (%d, %v)", next, ok)
