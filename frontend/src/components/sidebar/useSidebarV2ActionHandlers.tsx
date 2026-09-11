@@ -8,6 +8,7 @@ import type { ConnectionTag, SavedConnection } from '../../types';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../utils/connectionVisual';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchConsole';
 import {
   buildTableSelectQuery,
@@ -35,6 +36,7 @@ import {
   type V2RailConnectionGroup,
 } from '../sidebarV2Utils';
 import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
+import { supportsTableClearAction } from '../tableDataDangerActions';
 
 type UseSidebarV2ActionHandlersArgs = {
   connections: SavedConnection[];
@@ -268,6 +270,13 @@ export const useSidebarV2ActionHandlers = ({
         return;
       case 'truncate-table':
         void handleTableDataDangerAction(node, 'truncate');
+        return;
+      case 'clear-table':
+        if (
+          !supportsTableClearAction(node.dataRef?.config?.type, node.dataRef?.config?.driver)
+          || isConnectionDataEditRestricted(node.dataRef?.config)
+        ) return;
+        void handleTableDataDangerAction(node, 'clear');
         return;
       case 'drop-table':
         handleDeleteTable(node);
