@@ -1347,14 +1347,19 @@ textarea.gn-data-sync-control {
   background: color-mix(in srgb, var(--gn-accent, #15803d) 5%, transparent);
 }
 
+.gn-data-sync-task-editor__body > .gn-data-sync-readonly-note {
+  flex: 0 0 auto;
+  margin: 12px 20px 0;
+}
+
 .gn-data-sync-readonly-note strong {
   color: var(--gn-fg-2, #1f2937);
-  font-size: 12px;
+  font-size: var(--gn-font-size, 14px);
 }
 
 .gn-data-sync-readonly-note span {
   color: var(--gn-fg-4, #6b7280);
-  font-size: var(--gn-font-size-xs, 11px);
+  font-size: var(--gn-font-size-sm, 12px);
   line-height: 1.5;
 }
 
@@ -3032,6 +3037,11 @@ textarea.gn-data-sync-control {
   grid-template-columns: repeat(4, minmax(96px, 180px));
   gap: 8px;
   margin: 14px 0 0;
+}
+
+.gn-data-sync-compare-row__same-count {
+  color: var(--gn-fg-4, #6b7280);
+  font-size: var(--gn-font-size-sm, 12px);
 }
 
 .gn-data-sync-compare-row__schema-counts > div,

@@ -682,7 +682,10 @@ export const DataSyncRunHistory: React.FC<{
                       </div>
                     )
                   ))}
-                {showData && (
+                {/* Identical tables are the bulk of a compare run and used to
+                    spend a four-tile grid on 0/0/0/N. The badge already says
+                    they match, so keep one inline count on the single row. */}
+                {showData && status !== 'same' ? (
                   <dl className="gn-data-sync-compare-row__data-counts">
                     <div data-kind="inserts">
                       <dt>{t('compare.inserts')}</dt>
@@ -701,7 +704,15 @@ export const DataSyncRunHistory: React.FC<{
                       <dd>{summary.same.toLocaleString()}</dd>
                     </div>
                   </dl>
-                )}
+                ) : null}
+                {showData && status === 'same' ? (
+                  <span
+                    className="gn-data-sync-compare-row__same-count"
+                    data-data-sync-compare-same-count="true"
+                  >
+                    {t('compare.same_rows', { count: summary.same.toLocaleString() })}
+                  </span>
+                ) : null}
               </li>
             );
           })}

@@ -329,7 +329,6 @@ const DeliveryStage: React.FC<{
 }> = ({ task, capability, t, onPatch }) => {
   const patchDelivery = (patch: Partial<DataSyncDeliveryPolicy>) =>
     onPatch({ delivery: { ...task.delivery, ...patch } });
-  const readOnly = task.kind === 'compare';
   const routeCanWrite =
     capability.level === 'unknown' ||
     (capability.canExecute &&
@@ -404,7 +403,7 @@ const DeliveryStage: React.FC<{
   useEffect(() => {
     const patch: Partial<DataSyncDeliveryPolicy> = {};
     const effectiveErrorPolicy =
-      readOnly || !rowIsolationAvailable ? 'stop' : task.delivery.errorPolicy;
+      !rowIsolationAvailable ? 'stop' : task.delivery.errorPolicy;
 
     if (task.delivery.errorPolicy !== effectiveErrorPolicy) {
       patch.errorPolicy = effectiveErrorPolicy;
@@ -451,7 +450,6 @@ const DeliveryStage: React.FC<{
     appendOnlyTarget,
     hasConfiguredMappings,
     onPatch,
-    readOnly,
     rowIsolationAvailable,
     structureCapabilityResolved,
     task.delivery.autoAddColumns,
@@ -462,47 +460,6 @@ const DeliveryStage: React.FC<{
     task.delivery.writeMode,
     task.resumePolicy,
   ]);
-
-  if (readOnly) {
-    return (
-      <section className="gn-data-sync-section" data-data-sync-delivery="true">
-        <header className="gn-data-sync-section__header">
-          <div>
-            <h2>{t('delivery.title')}</h2>
-            <p>{t('delivery.help')}</p>
-          </div>
-        </header>
-        <div
-          className="gn-data-sync-delivery-main"
-          data-data-sync-compare-mode="true"
-        >
-          <Field label={t('compare.mode.title')}>
-            <select
-              className="gn-data-sync-control"
-              value={task.compareMode || 'data'}
-              onChange={(event) =>
-                onPatch({
-                  compareMode: event.target
-                    .value as DataSyncTaskDefinition['compareMode'],
-                })
-              }
-            >
-              <option value="data">{t('compare.mode.data')}</option>
-              <option value="schema">{t('compare.mode.schema')}</option>
-              <option value="both">{t('compare.mode.both')}</option>
-            </select>
-          </Field>
-          <p className="gn-data-sync-inline-note" role="note">
-            {t('compare.mode.help')}
-          </p>
-        </div>
-        <div className="gn-data-sync-readonly-note" role="note">
-          <strong>{t('delivery.read_only_title')}</strong>
-          <span>{t('delivery.read_only_note')}</span>
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section className="gn-data-sync-section" data-data-sync-delivery="true">
@@ -618,7 +575,7 @@ const DeliveryStage: React.FC<{
               ))}
           </div>
         </div>
-        {!rowIsolationAvailable && !readOnly ? (
+        {!rowIsolationAvailable ? (
           <p className="gn-data-sync-inline-note" role="note">
             {t('delivery.row_isolation_note')}
           </p>
@@ -1736,6 +1693,18 @@ export const DataSyncTaskEditor: React.FC<{
       ) : null}
       {activeStage === 'mappings' ? (
         <>
+          {/* Compare tasks never reach a delivery stage, so the read-only
+              contract is repeated where the objects are picked. */}
+          {task.kind === 'compare' ? (
+            <div
+              className="gn-data-sync-readonly-note"
+              role="note"
+              data-data-sync-compare-readonly="true"
+            >
+              <strong>{t('delivery.read_only_title')}</strong>
+              <span>{t('delivery.read_only_note')}</span>
+            </div>
+          ) : null}
           {mappingProbe?.taskId === task.id ? (
             <div
               className="gn-data-sync-mapping-probe"

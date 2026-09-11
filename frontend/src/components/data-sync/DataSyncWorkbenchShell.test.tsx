@@ -122,6 +122,18 @@ describe('DataSyncWorkbenchShell', () => {
       /\.gn-data-sync-history-table th\s*\{[^}]*font-size:\s*var\(--gn-font-size,/s,
     );
     expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-history-table td\s*\{[^}]*font-size:\s*var\(--gn-font-size,/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-state-label\s*\{[^}]*font-size:\s*var\(--gn-font-size,\s*14px\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-link-button\s*\{[^}]*font-size:\s*var\(--gn-font-size,\s*14px\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-compare-row\[data-status='same'\]\s*\{[^}]*display:\s*flex;/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
       /\.gn-data-sync-compare-panel \{ order: 1; \}/,
     );
   });
