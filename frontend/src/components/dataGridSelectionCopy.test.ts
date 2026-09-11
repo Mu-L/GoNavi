@@ -99,33 +99,48 @@ describe('dataGridSelectionCopy helpers', () => {
     expect(payload.html).toContain('<td>left\tright\nnext</td>');
   });
 
-  it('keeps literal NULL text distinct from real null in typed payloads', () => {
+  it('keeps NULL, quoted NULL text and real null distinct in typed payloads', () => {
     const payload = buildSelectedCellClipboardPayload({
       selectedCells: [
         { rowKey: 'row-1', colName: 'literal' },
+        { rowKey: 'row-1', colName: 'quoted' },
         { rowKey: 'row-1', colName: 'empty' },
         { rowKey: 'row-2', colName: 'literal' },
+        { rowKey: 'row-2', colName: 'quoted' },
         { rowKey: 'row-2', colName: 'empty' },
       ],
       rows: [
-        { __rowKey: 'row-1', literal: 'NULL', empty: null },
-        { __rowKey: 'row-2', literal: 'NULL', empty: undefined },
+        { __rowKey: 'row-1', literal: 'NULL', quoted: '"NULL"', empty: null },
+        { __rowKey: 'row-2', literal: 'NULL', quoted: '"NULL"', empty: undefined },
       ],
-      columnOrder: ['literal', 'empty'],
+      columnOrder: ['literal', 'quoted', 'empty'],
       rowKeyField: '__rowKey',
     });
 
-    expect(payload.plainText).toBe('"NULL"\tNULL\n"NULL"\tNULL');
+    expect(payload.plainText).toBe('"NULL"\t"""NULL"""\tNULL\n"NULL"\t"""NULL"""\tNULL');
     expect(payload.html).toContain('data-gonavi-clipboard="true"');
     expect(payload.html).toContain('<td>NULL</td>');
     expect(payload.html).toContain('<td data-gonavi-null="true">NULL</td>');
     expect(payload.json).toBe(JSON.stringify({
       gonaviGrid: 1,
       values: [
-        ['NULL', null],
-        ['NULL', null],
+        ['NULL', '"NULL"', null],
+        ['NULL', '"NULL"', null],
       ],
     }));
+  });
+
+  it('uses the reversible typed encoding for the plain-text-only helper', () => {
+    expect(buildSelectedCellClipboardText({
+      selectedCells: [
+        { rowKey: 'row-1', colName: 'literal' },
+        { rowKey: 'row-1', colName: 'quoted' },
+        { rowKey: 'row-1', colName: 'empty' },
+      ],
+      rows: [{ __rowKey: 'row-1', literal: 'NULL', quoted: '"NULL"', empty: null }],
+      columnOrder: ['literal', 'quoted', 'empty'],
+      rowKeyField: '__rowKey',
+    })).toBe('"NULL"\t"""NULL"""\tNULL');
   });
 
   it('stringifies remaining primitive and fallback clipboard values', () => {

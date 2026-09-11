@@ -19,7 +19,7 @@ export interface BuildTabularClipboardPayloadInput {
   preserveCellTypes?: boolean;
 }
 
-type ClipboardWriter = Pick<Clipboard, 'write' | 'writeText'>;
+type ClipboardWriter = Partial<Pick<Clipboard, 'write' | 'writeText'>>;
 
 type ClipboardDataWriter = Pick<DataTransfer, 'clearData' | 'setData'>;
 
@@ -41,7 +41,9 @@ const formatPlainTextMatrixCell = (value: unknown, preserveCellTypes: boolean): 
     return preserveCellTypes ? 'NULL' : '';
   }
   const text = String(value).replace(/\r\n/g, '\n').replace(/[\t\n\r]+/g, ' ');
-  if (preserveCellTypes && text === 'NULL') return '"NULL"';
+  if (preserveCellTypes && (text === 'NULL' || text.startsWith('"'))) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
   return text;
 };
 

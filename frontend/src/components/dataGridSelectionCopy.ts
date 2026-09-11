@@ -19,10 +19,6 @@ const normalizeUnsafePlainTextCell = (value: string): string => (
   value.replace(/\r\n/g, '\n').replace(/[\t\n\r]+/g, ' ').trim()
 );
 
-const formatClipboardMatrixCell = (value: string | null): string => (
-  value === null ? 'NULL' : value
-);
-
 const normalizeClipboardCellValue = (value: unknown, options: { preserveCellWhitespace?: boolean } = {}): string | null => {
   if (value === null || value === undefined) {
     return null;
@@ -67,7 +63,7 @@ export const buildSelectedCellClipboardText = ({
     rowKeyField,
   });
 
-  return matrix.map((row) => row.map(formatClipboardMatrixCell).join('\t')).join('\n');
+  return buildTabularClipboardPayload({ rows: matrix, preserveCellTypes: true }).plainText;
 };
 
 const buildSelectedCellClipboardMatrix = ({

@@ -31,8 +31,8 @@ describe('dataGridClipboardPaste helpers', () => {
       [''],
     ]);
     expect(parseDataGridClipboardText('')).toEqual([['']]);
-    expect(parseDataGridClipboardText('"NULL"\tNULL')).toEqual([
-      ['NULL', null],
+    expect(parseDataGridClipboardText('"NULL"\t"""NULL"""\tNULL')).toEqual([
+      ['NULL', '"NULL"', null],
     ]);
   });
 
@@ -270,19 +270,20 @@ describe('dataGridClipboardPaste helpers', () => {
     });
   });
 
-  it('round-trips literal NULL text and real null through HTML, JSON and plain text', () => {
+  it('round-trips NULL, quoted NULL text and real null through every clipboard format', () => {
     const payload = buildSelectedCellClipboardPayload({
       selectedCells: [
         { rowKey: 'row-1', colName: 'literal' },
+        { rowKey: 'row-1', colName: 'quoted' },
         { rowKey: 'row-1', colName: 'empty' },
       ],
       rows: [
-        { __rowKey: 'row-1', literal: 'NULL', empty: null },
+        { __rowKey: 'row-1', literal: 'NULL', quoted: '"NULL"', empty: null },
       ],
-      columnOrder: ['literal', 'empty'],
+      columnOrder: ['literal', 'quoted', 'empty'],
       rowKeyField: '__rowKey',
     });
-    const expected = [['NULL', null]];
+    const expected = [['NULL', '"NULL"', null]];
 
     expect(parseDataGridClipboardHtml(payload.html || '')).toEqual(expected);
     expect(parseDataGridClipboardText(payload.plainText)).toEqual(expected);

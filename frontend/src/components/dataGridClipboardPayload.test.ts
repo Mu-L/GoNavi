@@ -78,16 +78,16 @@ describe('dataGridClipboardPayload', () => {
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves typed nulls in in-app HTML, plain text and JSON payloads', () => {
+  it('preserves NULL, quoted NULL text and real null in typed payloads', () => {
     const payload = buildTabularClipboardPayload({
-      columns: ['literal', 'empty'],
-      rows: [['NULL', null], ['alpha', '']],
+      columns: ['literal', 'quoted', 'empty'],
+      rows: [['NULL', '"NULL"', null], ['alpha', 'say "hi"', '']],
       preserveCellTypes: true,
     });
 
-    expect(payload.plainText).toBe('literal\tempty\n"NULL"\tNULL\nalpha\t');
-    expect(payload.csv).toBe('"literal","empty"\n"NULL","NULL"\n"alpha",""');
-    expect(payload.markdown).toBe('| literal | empty |\n| --- | --- |\n| NULL | NULL |\n| alpha |  |');
+    expect(payload.plainText).toBe('literal\tquoted\tempty\n"NULL"\t"""NULL"""\tNULL\nalpha\tsay "hi"\t');
+    expect(payload.csv).toBe('"literal","quoted","empty"\n"NULL","""NULL""","NULL"\n"alpha","say ""hi""",""');
+    expect(payload.markdown).toBe('| literal | quoted | empty |\n| --- | --- | --- |\n| NULL | "NULL" | NULL |\n| alpha | say "hi" |  |');
     expect(payload.html).toContain('data-gonavi-clipboard="true"');
     expect(payload.html).toContain('<th>literal</th>');
     expect(payload.html).toContain('<td>NULL</td>');
@@ -95,8 +95,8 @@ describe('dataGridClipboardPayload', () => {
     expect(payload.json).toBe(JSON.stringify({
       gonaviGrid: 1,
       values: [
-        ['NULL', null],
-        ['alpha', ''],
+        ['NULL', '"NULL"', null],
+        ['alpha', 'say "hi"', ''],
       ],
     }));
   });
@@ -183,14 +183,14 @@ describe('dataGridClipboardPayload', () => {
 
     try {
       const payload = buildTabularClipboardPayload({
-        rows: [['NULL', null]],
+        rows: [['NULL', '"NULL"', null]],
         preserveCellTypes: true,
       });
 
-      const write = vi.fn(async () => undefined);
+      const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
       await writeClipboardPayload(payload, { write, writeText: vi.fn() });
       expect(write).toHaveBeenCalledTimes(1);
-      const item = write.mock.calls[0][0][0] as { parts: Record<string, Blob> };
+      const item = write.mock.calls[0]?.[0]?.[0] as unknown as { parts: Record<string, Blob> };
       expect(Object.keys(item.parts).sort()).toEqual(['application/json', 'text/html', 'text/plain']);
 
       const writeText = vi.fn(async () => undefined);
@@ -200,7 +200,7 @@ describe('dataGridClipboardPayload', () => {
         }),
         writeText,
       });
-      expect(writeText).toHaveBeenCalledWith('"NULL"\tNULL');
+      expect(writeText).toHaveBeenCalledWith('"NULL"\t"""NULL"""\tNULL');
 
       class HtmlOnlyClipboardItem {
         parts: Record<string, Blob>;
@@ -209,13 +209,13 @@ describe('dataGridClipboardPayload', () => {
         }
       }
       Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: HtmlOnlyClipboardItem });
-      const htmlOnlyWrite = vi.fn(async () => undefined);
+      const htmlOnlyWrite = vi.fn(async (_items: ClipboardItem[]) => undefined);
       const typedForHtmlOnly = buildTabularClipboardPayload({
         columns: ['name'],
         rows: [['alpha']],
       });
       await writeClipboardPayload(typedForHtmlOnly, { write: htmlOnlyWrite, writeText: vi.fn() });
-      const htmlOnlyItem = htmlOnlyWrite.mock.calls[0][0][0] as { parts: Record<string, Blob> };
+      const htmlOnlyItem = htmlOnlyWrite.mock.calls[0]?.[0]?.[0] as unknown as { parts: Record<string, Blob> };
       expect(Object.keys(htmlOnlyItem.parts).sort()).toEqual(['text/html', 'text/plain']);
 
       await writeClipboardPayload({ plainText: '' }, { writeText: vi.fn() });

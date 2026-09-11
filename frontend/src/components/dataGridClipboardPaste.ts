@@ -23,26 +23,28 @@ const toClipboardValue = (value: string): DataGridClipboardValue => (
   value === 'NULL' ? null : value
 );
 
-const toPlainTextClipboardValue = (value: string): DataGridClipboardValue => (
-  value === '"NULL"' ? 'NULL' : toClipboardValue(value)
+const toPlainTextClipboardValue = (value: string, quoted: boolean): DataGridClipboardValue => (
+  !quoted && value === 'NULL' ? null : value
 );
 
-export const parseDataGridClipboardText = (text: string): DataGridClipboardValue[][] => {
-  const normalized = text.replace(/\r\n?/g, '\n');
-  const content = normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized;
-
-  return content.split('\n').map((line) => (
-    line.split('\t').map(toPlainTextClipboardValue)
-  ));
-};
-
-const parseDelimitedClipboardText = (text: string, delimiter: ',' | '\t'): DataGridClipboardValue[][] => {
+const parseDelimitedClipboardText = (
+  text: string,
+  delimiter: ',' | '\t',
+  toValue: (value: string, quoted: boolean) => DataGridClipboardValue,
+): DataGridClipboardValue[][] => {
   const normalized = text.replace(/\r\n?/g, '\n');
   const content = normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized;
   const rows: DataGridClipboardValue[][] = [];
   let row: DataGridClipboardValue[] = [];
   let cell = '';
   let quoted = false;
+  let cellWasQuoted = false;
+
+  const appendCell = () => {
+    row.push(toValue(cell, cellWasQuoted));
+    cell = '';
+    cellWasQuoted = false;
+  };
 
   for (let index = 0; index < content.length; index += 1) {
     const char = content[index];
@@ -62,30 +64,33 @@ const parseDelimitedClipboardText = (text: string, delimiter: ',' | '\t'): DataG
 
     if (char === '"' && cell === '') {
       quoted = true;
+      cellWasQuoted = true;
       continue;
     }
     if (char === delimiter) {
-      row.push(toClipboardValue(cell));
-      cell = '';
+      appendCell();
       continue;
     }
     if (char === '\n') {
-      row.push(toClipboardValue(cell));
+      appendCell();
       rows.push(row);
       row = [];
-      cell = '';
       continue;
     }
     cell += char;
   }
 
-  row.push(toClipboardValue(cell));
+  appendCell();
   rows.push(row);
   return rows;
 };
 
+export const parseDataGridClipboardText = (text: string): DataGridClipboardValue[][] => (
+  parseDelimitedClipboardText(text, '\t', toPlainTextClipboardValue)
+);
+
 export const parseDataGridClipboardCsv = (text: string): DataGridClipboardValue[][] => (
-  parseDelimitedClipboardText(text, ',')
+  parseDelimitedClipboardText(text, ',', (value) => toClipboardValue(value))
 );
 
 const decodeHtmlEntities = (text: string): string => (
