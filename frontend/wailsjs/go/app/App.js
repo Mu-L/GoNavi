@@ -514,6 +514,14 @@ export function ExecuteSQLFile(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ExecuteSQLFile'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportConnectionsExcel(arg1) {
+  return window['go']['app']['App']['ExportConnectionsExcel'](arg1);
+}
+
+export function ExportConnectionsExcelPayload(arg1) {
+  return window['go']['app']['App']['ExportConnectionsExcelPayload'](arg1);
+}
+
 export function ExportConnectionsPackage(arg1) {
   return window['go']['app']['App']['ExportConnectionsPackage'](arg1);
 }
@@ -708,6 +716,10 @@ export function GetUpdateDownloadTask() {
 
 export function ImportConfigFile() {
   return window['go']['app']['App']['ImportConfigFile']();
+}
+
+export function ImportConnectionsExcelFileBase64(arg1) {
+  return window['go']['app']['App']['ImportConnectionsExcelFileBase64'](arg1);
 }
 
 export function ImportConnectionsPayload(arg1, arg2) {
