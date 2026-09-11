@@ -1696,7 +1696,7 @@ func isSQLFileBatchableWriteStatement(dbType string, stmt string) bool {
 }
 
 func sqlFileBatchTransactionSQL(dbType string) (beginSQL string, commitSQL string, rollbackSQL string, ok bool) {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "diros", "starrocks", "sphinx", "oceanbase":
 		return "START TRANSACTION", "COMMIT", "ROLLBACK", true
 	case "sqlserver":
@@ -2112,7 +2112,7 @@ func executeSQLFileBatchWithOutcome(ctx context.Context, execer sqlFileStatement
 
 func isSQLFileSingleTransactionDialectSupported(dbType string) bool {
 	switch normalizeSQLClassifierDBType(dbType) {
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "sqlserver", "oracle", "dameng":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "cache", "sqlserver", "oracle", "dameng":
 		return true
 	default:
 		return false
@@ -2132,7 +2132,7 @@ func sqlFileSingleTransactionSQL(dbType string) (beginSQL string, commitSQL stri
 	switch normalizeSQLClassifierDBType(dbType) {
 	case "sqlserver":
 		return "BEGIN TRANSACTION", "COMMIT TRANSACTION", "ROLLBACK TRANSACTION", true
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "cache":
 		return "BEGIN", "COMMIT", "ROLLBACK", true
 	default:
 		return "", "", "", false
@@ -5982,7 +5982,7 @@ const (
 )
 
 func supportsTruncateTableForDBType(dbType string) bool {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "oceanbase", "starrocks", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "oracle", "dameng", "clickhouse", "duckdb":
 		return true
 	default:
@@ -8031,7 +8031,7 @@ const (
 )
 
 func resolveSQLInsertExportMode(dbType string) sqlInsertExportMode {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "sqlite", "duckdb", "clickhouse", "iris":
 		return sqlInsertExportModeMultiValues
 	case "oracle", "dameng":

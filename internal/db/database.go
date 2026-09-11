@@ -1187,6 +1187,8 @@ func normalizeDatabaseType(dbType string) string {
 		return "goldendb"
 	case "intersystems", "intersystemsiris", "inter-systems-iris", "inter-systems":
 		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
+		return "cache"
 	case "chromadb", "chroma-db":
 		return "chroma"
 	case "qdrantdb", "qdrant-db":

@@ -1,5 +1,5 @@
 diff --git a/node_modules/rc-table/es/VirtualTable/BodyGrid.js b/node_modules/rc-table/es/VirtualTable/BodyGrid.js
-index 42dcde8..eedd501 100644
+index 42dcde8..559732c 100644
 --- a/node_modules/rc-table/es/VirtualTable/BodyGrid.js
 +++ b/node_modules/rc-table/es/VirtualTable/BodyGrid.js
 @@ -6,11 +6,12 @@ import * as React from 'react';
@@ -16,7 +16,7 @@ index 42dcde8..eedd501 100644
      flattenColumns = _useContext.flattenColumns,
      onColumnResize = _useContext.onColumnResize,
      getRowKey = _useContext.getRowKey,
-@@ -18,16 +19,34 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -18,16 +19,36 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      prefixCls = _useContext.prefixCls,
      childrenColumnName = _useContext.childrenColumnName,
      scrollX = _useContext.scrollX,
@@ -28,10 +28,12 @@ index 42dcde8..eedd501 100644
      scrollY = _useContext2.scrollY,
      listItemHeight = _useContext2.listItemHeight,
 +    listItemHeightFixed = _useContext2.listItemHeightFixed,
++    listItemNativeScrollbarControlled = _useContext2.listItemNativeScrollbarControlled,
++    listItemHorizontalOffsetComposited = _useContext2.listItemHorizontalOffsetComposited,
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
- 
+
    // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
@@ -49,10 +51,10 @@ index 42dcde8..eedd501 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
- 
+
    // =========================== Data ===========================
    var flattenData = useFlattenRecords(data, childrenColumnName, expandedKeys, getRowKey);
-@@ -49,6 +68,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -49,6 +70,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        return colWidth[2];
      });
    }, [columnsWidth]);
@@ -66,7 +68,7 @@ index 42dcde8..eedd501 100644
    React.useEffect(function () {
      columnsWidth.forEach(function (_ref2) {
        var _ref3 = _slicedToArray(_ref2, 2),
-@@ -110,10 +136,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -110,10 +138,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      return 1;
    };
    var extraRender = function extraRender(info) {
@@ -81,10 +83,10 @@ index 42dcde8..eedd501 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
- 
+
      // Do nothing if no data
      if (end < 0) {
-@@ -198,6 +230,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -198,6 +232,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
            top: -offsetY + sizeInfo.top
          },
@@ -92,15 +94,17 @@ index 42dcde8..eedd501 100644
          extra: true,
          getHeight: getHeight
        });
-@@ -239,6 +272,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -239,6 +274,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      className: tblPrefixCls,
      height: scrollY,
      itemHeight: listItemHeight || 24,
 +    itemHeightFixed: listItemHeightFixed,
++    itemNativeScrollbarControlled: listItemNativeScrollbarControlled,
++    itemHorizontalOffsetComposited: listItemHorizontalOffsetComposited,
      data: flattenData,
      itemKey: function itemKey(item) {
        return getRowKey(item.record);
-@@ -249,6 +283,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -249,6 +287,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      onVirtualScroll: function onVirtualScroll(_ref4) {
        var _listRef$current7;
        var x = _ref4.x;
@@ -109,7 +113,7 @@ index 42dcde8..eedd501 100644
        onScroll({
          currentTarget: (_listRef$current7 = listRef.current) === null || _listRef$current7 === void 0 ? void 0 : _listRef$current7.nativeElement,
          scrollLeft: x
-@@ -262,6 +298,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -262,6 +302,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        data: item,
        rowKey: rowKey,
        index: index,
@@ -118,7 +122,7 @@ index 42dcde8..eedd501 100644
      });
    }));
 diff --git a/node_modules/rc-table/es/VirtualTable/BodyLine.js b/node_modules/rc-table/es/VirtualTable/BodyLine.js
-index c760819..c38321a 100644
+index c760819..99983a6 100644
 --- a/node_modules/rc-table/es/VirtualTable/BodyLine.js
 +++ b/node_modules/rc-table/es/VirtualTable/BodyLine.js
 @@ -2,36 +2,67 @@ import _extends from "@babel/runtime/helpers/esm/extends";
@@ -228,7 +232,7 @@ index c760819..c38321a 100644
 +      expandContent: expandContent
 +    });
    }
- 
+
    // ========================== Render ==========================
 @@ -71,12 +96,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
@@ -384,61 +388,69 @@ index 0000000..caa7aab
 +  };
 +}
 diff --git a/node_modules/rc-table/es/VirtualTable/context.d.ts b/node_modules/rc-table/es/VirtualTable/context.d.ts
-index e558165..ccd74fc 100644
+index e558165..2d8305d 100644
 --- a/node_modules/rc-table/es/VirtualTable/context.d.ts
 +++ b/node_modules/rc-table/es/VirtualTable/context.d.ts
-@@ -3,6 +3,8 @@ import type { GetComponent, TableSticky } from '../interface';
+@@ -3,6 +3,10 @@ import type { GetComponent, TableSticky } from '../interface';
  export interface StaticContextProps {
      scrollY: number;
      listItemHeight: number;
 +    listItemHeightFixed?: boolean;
++    listItemNativeScrollbarControlled?: boolean;
++    listItemHorizontalOffsetComposited?: boolean;
 +    listItemColumnVirtual?: boolean;
      sticky: boolean | TableSticky;
      getComponent: GetComponent;
      onScroll?: React.UIEventHandler<HTMLDivElement>;
 diff --git a/node_modules/rc-table/es/VirtualTable/index.d.ts b/node_modules/rc-table/es/VirtualTable/index.d.ts
-index 31fe8e0..c5097b2 100644
+index 31fe8e0..f408cda 100644
 --- a/node_modules/rc-table/es/VirtualTable/index.d.ts
 +++ b/node_modules/rc-table/es/VirtualTable/index.d.ts
-@@ -8,6 +8,9 @@ export interface VirtualTableProps<RecordType> extends Omit<TableProps<RecordTyp
+@@ -8,6 +8,11 @@ export interface VirtualTableProps<RecordType> extends Omit<TableProps<RecordTyp
          y: number;
      };
      listItemHeight?: number;
 +    listItemHeightFixed?: boolean;
++    listItemNativeScrollbarControlled?: boolean;
++    listItemHorizontalOffsetComposited?: boolean;
 +    /** LTR-only fast path; requires body cells without colSpan/rowSpan. */
 +    listItemColumnVirtual?: boolean;
  }
  export type ForwardGenericVirtualTable = (<RecordType>(props: TableProps<RecordType> & React.RefAttributes<Reference>) => React.ReactElement) & {
      displayName?: string;
 diff --git a/node_modules/rc-table/es/VirtualTable/index.js b/node_modules/rc-table/es/VirtualTable/index.js
-index fb00e9b..4e6c23e 100644
+index fb00e9b..9a9f85f 100644
 --- a/node_modules/rc-table/es/VirtualTable/index.js
 +++ b/node_modules/rc-table/es/VirtualTable/index.js
-@@ -27,6 +27,8 @@ function VirtualTable(props, ref) {
+@@ -27,6 +27,10 @@ function VirtualTable(props, ref) {
      prefixCls = _props$prefixCls === void 0 ? DEFAULT_PREFIX : _props$prefixCls,
      className = props.className,
      listItemHeight = props.listItemHeight,
 +    listItemHeightFixed = props.listItemHeightFixed,
++    listItemNativeScrollbarControlled = props.listItemNativeScrollbarControlled,
++    listItemHorizontalOffsetComposited = props.listItemHorizontalOffsetComposited,
 +    listItemColumnVirtual = props.listItemColumnVirtual,
      components = props.components,
      onScroll = props.onScroll;
    var _ref = scroll || {},
-@@ -61,10 +63,12 @@ function VirtualTable(props, ref) {
+@@ -61,10 +65,14 @@ function VirtualTable(props, ref) {
        sticky: sticky,
        scrollY: scrollY,
        listItemHeight: listItemHeight,
 +      listItemHeightFixed: listItemHeightFixed,
++      listItemNativeScrollbarControlled: listItemNativeScrollbarControlled,
++      listItemHorizontalOffsetComposited: listItemHorizontalOffsetComposited,
 +      listItemColumnVirtual: listItemColumnVirtual,
        getComponent: getComponent,
        onScroll: onInternalScroll
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
-+  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemColumnVirtual, getComponent, onInternalScroll]);
- 
++  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemNativeScrollbarControlled, listItemHorizontalOffsetComposited, listItemColumnVirtual, getComponent, onInternalScroll]);
+
    // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(StaticContext.Provider, {
 diff --git a/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js
-index 9bfe1b6..64176f0 100644
+index 9bfe1b6..4ce1549 100644
 --- a/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js
 +++ b/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js
 @@ -15,6 +15,7 @@ function parseColWidth(totalWidth) {
@@ -451,7 +463,7 @@ index 9bfe1b6..64176f0 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -32,7 +33,6 @@ export default function useWidthColumns(flattenColumns, scrollWidth, clientWidth
        });
- 
+
        // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);
@@ -466,7 +478,7 @@ index 9bfe1b6..64176f0 100644
  }
 \ No newline at end of file
 diff --git a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js b/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
-index dee2539..2c2395c 100644
+index dee2539..cfe31f7 100644
 --- a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
 +++ b/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
 @@ -14,13 +14,14 @@ var React = _interopRequireWildcard(require("react"));
@@ -485,7 +497,7 @@ index dee2539..2c2395c 100644
      flattenColumns = _useContext.flattenColumns,
      onColumnResize = _useContext.onColumnResize,
      getRowKey = _useContext.getRowKey,
-@@ -28,16 +29,33 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -28,16 +29,35 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      prefixCls = _useContext.prefixCls,
      childrenColumnName = _useContext.childrenColumnName,
      scrollX = _useContext.scrollX,
@@ -497,10 +509,12 @@ index dee2539..2c2395c 100644
      scrollY = _useContext2.scrollY,
      listItemHeight = _useContext2.listItemHeight,
 +    listItemHeightFixed = _useContext2.listItemHeightFixed,
++    listItemNativeScrollbarControlled = _useContext2.listItemNativeScrollbarControlled,
++    listItemHorizontalOffsetComposited = _useContext2.listItemHorizontalOffsetComposited,
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
- 
+
    // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
@@ -517,10 +531,10 @@ index dee2539..2c2395c 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
- 
+
    // =========================== Data ===========================
    var flattenData = (0, _useFlattenRecords.default)(data, childrenColumnName, expandedKeys, getRowKey);
-@@ -59,6 +77,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -59,6 +79,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        return colWidth[2];
      });
    }, [columnsWidth]);
@@ -534,7 +548,7 @@ index dee2539..2c2395c 100644
    React.useEffect(function () {
      columnsWidth.forEach(function (_ref2) {
        var _ref3 = (0, _slicedToArray2.default)(_ref2, 2),
-@@ -120,10 +145,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -120,10 +147,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      return 1;
    };
    var extraRender = function extraRender(info) {
@@ -549,10 +563,10 @@ index dee2539..2c2395c 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
- 
+
      // Do nothing if no data
      if (end < 0) {
-@@ -208,6 +239,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -208,6 +241,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
            top: -offsetY + sizeInfo.top
          },
@@ -560,15 +574,17 @@ index dee2539..2c2395c 100644
          extra: true,
          getHeight: getHeight
        });
-@@ -249,6 +281,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -249,6 +283,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      className: tblPrefixCls,
      height: scrollY,
      itemHeight: listItemHeight || 24,
 +    itemHeightFixed: listItemHeightFixed,
++    itemNativeScrollbarControlled: listItemNativeScrollbarControlled,
++    itemHorizontalOffsetComposited: listItemHorizontalOffsetComposited,
      data: flattenData,
      itemKey: function itemKey(item) {
        return getRowKey(item.record);
-@@ -259,6 +292,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -259,6 +296,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      onVirtualScroll: function onVirtualScroll(_ref4) {
        var _listRef$current7;
        var x = _ref4.x;
@@ -577,7 +593,7 @@ index dee2539..2c2395c 100644
        onScroll({
          currentTarget: (_listRef$current7 = listRef.current) === null || _listRef$current7 === void 0 ? void 0 : _listRef$current7.nativeElement,
          scrollLeft: x
-@@ -272,6 +307,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -272,6 +311,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        data: item,
        rowKey: rowKey,
        index: index,
@@ -586,7 +602,7 @@ index dee2539..2c2395c 100644
      });
    }));
 diff --git a/node_modules/rc-table/lib/VirtualTable/BodyLine.js b/node_modules/rc-table/lib/VirtualTable/BodyLine.js
-index e1275fb..1ca8756 100644
+index e1275fb..e9162bd 100644
 --- a/node_modules/rc-table/lib/VirtualTable/BodyLine.js
 +++ b/node_modules/rc-table/lib/VirtualTable/BodyLine.js
 @@ -19,29 +19,60 @@ var _useRowInfo = _interopRequireDefault(require("../hooks/useRowInfo"));
@@ -687,7 +703,7 @@ index e1275fb..1ca8756 100644
 +      expandContent: expandContent
 +    });
    }
- 
+
    // ========================== Render ==========================
 @@ -81,12 +106,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
@@ -847,61 +863,69 @@ index 0000000..a78579d
 +  };
 +}
 diff --git a/node_modules/rc-table/lib/VirtualTable/context.d.ts b/node_modules/rc-table/lib/VirtualTable/context.d.ts
-index e558165..ccd74fc 100644
+index e558165..2d8305d 100644
 --- a/node_modules/rc-table/lib/VirtualTable/context.d.ts
 +++ b/node_modules/rc-table/lib/VirtualTable/context.d.ts
-@@ -3,6 +3,8 @@ import type { GetComponent, TableSticky } from '../interface';
+@@ -3,6 +3,10 @@ import type { GetComponent, TableSticky } from '../interface';
  export interface StaticContextProps {
      scrollY: number;
      listItemHeight: number;
 +    listItemHeightFixed?: boolean;
++    listItemNativeScrollbarControlled?: boolean;
++    listItemHorizontalOffsetComposited?: boolean;
 +    listItemColumnVirtual?: boolean;
      sticky: boolean | TableSticky;
      getComponent: GetComponent;
      onScroll?: React.UIEventHandler<HTMLDivElement>;
 diff --git a/node_modules/rc-table/lib/VirtualTable/index.d.ts b/node_modules/rc-table/lib/VirtualTable/index.d.ts
-index 31fe8e0..c5097b2 100644
+index 31fe8e0..f408cda 100644
 --- a/node_modules/rc-table/lib/VirtualTable/index.d.ts
 +++ b/node_modules/rc-table/lib/VirtualTable/index.d.ts
-@@ -8,6 +8,9 @@ export interface VirtualTableProps<RecordType> extends Omit<TableProps<RecordTyp
+@@ -8,6 +8,11 @@ export interface VirtualTableProps<RecordType> extends Omit<TableProps<RecordTyp
          y: number;
      };
      listItemHeight?: number;
 +    listItemHeightFixed?: boolean;
++    listItemNativeScrollbarControlled?: boolean;
++    listItemHorizontalOffsetComposited?: boolean;
 +    /** LTR-only fast path; requires body cells without colSpan/rowSpan. */
 +    listItemColumnVirtual?: boolean;
  }
  export type ForwardGenericVirtualTable = (<RecordType>(props: TableProps<RecordType> & React.RefAttributes<Reference>) => React.ReactElement) & {
      displayName?: string;
 diff --git a/node_modules/rc-table/lib/VirtualTable/index.js b/node_modules/rc-table/lib/VirtualTable/index.js
-index 8e31a9b..18e6aab 100644
+index 8e31a9b..f3c8bc1 100644
 --- a/node_modules/rc-table/lib/VirtualTable/index.js
 +++ b/node_modules/rc-table/lib/VirtualTable/index.js
-@@ -38,6 +38,8 @@ function VirtualTable(props, ref) {
+@@ -38,6 +38,10 @@ function VirtualTable(props, ref) {
      prefixCls = _props$prefixCls === void 0 ? _Table.DEFAULT_PREFIX : _props$prefixCls,
      className = props.className,
      listItemHeight = props.listItemHeight,
 +    listItemHeightFixed = props.listItemHeightFixed,
++    listItemNativeScrollbarControlled = props.listItemNativeScrollbarControlled,
++    listItemHorizontalOffsetComposited = props.listItemHorizontalOffsetComposited,
 +    listItemColumnVirtual = props.listItemColumnVirtual,
      components = props.components,
      onScroll = props.onScroll;
    var _ref = scroll || {},
-@@ -72,10 +74,12 @@ function VirtualTable(props, ref) {
+@@ -72,10 +76,14 @@ function VirtualTable(props, ref) {
        sticky: sticky,
        scrollY: scrollY,
        listItemHeight: listItemHeight,
 +      listItemHeightFixed: listItemHeightFixed,
++      listItemNativeScrollbarControlled: listItemNativeScrollbarControlled,
++      listItemHorizontalOffsetComposited: listItemHorizontalOffsetComposited,
 +      listItemColumnVirtual: listItemColumnVirtual,
        getComponent: getComponent,
        onScroll: onInternalScroll
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
-+  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemColumnVirtual, getComponent, onInternalScroll]);
- 
++  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemNativeScrollbarControlled, listItemHorizontalOffsetComposited, listItemColumnVirtual, getComponent, onInternalScroll]);
+
    // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(_context.StaticContext.Provider, {
 diff --git a/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js
-index 9c6b738..7c62501 100644
+index 9c6b738..d17f335 100644
 --- a/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js
 +++ b/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js
 @@ -25,6 +25,7 @@ function parseColWidth(totalWidth) {
@@ -914,7 +938,7 @@ index 9c6b738..7c62501 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -42,7 +43,6 @@ function useWidthColumns(flattenColumns, scrollWidth, clientWidth) {
        });
- 
+
        // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);

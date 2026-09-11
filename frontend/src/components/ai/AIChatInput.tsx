@@ -35,6 +35,7 @@ interface AIChatInputProps {
     sending: boolean;
     dispatchMode?: AIRunDispatchMode;
     hasActiveRun?: boolean;
+    stopRequestPending?: boolean;
     onDispatchModeChange?: (mode: AIRunDispatchMode) => void;
     onSend: () => void;
     onStop: () => void;
@@ -70,6 +71,7 @@ interface AIChatInputProps {
 
 export const AIChatInput: React.FC<AIChatInputProps> = ({
     input, setInput, draftAttachments, setDraftAttachments, sending, dispatchMode = 'queue', hasActiveRun = false,
+    stopRequestPending = false,
     onDispatchModeChange, onSend, onStop, handleKeyDown,
     activeConnName, activeContext, activeProvider, providers, providerModels, dynamicModels, loadingModels,
     sendShortcutBinding, shortcutPlatform = 'windows', composerNotice, onComposerAction,
@@ -271,6 +273,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                             sending={sending}
                             dispatchMode={dispatchMode}
                             hasActiveRun={hasActiveRun}
+                            stopRequestPending={stopRequestPending}
                             onDispatchModeChange={onDispatchModeChange}
                             overlayTheme={overlayTheme}
                             fileInputRef={fileInputRef}

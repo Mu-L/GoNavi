@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   applyDataGridFixedCellPreviewOffset,
+  applyDataGridVirtualInnerOffset,
   calculateFixedVirtualRange,
   commitDataGridFixedCellOffset,
   createDataGridIdleCommitScheduler,
   createDataGridVisualFrameGuard,
+  readDataGridVirtualInnerOffset,
+  shouldVirtualizeDataGridColumns,
   type DataGridVisualFrameGuard,
 } from './dataGridVirtualScroll';
 
@@ -26,21 +29,14 @@ const createStyleStub = () => {
 };
 
 describe('fixed cell horizontal preview', () => {
-  it('updates visible fixed cells directly without invalidating their ancestor', () => {
-    const first = { style: createStyleStub() };
-    const second = { style: createStyleStub() };
-    const root = { querySelectorAll: vi.fn(() => [first, second]) };
+  it('updates one inherited variable instead of every visible fixed cell', () => {
+    const inner = { style: createStyleStub() };
 
-    expect(applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640)).toBe(2);
-    expect(first.style.setProperty).toHaveBeenCalledWith(
-      'transform',
-      'translate3d(640px, 0, 0)',
-      'important',
-    );
-    expect(second.style.setProperty).toHaveBeenCalledTimes(1);
+    expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(1);
+    expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '640px');
 
-    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640);
-    expect(first.style.setProperty).toHaveBeenCalledTimes(1);
+    expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(0);
+    expect(inner.style.setProperty).toHaveBeenCalledTimes(1);
   });
 
   it('persists the settled offset once and releases per-cell preview styles', () => {
@@ -48,7 +44,8 @@ describe('fixed cell horizontal preview', () => {
     const second = { style: createStyleStub() };
     const root = { querySelectorAll: vi.fn(() => [first, second]) };
     const inner = { style: createStyleStub() };
-    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 480);
+    first.style.setProperty('transform', 'translate3d(480px, 0, 0)', 'important');
+    second.style.setProperty('transform', 'translate3d(480px, 0, 0)', 'important');
 
     expect(commitDataGridFixedCellOffset(
       root as unknown as ParentNode,
@@ -58,6 +55,30 @@ describe('fixed cell horizontal preview', () => {
     expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '480px');
     expect(first.style.removeProperty).toHaveBeenCalledWith('transform');
     expect(second.style.removeProperty).toHaveBeenCalledWith('transform');
+  });
+});
+
+describe('virtual body horizontal offset', () => {
+  it('uses compositor translate and keeps a marginLeft fallback for stale DOM', () => {
+    const style = {
+      translate: '',
+      marginLeft: '-240px',
+    };
+    const inner = { style } as unknown as HTMLElement;
+
+    expect(readDataGridVirtualInnerOffset(inner)).toBe(240);
+    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(true);
+    expect(style.translate).toBe('-640px 0');
+    expect(readDataGridVirtualInnerOffset(inner)).toBe(640);
+    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(false);
+  });
+});
+
+describe('column virtualization threshold', () => {
+  it('renders narrow tables directly and virtualizes wider tables', () => {
+    expect(shouldVirtualizeDataGridColumns(16)).toBe(false);
+    expect(shouldVirtualizeDataGridColumns(17)).toBe(true);
+    expect(shouldVirtualizeDataGridColumns(64)).toBe(true);
   });
 });
 

@@ -582,7 +582,7 @@ func sqlBeginStartsTransactionForDialect(dbType string, text string, tokenEnd in
 		default:
 			return false
 		}
-	case "duckdb", "iris":
+	case "duckdb", "iris", "cache":
 		return second == "" || second == "work" || second == "transaction"
 	default:
 		return false

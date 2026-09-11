@@ -213,6 +213,28 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('keeps InterSystems Caché independent while reusing the IRIS SQL capability profile', () => {
+    expect(getDataSourceCapabilities({ type: 'cache' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+      supportsSqlQueryExport: true,
+      supportsCopyInsert: true,
+      forceReadOnlyQueryResult: false,
+    });
+    expect(getDataSourceCapabilities({ type: 'intersystems-cache' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+    });
+    expect(getDataSourceCapabilities({ type: 'InterSystems Caché' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+    });
+    expect(getDataSourceCapabilities({ type: 'custom', driver: 'cachedb' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+    });
+  });
+
   it('treats GaussDB as an editable PostgreSQL-family datasource with database-level DDL actions', () => {
     expect(getDataSourceCapabilities({ type: 'gaussdb' })).toMatchObject({
       type: 'gaussdb',

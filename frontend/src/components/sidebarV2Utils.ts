@@ -718,6 +718,7 @@ export const buildSidebarConnectionTagTree = (
   };
 
   const sortConnectionIds = (ids: string[], mode: ConnectionDisplaySortMode): string[] => {
+    if (mode === 'manual') return ids;
     const manualIndex = new Map(ids.map((id, index) => [id, index]));
     return [...ids].sort((left, right) => {
       const a = connectionById.get(left);
