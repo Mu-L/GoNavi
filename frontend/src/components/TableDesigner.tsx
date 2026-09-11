@@ -413,7 +413,6 @@ const SortableRow = ({ children, ...props }: RowProps) => {
     ...props.style,
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: 'move',
     ...(isDragging ? { position: 'relative', zIndex: 9999 } : {}),
   };
 
