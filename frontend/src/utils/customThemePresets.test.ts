@@ -173,6 +173,23 @@ describe('built-in custom theme presets', () => {
     }
   });
 
+  it('keeps Amber Ember danger-button default and hover contrast at WCAG AA', () => {
+    const preset = resolveBuiltinCustomThemePreset('builtin-amber-ember');
+    expect(preset).not.toBeNull();
+    const onDanger = readHexProperty(preset!.css, '--gn-on-danger');
+    const dangerStrong = readHexProperty(preset!.css, '--gn-danger-strong');
+    const dangerHover = readHexProperty(preset!.css, '--gn-danger-strong-hover');
+
+    expect(
+      contrastRatio(onDanger, dangerStrong),
+      'builtin-amber-ember default danger-button contrast',
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrastRatio(onDanger, dangerHover),
+      'builtin-amber-ember hover danger-button contrast',
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('resolves built-in and user themes through one active-theme boundary', () => {
     expect(resolveBuiltinCustomThemePreset('builtin-warm-paper')).toEqual(
       expect.objectContaining({ id: 'builtin-warm-paper', baseMode: 'light' }),

@@ -409,7 +409,7 @@ export interface ConnectionTag {
 }
 
 export type ConnectionSortMode = 'manual' | 'name' | 'createdAt';
-export type ConnectionDisplaySortMode = 'name' | 'createdAt';
+export type ConnectionDisplaySortMode = 'manual' | 'name' | 'createdAt';
 
 export interface ConnectionSidebarLayoutInput {
   connectionTags: ConnectionTag[];

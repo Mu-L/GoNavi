@@ -657,6 +657,16 @@ const normalizeConnectionType = (value: unknown): string => {
     return "kafka";
   }
   if (
+    type === "intersystems-cache" ||
+    type === "intersystemscache" ||
+    type === "inter-systems-cache" ||
+    type === "intersystems-cache-database" ||
+    type === "cache-db" ||
+    type === "cachedb"
+  ) {
+    return "cache";
+  }
+  if (
     type === "inter-systems" ||
     type === "inter-systems-iris" ||
     type === "intersystems" ||
@@ -1178,7 +1188,7 @@ const normalizeConnectionTagTree = (
       // Group order is always user-defined. Preserve a legacy automatic mode
       // only as the initial direct-connection display preference.
       sortMode: 'manual',
-      connectionSortMode: entry.connectionSortMode === 'name' || entry.connectionSortMode === 'createdAt'
+      connectionSortMode: entry.connectionSortMode === 'manual' || entry.connectionSortMode === 'name' || entry.connectionSortMode === 'createdAt'
         ? entry.connectionSortMode
         : entry.sortMode === 'name' || entry.sortMode === 'createdAt'
           ? entry.sortMode
@@ -1273,7 +1283,7 @@ const sanitizeConnectionTags = (value: unknown): ConnectionTag[] => {
       connectionIds: sanitizeStringArray(raw.connectionIds, 256),
       childOrder: sanitizeSidebarItemOrder(raw.childOrder),
       sortMode: 'manual',
-      connectionSortMode: connectionSortMode === 'name' || connectionSortMode === 'createdAt'
+      connectionSortMode: connectionSortMode === 'manual' || connectionSortMode === 'name' || connectionSortMode === 'createdAt'
         ? connectionSortMode
         : sortMode === 'name' || sortMode === 'createdAt'
           ? sortMode
@@ -1580,6 +1590,102 @@ const normalizeConnectionTagTreeState = (
       nextTags,
       connections,
     ),
+  };
+};
+
+const sortConnectionIdsForDisplay = (
+  ids: string[],
+  connections: SavedConnection[],
+  mode: ConnectionDisplaySortMode,
+): string[] => {
+  if (mode === 'manual') return [...ids];
+  const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
+  const stableIndex = new Map(ids.map((id, index) => [id, index]));
+  return [...ids].sort((left, right) => {
+    const a = connectionById.get(left);
+    const b = connectionById.get(right);
+    if (!a || !b) return (stableIndex.get(left) || 0) - (stableIndex.get(right) || 0);
+    if (mode === 'createdAt') {
+      return (b.createdAt || 0) - (a.createdAt || 0)
+        || (stableIndex.get(left) || 0) - (stableIndex.get(right) || 0)
+        || left.localeCompare(right);
+    }
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+      || (stableIndex.get(left) || 0) - (stableIndex.get(right) || 0)
+      || left.localeCompare(right);
+  });
+};
+
+const applyConnectionOrderToMixedTokens = (
+  tokens: string[],
+  orderedConnectionIds: string[],
+): string[] => {
+  const orderedTokens = orderedConnectionIds.map(buildSidebarRootConnectionToken);
+  let connectionIndex = 0;
+  return tokens.map((token) => (
+    isSidebarRootConnectionToken(token)
+      ? orderedTokens[connectionIndex++] || token
+      : token
+  ));
+};
+
+const connectionIdsFromMixedTokens = (tokens: string[]): string[] => (
+  tokens
+    .filter(isSidebarRootConnectionToken)
+    .map(getSidebarConnectionIdFromToken)
+);
+
+const materializeManualConnectionOrder = (
+  connectionTags: ConnectionTag[],
+  sidebarRootOrder: string[],
+  connections: SavedConnection[],
+  rootConnectionSortMode: ConnectionDisplaySortMode,
+  targetTagId: string | null,
+): ConnectionTagTreeState & { rootConnectionSortMode: ConnectionDisplaySortMode } => {
+  const normalized = normalizeConnectionTagTreeState(connectionTags, sidebarRootOrder, connections);
+  const normalizedTargetTagId = toTrimmedString(targetTagId);
+  if (normalizedTargetTagId) {
+    const target = normalized.connectionTags.find((tag) => tag.id === normalizedTargetTagId);
+    if (!target) return { ...normalized, rootConnectionSortMode };
+    const currentChildOrder = resolveConnectionTagChildOrder(target.id, normalized.connectionTags);
+    const currentMode = target.connectionSortMode || 'createdAt';
+    const orderedConnectionIds = currentMode === 'manual'
+      ? connectionIdsFromMixedTokens(currentChildOrder)
+      : sortConnectionIdsForDisplay(target.connectionIds, connections, currentMode);
+    const childOrder = applyConnectionOrderToMixedTokens(
+      currentChildOrder,
+      orderedConnectionIds,
+    );
+    return {
+      ...normalized,
+      connectionTags: normalized.connectionTags.map((tag) => (
+        tag.id === target.id
+          ? { ...tag, connectionIds: orderedConnectionIds, childOrder, connectionSortMode: 'manual' }
+          : tag
+      )),
+      rootConnectionSortMode,
+    };
+  }
+
+  const groupedConnectionIds = new Set(normalized.connectionTags.flatMap((tag) => tag.connectionIds));
+  const rootConnectionIds = connections
+    .map((connection) => connection.id)
+    .filter((connectionId) => !groupedConnectionIds.has(connectionId));
+  const currentRootOrder = resolveSidebarRootOrderTokens(
+    normalized.sidebarRootOrder,
+    normalized.connectionTags,
+    connections,
+  );
+  const orderedConnectionIds = rootConnectionSortMode === 'manual'
+    ? connectionIdsFromMixedTokens(currentRootOrder)
+    : sortConnectionIdsForDisplay(rootConnectionIds, connections, rootConnectionSortMode);
+  return {
+    ...normalized,
+    sidebarRootOrder: applyConnectionOrderToMixedTokens(
+      currentRootOrder,
+      orderedConnectionIds,
+    ),
+    rootConnectionSortMode: 'manual',
   };
 };
 
@@ -3889,7 +3995,7 @@ export const useStore = create<AppState>()(
             state.connections,
           ),
           rootSortMode: 'manual',
-          rootConnectionSortMode: layout?.rootConnectionSortMode === 'name' || layout?.rootConnectionSortMode === 'createdAt'
+          rootConnectionSortMode: layout?.rootConnectionSortMode === 'manual' || layout?.rootConnectionSortMode === 'name' || layout?.rootConnectionSortMode === 'createdAt'
             ? layout.rootConnectionSortMode
             : layout?.rootSortMode === 'name' || layout?.rootSortMode === 'createdAt'
               ? layout.rootSortMode
@@ -3899,7 +4005,16 @@ export const useStore = create<AppState>()(
 
       setConnectionDisplaySortMode: (tagId, mode) =>
         set((state) => {
-          const safeMode: ConnectionDisplaySortMode = mode === 'name' ? 'name' : 'createdAt';
+          const safeMode: ConnectionDisplaySortMode = mode === 'manual' || mode === 'name' ? mode : 'createdAt';
+          if (safeMode === 'manual') {
+            return materializeManualConnectionOrder(
+              state.connectionTags,
+              state.sidebarRootOrder,
+              state.connections,
+              state.rootConnectionSortMode,
+              tagId,
+            );
+          }
           if (!tagId) return { rootConnectionSortMode: safeMode };
           return {
             connectionTags: state.connectionTags.map((tag) =>
@@ -3956,19 +4071,27 @@ export const useStore = create<AppState>()(
         set((state) => {
           const selected = new Set(ids.filter((id) => state.connections.some((connection) => connection.id === id)));
           if (!selected.size || (targetTagId && !state.connectionTags.some((tag) => tag.id === targetTagId))) return state;
-          const nextTags = state.connectionTags.map((tag) => ({
-            ...tag,
-            connectionIds: tag.connectionIds.filter((id) => !selected.has(id)),
-            childOrder: tag.childOrder?.filter((token) => !(token.startsWith('connection:') && selected.has(token.slice(11)))),
-          }));
-          if (targetTagId) {
-            const target = nextTags.find((tag) => tag.id === targetTagId)!;
-            const additions = [...selected].filter((id) => !target.connectionIds.includes(id));
-            return { connectionTags: nextTags.map((tag) => tag.id === targetTagId
-              ? { ...tag, connectionIds: [...tag.connectionIds, ...additions], childOrder: [...(tag.childOrder || []), ...additions.map(buildSidebarRootConnectionToken)] }
-              : tag) };
+          let nextTags = state.connectionTags;
+          let nextRootOrder = state.sidebarRootOrder;
+          const connectionIDs = [...selected];
+          if (!targetTagId) connectionIDs.reverse();
+          connectionIDs.forEach((connectionId) => {
+            const moved = moveConnectionInTree(
+              nextTags,
+              nextRootOrder,
+              state.connections,
+              connectionId,
+              targetTagId,
+            );
+            if (moved) {
+              nextTags = moved.connectionTags;
+              nextRootOrder = moved.sidebarRootOrder;
+            }
+          });
+          if (nextTags === state.connectionTags && nextRootOrder === state.sidebarRootOrder) {
+            return state;
           }
-          return { connectionTags: nextTags };
+          return { connectionTags: nextTags, sidebarRootOrder: nextRootOrder };
         }),
 
       addConnectionTag: (tag) =>
@@ -4216,19 +4339,31 @@ export const useStore = create<AppState>()(
         insertBefore = false,
       ) =>
         set((state) => {
+          const base = targetToken
+            ? materializeManualConnectionOrder(
+                state.connectionTags,
+                state.sidebarRootOrder,
+                state.connections,
+                state.rootConnectionSortMode,
+                targetTagId,
+              )
+            : {
+                connectionTags: state.connectionTags,
+                sidebarRootOrder: state.sidebarRootOrder,
+                rootConnectionSortMode: state.rootConnectionSortMode,
+              };
           const moved = moveConnectionInTree(
-            state.connectionTags,
-            state.sidebarRootOrder,
+            base.connectionTags,
+            base.sidebarRootOrder,
             state.connections,
             connectionId,
             targetTagId,
             targetToken,
             insertBefore,
           );
-          return moved || {
-            connectionTags: state.connectionTags,
-            sidebarRootOrder: state.sidebarRootOrder,
-          };
+          if (!moved) return { connectionTags: state.connectionTags, sidebarRootOrder: state.sidebarRootOrder };
+          if (!targetToken) return moved;
+          return { ...moved, rootConnectionSortMode: base.rootConnectionSortMode };
         }),
       moveConnectionTag: (
         tagId,
@@ -6161,7 +6296,7 @@ export const useStore = create<AppState>()(
           state.connections === undefined ? undefined : nextState.connections,
         );
         nextState.rootSortMode = 'manual';
-        nextState.rootConnectionSortMode = state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
+        nextState.rootConnectionSortMode = state.rootConnectionSortMode === 'manual' || state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
           ? state.rootConnectionSortMode
           : state.rootSortMode === 'name' || state.rootSortMode === 'createdAt'
             ? state.rootSortMode
@@ -6302,7 +6437,7 @@ export const useStore = create<AppState>()(
           connectionTags: persistedConnectionTags,
           sidebarRootOrder: persistedSidebarRootOrder,
           rootSortMode: 'manual',
-          rootConnectionSortMode: state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
+          rootConnectionSortMode: state.rootConnectionSortMode === 'manual' || state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
             ? state.rootConnectionSortMode
             : state.rootSortMode === 'name' || state.rootSortMode === 'createdAt'
               ? state.rootSortMode

@@ -113,7 +113,17 @@ describe('DriverManagerModal embedded layout', () => {
       /\.gonavi-about-download-source\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%/s,
     );
     expect(appCss).toMatch(
-      /body \.gonavi-about-section\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
+      /body \.gonavi-about-section\s*\{[^}]*grid-template-columns:\s*var\(--gn-about-label-width\) minmax\(0, 1fr\)/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-setting,\s*body \.gonavi-about-facts,\s*body \.gonavi-about-link-grid,\s*body \.gonavi-about-download-source\s*\{[^}]*grid-column:\s*1 \/ -1/s,
+    );
+    expect(appCss).toContain('--gn-about-label-width: 14rem');
+    expect(appCss).toMatch(
+      /body \.gonavi-about-field > :not\(\.gonavi-about-field-label\)\s*\{[^}]*justify-self:\s*start[^}]*width:\s*max-content/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-field-control \.ant-switch\s*\{[^}]*width:\s*44px !important/s,
     );
     expect(appCss).toMatch(
       /\.driver-manager-mirror-chip\.is-compact\s*>\s*\.ant-btn,\s*\.gonavi-about-download-source\s*>\s*\.ant-btn\s*\{[^}]*margin-left:\s*auto/s,

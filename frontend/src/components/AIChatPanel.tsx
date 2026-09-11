@@ -89,6 +89,9 @@ interface AIChatPanelProps {
 
 const genId = () => `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
+const createRunStopFailureMessageId = (runId: string): string =>
+    `agent-run-${runId}-stop-error`;
+
 const toAgentAttachments = (attachments: AIChatAttachment[]): AgentAttachment[] =>
     attachments
         .map((attachment) => ({
@@ -142,6 +145,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const [pendingRecoveries, setPendingRecoveries] = useState<Record<string, AIRunRecoveryState>>({});
     const [waitingWorkspaces, setWaitingWorkspaces] = useState<Record<string, AIRunWorkspaceState>>({});
     const [runStateVersion, setRunStateVersion] = useState(0);
+    const [stopRequestVersion, setStopRequestVersion] = useState(0);
     const [runControlBusyKey, setRunControlBusyKey] = useState<string | null>(null);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -180,6 +184,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const activeRunsRef = useRef(new Map<string, { state: string; revision: number; sessionId?: string }>());
     const harnessServiceRef = useRef<AIRunHarnessService | undefined>(undefined);
+    const stopRequestsInFlightRef = useRef(new Set<string>());
     const pendingConversationBranchRef = useRef<PendingConversationBranch | null>(null);
     const dispatchModeDirtyRef = useRef(false);
 
@@ -488,11 +493,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const isTrackedRun = useCallback((runId: string): boolean => activeRunsRef.current.has(runId), []);
     const trackedRunIds = Array.from(activeRunsRef.current.keys());
 
-    const handleRunTerminal = useCallback((_runId: string, sessionId: string) => {
+    const handleRunTerminal = useCallback((runId: string, sessionId: string) => {
+        deleteAIChatMessage(sessionId, createRunStopFailureMessageId(runId));
         const service = harnessServiceRef.current || getAIRunHarnessService();
         harnessServiceRef.current = service;
         void hydrateSessionProjection(sessionId, service);
-    }, [hydrateSessionProjection]);
+    }, [deleteAIChatMessage, hydrateSessionProjection]);
 
     useAIChatRunEventSubscription({
         sid,
@@ -517,6 +523,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         [runStateVersion, sid],
     );
     const hasActiveRun = activeRuns.length > 0;
+    const stopRequestPending = useMemo(
+        () => activeRuns.some(({ runId }) => stopRequestsInFlightRef.current.has(runId)),
+        [activeRuns, stopRequestVersion],
+    );
     const visibleApprovals = useMemo(
         () => Object.values(pendingApprovals).filter((approval) => approval.sessionId === sid),
         [pendingApprovals, sid],
@@ -530,12 +540,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         [waitingWorkspaces, sid],
     );
 
-    const refreshRunAfterRevisionConflict = useCallback(async (
+    const refreshRunProjection = useCallback(async (
         runId: string,
         sessionId: string,
         service: AIRunHarnessService | undefined,
-    ): Promise<void> => {
-        if (!service?.AIReadAgentRun) return;
+    ): Promise<{ state: string; revision: number } | null> => {
+        if (!service?.AIReadAgentRun) return null;
         try {
             const projection = await readAgentRun({ runId, afterSequence: 0, limit: 1 }, service);
             const state = String(projection?.run?.state || '').trim();
@@ -544,8 +554,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 handleRunStateChange(runId, state || 'queued', revision);
             }
             void hydrateSessionProjection(sessionId, service);
+            return { state, revision };
         } catch (refreshError) {
-            console.warn('Failed to refresh stale AI agent run projection', runId, refreshError);
+            console.warn('Failed to refresh AI agent run projection', runId, refreshError);
+            return null;
         }
     }, [handleRunStateChange, hydrateSessionProjection]);
 
@@ -634,7 +646,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             if (isRevisionConflictError(error)) {
-                void refreshRunAfterRevisionConflict(runId, sessionId, service);
+                void refreshRunProjection(runId, sessionId, service);
             }
             addAIChatMessage(sessionId, {
                 id: genId(),
@@ -649,7 +661,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         } finally {
             setRunControlBusyKey(null);
         }
-    }, [addAIChatMessage, refreshRunAfterRevisionConflict, resolveRunRevision, sid, t]);
+    }, [addAIChatMessage, refreshRunProjection, resolveRunRevision, sid, t]);
 
     const handleApprovalDecision = useCallback((
         approval: AIRunApprovalState,
@@ -907,29 +919,66 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }, [aiChatSendShortcutBinding, handleSend]);
 
     const handleStop = useCallback(async () => {
+        const candidate = Array.from(activeRunsRef.current.entries())
+            .reverse()
+            .find(([, run]) => run.sessionId === sid && !isTerminalRunState(run.state));
+        if (!candidate) return;
+        const [runId, run] = candidate;
+        if (stopRequestsInFlightRef.current.has(runId)) return;
+        stopRequestsInFlightRef.current.add(runId);
+        setStopRequestVersion((version) => version + 1);
+        const sessionId = run.sessionId || sid;
+        const stopFailureMessageId = createRunStopFailureMessageId(runId);
+        deleteAIChatMessage(sessionId, stopFailureMessageId);
+        let service: AIRunHarnessService | undefined;
         try {
-            const service = harnessServiceRef.current || getAIRunHarnessService();
+            service = harnessServiceRef.current || getAIRunHarnessService();
             harnessServiceRef.current = service;
             if (!service?.AIControlAgentRun) throw new Error('AIControlAgentRun is unavailable');
-            const candidate = Array.from(activeRunsRef.current.entries())
-                .reverse()
-                .find(([, run]) => run.sessionId === sid && !isTerminalRunState(run.state));
-            if (!candidate) return;
-            const [runId, run] = candidate;
             const expectedRevision = await resolveRunRevision(runId, run.revision, service);
             setSending(true);
-            await controlAgentRun({
+            const snapshot = await controlAgentRun({
                 requestId: `agent-control-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 runId,
-                sessionId: sid,
+                sessionId,
                 action: 'cancel',
                 expectedRevision,
             }, service);
+            const nextState = String(snapshot?.state || '').trim();
+            const nextRevision = Number(snapshot?.revision || 0);
+            const latestRevision = activeRunsRef.current.get(runId)?.revision || 0;
+            if (nextState && nextRevision > 0 && nextRevision >= latestRevision) {
+                handleRunStateChange(runId, nextState, nextRevision);
+            }
         } catch (error) {
             console.warn('Failed to stop chat stream', error);
-            setSending(false);
+            // A failed bridge call can be either a definite rejection or an
+            // ambiguous transport failure after the durable command committed.
+            const refreshed = await refreshRunProjection(runId, sessionId, service);
+            if (refreshed && (refreshed.state === 'canceling' || isTerminalRunState(refreshed.state))) {
+                return;
+            }
+            const detail = error instanceof Error ? error.message : String(error);
+            const failureMessage: AIChatMessage = {
+                id: stopFailureMessageId,
+                runId,
+                role: 'assistant',
+                content: t('ai_chat.panel.message.stop_failed', { detail }),
+                rawError: detail,
+                timestamp: Date.now(),
+                loading: false,
+                phase: 'idle',
+                excludeFromAIContext: true,
+            };
+            const alreadyVisible = (useStore.getState().aiChatHistory[sessionId] || [])
+                .some((message) => message.id === stopFailureMessageId);
+            if (alreadyVisible) updateAIChatMessage(sessionId, stopFailureMessageId, failureMessage);
+            else addAIChatMessage(sessionId, failureMessage);
+        } finally {
+            stopRequestsInFlightRef.current.delete(runId);
+            setStopRequestVersion((version) => version + 1);
         }
-    }, [resolveRunRevision, sid]);
+    }, [addAIChatMessage, deleteAIChatMessage, handleRunStateChange, refreshRunProjection, resolveRunRevision, sid, t, updateAIChatMessage]);
 
     const handleCreateSession = useCallback(() => {
         if (sending || interactionDisabled) return;
@@ -1186,6 +1235,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 sending={sending}
                 dispatchMode={dispatchMode}
                 hasActiveRun={hasActiveRun}
+                stopRequestPending={stopRequestPending}
                 onDispatchModeChange={handleDispatchModeChange}
                 onSend={handleSend}
                 onStop={handleStop}
