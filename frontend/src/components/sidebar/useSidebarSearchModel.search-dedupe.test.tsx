@@ -304,4 +304,131 @@ describe('useSidebarSearchModel search filtering', () => {
         }),
       ]));
   });
+
+  it('matches tables by comment in smart scope and command search', () => {
+    const connection = {
+      id: 'conn-1',
+      name: 'MySQL',
+      config: { type: 'mysql', host: '127.0.0.1', port: 3306 },
+    } as SavedConnection;
+    const userTable = {
+      title: 'sys_user',
+      key: 'conn-1-app-tables-sys_user',
+      type: 'table' as const,
+      dataRef: {
+        ...connection,
+        dbName: 'app',
+        tableName: 'sys_user',
+        tableComment: '系统用户表',
+      },
+    };
+    const orderTable = {
+      title: 't_order',
+      key: 'conn-1-app-tables-t_order',
+      type: 'table' as const,
+      dataRef: {
+        ...connection,
+        dbName: 'app',
+        tableName: 't_order',
+        tableComment: '订单主表',
+      },
+    };
+    const treeData = [{
+      title: connection.name,
+      key: connection.id,
+      type: 'connection' as const,
+      dataRef: connection,
+      children: [{
+        title: 'app',
+        key: 'conn-1-app',
+        type: 'database' as const,
+        dataRef: { ...connection, dbName: 'app' },
+        children: [{
+          title: 'Tables',
+          key: 'conn-1-app-tables',
+          type: 'object-group' as const,
+          children: [userTable, orderTable],
+        }],
+      }],
+    }];
+
+    const buildHarness = (args: {
+      deferredSearchValue: string;
+      searchScopes?: any[];
+      isV2CommandSearchOpen?: boolean;
+      v2CommandSearchValue?: string;
+    }) => {
+      let model: ReturnType<typeof useSidebarSearchModel> | undefined;
+      const Harness = () => {
+        model = useSidebarSearchModel({
+          searchScopes: args.searchScopes ?? ['smart'],
+          setSearchScopes: () => undefined,
+          setSearchValue: () => undefined,
+          deferredSearchValue: args.deferredSearchValue,
+          deferredV2CommandSearchValue: args.v2CommandSearchValue ?? '',
+          v2CommandSearchValue: args.v2CommandSearchValue ?? '',
+          setV2CommandActiveIndex: () => undefined,
+          v2ExplorerFilter: 'all',
+          sidebarTableMetadataFields: [],
+          treeData,
+          treeViewportWidth: 320,
+          treeHeight: 400,
+          isV2CommandSearchOpen: args.isV2CommandSearchOpen ?? false,
+          connections: [connection],
+          connectionIds: [connection.id],
+          selectedKeys: [],
+          expandedKeys: [],
+          selectedNodesRef: useRef<any[]>([]),
+          activeContext: null,
+          activeTab: null,
+          recentSqlLogs: [],
+          shortcutOptions: {},
+          activeShortcutPlatform: 'mac',
+          overlayTheme: {
+            sectionBorder: '1px solid #ddd',
+            mutedText: '#666',
+            titleText: '#111',
+            shellBg: '#fff',
+            divider: '#eee',
+          },
+          darkMode: false,
+          setAIPanelVisible: () => undefined,
+          extractObjectName: (name) => name,
+        });
+        return null;
+      };
+
+      act(() => {
+        renderer = create(<Harness />);
+      });
+      return model;
+    };
+
+    // Smart scope: comment keyword surfaces the table in the filtered tree.
+    const smartModel = buildHarness({ deferredSearchValue: '订单主表' });
+    const smartMatchedKeys = collectTreeNodes(smartModel?.displayTreeData || []).map((node) => node.key);
+    expect(smartMatchedKeys).toContain(orderTable.key);
+    expect(smartMatchedKeys).not.toContain(userTable.key);
+
+    // Object scope: comment keyword also matches through the scoped filter.
+    const objectModel = buildHarness({ deferredSearchValue: '系统用户', searchScopes: ['object'] });
+    const objectMatchedKeys = collectTreeNodes(objectModel?.displayTreeData || []).map((node) => node.key);
+    expect(objectMatchedKeys).toContain(userTable.key);
+    expect(objectMatchedKeys).not.toContain(orderTable.key);
+
+    // Command search: comment keyword matches via the default node index.
+    const commandModel = buildHarness({
+      deferredSearchValue: '订单主表',
+      isV2CommandSearchOpen: true,
+      v2CommandSearchValue: '订单主表',
+    });
+    expect(commandModel?.filteredCommandSearchTreeItems.map((item) => item.key))
+      .toContain(`node-${orderTable.key}`);
+    expect(commandModel?.filteredCommandSearchTreeItems.map((item) => item.key))
+      .not.toContain(`node-${userTable.key}`);
+
+    // Command palette rows surface the comment in meta next to connection · database.
+    const orderItem = commandModel?.commandSearchTreeItems.find((item) => item.key === `node-${orderTable.key}`);
+    expect(orderItem?.meta).toBe('MySQL · app — 订单主表');
+  });
 });

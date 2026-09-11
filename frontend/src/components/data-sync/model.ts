@@ -29,7 +29,46 @@ export const DATA_SYNC_TASK_STAGES: readonly DataSyncTaskStage[] = [
   'preflight',
 ];
 
+export const DATA_SYNC_COMPARE_STAGES: readonly DataSyncTaskStage[] = [
+  'endpoints',
+  'mappings',
+];
+
+export const dataSyncTaskStages = (
+  kind: DataSyncTaskKind,
+): readonly DataSyncTaskStage[] =>
+  kind === 'compare' ? DATA_SYNC_COMPARE_STAGES : DATA_SYNC_TASK_STAGES;
+
 export type DataSyncCompareMode = 'schema' | 'data' | 'both';
+
+/** Workbench family: sync kinds vs read-only compare kinds. */
+export type DataSyncWorkbenchFamily = 'sync' | 'compare';
+
+export type DataSyncTaskKindChoice = {
+  kind: DataSyncTaskKind;
+  compareMode?: Exclude<DataSyncCompareMode, 'both'>;
+};
+
+export const DATA_SYNC_FAMILY_KIND_CHOICES: Record<
+  DataSyncWorkbenchFamily,
+  readonly DataSyncTaskKindChoice[]
+> = {
+  sync: [
+    { kind: 'migration' },
+    { kind: 'reconcile' },
+    { kind: 'querySink' },
+    { kind: 'cdc' },
+  ],
+  compare: [
+    { kind: 'compare', compareMode: 'schema' },
+    { kind: 'compare', compareMode: 'data' },
+  ],
+};
+
+export const dataSyncTaskBelongsToFamily = (
+  task: { kind: DataSyncTaskKind },
+  family: DataSyncWorkbenchFamily,
+): boolean => (family === 'compare' ? task.kind === 'compare' : task.kind !== 'compare');
 
 /** Content selected by a writable migration task. */
 export type DataSyncContent = 'data' | 'schema' | 'both';
@@ -846,7 +885,7 @@ export const createDataSyncTaskDraft = ({
     // 迁移任务默认开启自动补字段（与一次性迁移弹窗一致），目标表缺列时
     // 才能补齐并回填；不支持的库对由交付阶段根据能力探测自动关闭。
     autoAddColumns: kind === 'migration',
-    createIndexes: false,
+    createIndexes: kind === 'migration',
     captureErrorPayload: false,
   },
   trigger: kind === 'cdc' ? { mode: 'continuous' } : { mode: 'manual' },

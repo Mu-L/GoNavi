@@ -11,7 +11,9 @@ import type {
   DataSyncRunRecord,
   DataSyncRunPageSize,
   DataSyncScheduleSummary,
+  DataSyncWorkbenchFamily,
 } from './model';
+import { tableHasCompareDiff } from './compareRepairSql';
 import type { DataSyncWorkbenchTranslate } from './text';
 
 const EmptyState: React.FC<{
@@ -63,6 +65,7 @@ export const DataSyncRunHistory: React.FC<{
   errorRows: DataSyncErrorRow[];
   compareResult: DataSyncCompareResult | null;
   compareMode?: DataSyncCompareMode;
+  family?: DataSyncWorkbenchFamily;
   t: DataSyncWorkbenchTranslate;
   onSelectRun: (runId: string) => void;
   checkpoint: DataSyncCheckpointSummary | null;
@@ -81,6 +84,9 @@ export const DataSyncRunHistory: React.FC<{
   onRetryErrorRow: (errorRowId: string) => void;
   checkpointResetEnabled: boolean;
   onResetCheckpoint: () => void;
+  onGenerateRepairSql?: () => void;
+  onAskAiAboutDiffs?: () => void;
+  onSyncDiffs?: () => void;
 }> = ({
   runs,
   runPage,
@@ -94,6 +100,7 @@ export const DataSyncRunHistory: React.FC<{
   errorRows,
   compareResult,
   compareMode,
+  family,
   checkpoint,
   busyAction,
   t,
@@ -112,12 +119,18 @@ export const DataSyncRunHistory: React.FC<{
   onRetryErrorRow,
   checkpointResetEnabled,
   onResetCheckpoint,
-}) => (
+  onGenerateRepairSql,
+  onAskAiAboutDiffs,
+  onSyncDiffs,
+}) => {
+  const isCompareWorkbench = family === 'compare';
+  const compareDetailOpen = isCompareWorkbench && Boolean(selectedRunId);
+  return (
   <section className="gn-data-sync-operational-view" data-data-sync-run-history="true">
     <header className="gn-data-sync-view-heading">
       <h1>{t('runs.title')}</h1>
       <div>
-        <p>{t('runs.subtitle')}</p>
+        <p>{t(isCompareWorkbench ? 'runs.subtitle_compare' : 'runs.subtitle')}</p>
         <button
           type="button"
           className="gn-data-sync-button"
@@ -139,12 +152,24 @@ export const DataSyncRunHistory: React.FC<{
         </button>
       </div>
     </header>
+    {compareDetailOpen ? (
+      <div className="gn-data-sync-run-detail-bar">
+        <button
+          type="button"
+          className="gn-data-sync-button"
+          data-run-back="true"
+          onClick={() => onSelectRun('')}
+        >
+          {t('runs.back_to_list')}
+        </button>
+      </div>
+    ) : null}
     {runs.length === 0 ? (
       <EmptyState
         title={t('runs.empty_title')}
-        description={t('runs.empty_desc')}
+        description={t(isCompareWorkbench ? 'runs.empty_desc_compare' : 'runs.empty_desc')}
       />
-    ) : (
+    ) : compareDetailOpen ? null : (
       <>
       <div className="gn-data-sync-table-scroll">
         <table className="gn-data-sync-history-table">
@@ -154,9 +179,13 @@ export const DataSyncRunHistory: React.FC<{
               <th>{t('runs.task')}</th>
               <th>{t('runs.status')}</th>
               <th>{t('runs.started_at')}</th>
-              <th>{t('runs.rows_written')}</th>
-              <th>{t('runs.rows_failed')}</th>
-              <th>{t('runs.checkpoint')}</th>
+              {isCompareWorkbench ? null : (
+                <>
+                  <th>{t('runs.rows_written')}</th>
+                  <th>{t('runs.rows_failed')}</th>
+                  <th>{t('runs.checkpoint')}</th>
+                </>
+              )}
               <th>{t('runs.actions')}</th>
             </tr>
           </thead>
@@ -171,9 +200,13 @@ export const DataSyncRunHistory: React.FC<{
                   </span>
                 </td>
                 <td>{formatDataSyncTime(run.startedAt)}</td>
-                <td>{run.rowsWritten.toLocaleString()}</td>
-                <td>{run.rowsFailed.toLocaleString()}</td>
-                <td className="gn-data-sync-mono">{run.checkpoint || '—'}</td>
+                {isCompareWorkbench ? null : (
+                  <>
+                    <td>{run.rowsWritten.toLocaleString()}</td>
+                    <td>{run.rowsFailed.toLocaleString()}</td>
+                    <td className="gn-data-sync-mono">{run.checkpoint || '—'}</td>
+                  </>
+                )}
                 <td>
                   <button
                     type="button"
@@ -270,6 +303,7 @@ export const DataSyncRunHistory: React.FC<{
       </>
     )}
 
+    {isCompareWorkbench ? null : (
     <section className="gn-data-sync-run-events" data-data-sync-run-events="true">
       <h2>{t('events.title')}</h2>
       {!selectedRunId ? (
@@ -299,7 +333,9 @@ export const DataSyncRunHistory: React.FC<{
         </ol>
       )}
     </section>
+    )}
 
+    {isCompareWorkbench ? null : (
     <section className="gn-data-sync-error-rows" data-data-sync-error-rows="true">
       <h2>{t('errors.title')}</h2>
       {!selectedRunId ? (
@@ -379,8 +415,77 @@ export const DataSyncRunHistory: React.FC<{
         </div>
       )}
     </section>
+    )}
+    {(!isCompareWorkbench && compareResult) || compareDetailOpen ? (
     <section className="gn-data-sync-compare-panel" data-data-sync-compare="true">
       <h2>{t('compare.title')}</h2>
+      {isCompareWorkbench &&
+      compareResult &&
+      compareResult.tables.some((summary) =>
+        tableHasCompareDiff(summary, compareResult.content || compareMode),
+      ) ? (
+        <div className="gn-data-sync-compare-toolbar">
+          {onGenerateRepairSql ? (
+            <button
+              type="button"
+              className="gn-data-sync-button"
+              data-compare-action="repair-sql"
+              onClick={onGenerateRepairSql}
+            >
+              {t('compare.actions.repair_sql')}
+            </button>
+          ) : null}
+          {onAskAiAboutDiffs ? (
+            <button
+              type="button"
+              className="gn-data-sync-button"
+              data-compare-action="ai-sql"
+              onClick={onAskAiAboutDiffs}
+            >
+              {t('compare.actions.ai_sql')}
+            </button>
+          ) : null}
+          {onSyncDiffs ? (
+            <button
+              type="button"
+              className="gn-data-sync-button gn-data-sync-button--primary"
+              data-compare-action="sync-diff"
+              onClick={onSyncDiffs}
+            >
+              {t('compare.actions.sync_diff')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {isCompareWorkbench ? (
+        <details className="gn-data-sync-run-events gn-data-sync-run-events--secondary" data-data-sync-run-events="true">
+          <summary>{t('events.title_secondary')}</summary>
+          {runEvents.length === 0 ? (
+            <p>{t('events.empty')}</p>
+          ) : (
+            <ol className="gn-data-sync-run-events__timeline">
+              {runEvents.map((event) => {
+                const scope = [event.stage, event.table].filter(Boolean).join(' · ');
+                return (
+                  <li key={event.sequence} data-event-sequence={event.sequence}>
+                    <div className="gn-data-sync-run-events__marker" aria-hidden="true" />
+                    <div className="gn-data-sync-run-events__content">
+                      <header>
+                        <strong>{event.type}</strong>
+                        <time>{formatDataSyncTime(event.createdAt)}</time>
+                      </header>
+                      {scope ? (
+                        <p className="gn-data-sync-run-events__meta">{scope}</p>
+                      ) : null}
+                      {event.message ? <p>{event.message}</p> : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </details>
+      ) : null}
       {!selectedRunId || !compareResult ? (
         <p>{t('compare.empty')}</p>
       ) : compareResult.tables.length === 0 ? (
@@ -482,7 +587,7 @@ export const DataSyncRunHistory: React.FC<{
                     ))}
                   </ul>
                 )}
-                {(summary.sourceObject || summary.targetObject) && (
+                {status !== 'same' && (summary.sourceObject || summary.targetObject) && (
                   <dl className="gn-data-sync-compare-row__endpoints">
                     {summary.sourceObject && (
                       <div data-side="source">
@@ -500,7 +605,7 @@ export const DataSyncRunHistory: React.FC<{
                 )}
                 {/* Structure first: it is the coarser difference, and a row
                     count says little while a column gap is unresolved. */}
-                {showSchema && (
+                {showSchema && status !== 'same' && (
                   <dl className="gn-data-sync-compare-row__schema-counts">
                     <div data-kind="schema">
                       <dt>{t('compare.schema_diff')}</dt>
@@ -577,7 +682,10 @@ export const DataSyncRunHistory: React.FC<{
                       </div>
                     )
                   ))}
-                {showData && (
+                {/* Identical tables are the bulk of a compare run and used to
+                    spend a four-tile grid on 0/0/0/N. The badge already says
+                    they match, so keep one inline count on the single row. */}
+                {showData && status !== 'same' ? (
                   <dl className="gn-data-sync-compare-row__data-counts">
                     <div data-kind="inserts">
                       <dt>{t('compare.inserts')}</dt>
@@ -596,13 +704,23 @@ export const DataSyncRunHistory: React.FC<{
                       <dd>{summary.same.toLocaleString()}</dd>
                     </div>
                   </dl>
-                )}
+                ) : null}
+                {showData && status === 'same' ? (
+                  <span
+                    className="gn-data-sync-compare-row__same-count"
+                    data-data-sync-compare-same-count="true"
+                  >
+                    {t('compare.same_rows', { count: summary.same.toLocaleString() })}
+                  </span>
+                ) : null}
               </li>
             );
           })}
         </ul>
       )}
     </section>
+    ) : null}
+    {isCompareWorkbench ? null : (
     <section className="gn-data-sync-checkpoint-panel" data-data-sync-checkpoint="true">
       <h2>{t('checkpoint.title')}</h2>
       {!selectedRunId || !checkpoint ? (
@@ -629,8 +747,10 @@ export const DataSyncRunHistory: React.FC<{
       </button>
       <p>{t('checkpoint.reset_warning')}</p>
     </section>
+    )}
   </section>
-);
+  );
+};
 
 export const DataSyncScheduleView: React.FC<{
   schedules: DataSyncScheduleSummary[];

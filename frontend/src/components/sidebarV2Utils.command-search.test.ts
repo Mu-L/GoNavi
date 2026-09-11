@@ -256,6 +256,82 @@ describe('sidebarV2 command search performance helpers', () => {
     );
   });
 
+  it('matches tables by comment in default and object command search modes', () => {
+    const items: V2CommandSearchItem[] = [
+      {
+        key: 'node-user-table',
+        kind: 'node',
+        title: 'sys_user',
+        meta: 'app',
+        icon: null,
+        node: {
+          type: 'table',
+          key: 'user-table',
+          title: 'sys_user',
+          dataRef: {
+            tableName: 'sys_user',
+            dbName: 'app',
+            tableComment: '系统用户表',
+          },
+        },
+      },
+      {
+        key: 'node-order-table',
+        kind: 'node',
+        title: 't_order',
+        meta: 'app',
+        icon: null,
+        node: {
+          type: 'table',
+          key: 'order-table',
+          title: 't_order',
+          dataRef: {
+            tableName: 't_order',
+            dbName: 'app',
+            tableComment: '订单主表',
+          },
+        },
+      },
+    ];
+
+    const matchedKeys = (query: string) =>
+      filterV2CommandSearchTreeItems(items, parseV2CommandSearchQuery(query)).map((item) => item.key);
+
+    expect(matchedKeys('订单主表')).toEqual(['node-order-table']);
+    expect(matchedKeys('系统用户')).toEqual(['node-user-table']);
+    expect(matchedKeys('@订单主表')).toEqual(['node-order-table']);
+    expect(matchedKeys('order')).toEqual(['node-order-table']);
+  });
+
+  it('matches table comments case-insensitively in object command search mode', () => {
+    const items: V2CommandSearchItem[] = [
+      {
+        key: 'node-user-table',
+        kind: 'node',
+        title: 'sys_user',
+        meta: 'app',
+        icon: null,
+        node: {
+          type: 'table',
+          key: 'user-table',
+          title: 'sys_user',
+          dataRef: {
+            tableName: 'sys_user',
+            dbName: 'app',
+            tableComment: 'User Profile Table',
+          },
+        },
+      },
+    ];
+
+    const matchedKeys = (query: string) =>
+      filterV2CommandSearchTreeItems(items, parseV2CommandSearchQuery(query)).map((item) => item.key);
+
+    expect(matchedKeys('@user profile')).toEqual(['node-user-table']);
+    expect(matchedKeys('@User Profile')).toEqual(['node-user-table']);
+    expect(matchedKeys('user profile')).toEqual(['node-user-table']);
+  });
+
   it('prunes only cold collapsed database trees when too many object trees stay loaded', () => {
     expect(resolveSidebarDatabaseTreePruneKeys({
       treeData: [

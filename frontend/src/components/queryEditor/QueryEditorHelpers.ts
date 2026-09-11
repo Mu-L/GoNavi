@@ -2937,6 +2937,48 @@ export const collectQueryEditorTableReferences = (source: string, dbType = ''): 
     analyzeQueryEditorTableReferences(source, dbType).references
 );
 
+export type QueryEditorExecutionContext = { dbName?: string; schemaName?: string };
+
+/** Resolve the database/schema explicitly named by the SQL, without changing SQL text. */
+export const resolveQueryEditorExecutionContext = (
+    source: string,
+    dialect: string,
+    currentDb = '',
+    currentSchema = '',
+    visibleDbs: string[] = [],
+): QueryEditorExecutionContext => {
+    const normalized = String(resolveSqlDialect(dialect) || dialect || '').toLowerCase();
+    const visible = new Map(visibleDbs.map((name) => [String(name).trim().toLowerCase(), String(name).trim()] as const));
+    const canonical = (name: string) => visible.get(name.toLowerCase()) || name;
+    const result: QueryEditorExecutionContext = {};
+    const masked = maskQueryEditorSqlLiteralsAndComments(String(source || ''), normalized);
+    const useMatch = (isMysqlFamilyDialect(normalized) || ['sqlserver', 'clickhouse', 'tdengine'].includes(normalized))
+        && masked.match(/^\s*use\s+(`[^`]+`|"[^"]+"|\[[^\]]+\]|[A-Za-z0-9_$-]+)/i);
+    if (useMatch) result.dbName = canonical(stripQueryIdentifierQuotesForDialect(useMatch[1], normalized));
+    for (const reference of collectQueryEditorTableReferences(source, normalized)) {
+        const parts = reference.parts.map((part) => String(part || '').trim()).filter(Boolean);
+        if (parts.length < 2) continue;
+        if (normalized === 'sqlserver') {
+            if (parts.length >= 3) result.dbName = canonical(parts[0]);
+        } else if (isPgLikeDialect(normalized)) {
+            if (parts.length >= 3) {
+                result.dbName = canonical(parts[0]);
+                result.schemaName = parts[1];
+            } else if (parts.length === 2) {
+                result.schemaName = parts[0];
+            }
+        } else if (isOracleLikeDialect(normalized)) {
+            result.dbName = canonical(parts[0]);
+        } else if (isMysqlFamilyDialect(normalized) || ['clickhouse', 'tdengine', 'iotdb'].includes(normalized)) {
+            result.dbName = canonical(parts[0]);
+        }
+        if (result.dbName || result.schemaName) break;
+    }
+    if (result.dbName && result.dbName.toLowerCase() === String(currentDb).trim().toLowerCase()) delete result.dbName;
+    if (!result.dbName && result.schemaName === String(currentSchema).trim()) delete result.schemaName;
+    return result;
+};
+
 export const isQueryEditorTableSourceCompletionContext = (source: string, dbType = ''): boolean => (
     analyzeQueryEditorTableReferences(source, dbType).expectsTableSource
 );

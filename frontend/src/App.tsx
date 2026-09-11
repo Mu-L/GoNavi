@@ -35,7 +35,7 @@ import {
   isReleaseNotesRead,
   markReleaseNotesRead,
 } from './utils/updateReleaseNotesReadState';
-import { type DataSyncEntryMode } from './components/dataSyncEntryMode';
+import { normalizeDataSyncEntryMode, type DataSyncEntryModeAlias } from './components/dataSyncEntryMode';
 import LinuxCJKFontBanner from './components/LinuxCJKFontBanner';
 import LogPanel from './components/LogPanel';
 import AIPanelErrorBoundary from './components/ai/AIPanelErrorBoundary';
@@ -51,11 +51,16 @@ import {
   resolveBrandAboutSrc,
   resolveBrandDockSrc,
   resolveBrandIconSrc,
+  resolveBrandIcon,
   setLoadedBrandIconSources,
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
-import { composeMacOSDockIconBase64, shouldSyncApplicationBrandIcon } from './brand/macDockIcon';
+import {
+  composeMacOSDockIconBase64,
+  LEGACY_MASCOT_DOCK_ICON_INSET,
+  shouldSyncApplicationBrandIcon,
+} from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
 import SettingsCenterTreeNav, {
@@ -134,7 +139,7 @@ import {
   normalizeConnectionPackagePassword,
 } from './utils/connectionExport';
 import { downloadBrowserTextFile } from './utils/browserFileTransfer';
-import { buildDataSyncWorkbenchTab } from './utils/dataSyncTab';
+import { buildDataSyncWorkbenchTab, resolveExistingDataSyncWorkbenchTabId } from './utils/dataSyncTab';
 import {
   buildDriverManagerWorkbenchTab,
   DOWNLOAD_SOURCE_CHANGED_EVENT,
@@ -310,6 +315,8 @@ import {
   OpenDataRootDirectory,
   OpenLogDirectory,
   OpenSavedQueryDirectory,
+  PrepareWindowsBrandIconRestart,
+  RestartApplication,
   SelectDataRootDirectory,
   SelectLogDirectory,
   SelectSavedQueryDirectory,
@@ -852,6 +859,7 @@ function App() {
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const [connectionHealthTargetIds, setConnectionHealthTargetIds] = useState<string[]>([]);
   const pendingConnectionTagIdRef = useRef<string | null>(null);
+  const windowsBrandIconRestartSelectionRef = useRef<BrandIconId | null>(null);
   const connectionModalWarmupDoneRef = useRef(false);
   const windowState = useStore(state => state.windowState);
   const themeMode = useStore(state => state.theme);
@@ -888,6 +896,9 @@ function App() {
   const updateShortcut = useStore(state => state.updateShortcut);
   const resetShortcutOptions = useStore(state => state.resetShortcutOptions);
   const [systemThemeMode, setSystemThemeMode] = useState<'light' | 'dark'>(() => getSystemThemeMode());
+  const [runtimePlatform, setRuntimePlatform] = useState('');
+  const [runtimeBuildType, setRuntimeBuildType] = useState('');
+  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const activeCustomTheme = useMemo(
       () => resolveAvailableCustomTheme(customThemes, activeCustomThemeId),
       [activeCustomThemeId, customThemes],
@@ -1033,8 +1044,18 @@ function App() {
           link.setAttribute('data-brand-icon', 'true');
           document.head.appendChild(link);
       }
-      link.type = 'image/svg+xml';
+      // The current ribbon assets are SVG, while the restored 0.9.7 mascot
+      // assets are lossless WebP files. Keep the favicon MIME in sync with
+      // the selected asset so browsers do not discard the mascot icon.
+      link.type = /\.webp(?:[?#]|$)/i.test(href) ? 'image/webp' : 'image/svg+xml';
       link.href = href;
+
+      // Windows Explorer keeps the live taskbar group cached. A user-driven
+      // Windows selection is persisted and applied to existing shortcuts by
+      // the restart-only path below; do not race it with a live window update.
+      if (runtimePlatform === 'windows' && windowsBrandIconRestartSelectionRef.current === brandIconId) {
+          return;
+      }
 
       let cancelled = false;
       const applyNativeIcon = async () => {
@@ -1047,7 +1068,9 @@ function App() {
               // The compact fallback is suitable for UI placeholders, but it
               // must never become the cached Windows taskbar or macOS Dock icon.
               if (!dockHref) return;
-              const b64 = await composeMacOSDockIconBase64(dockHref);
+              const b64 = await composeMacOSDockIconBase64(dockHref, {
+                  inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
+              });
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);
               if (!result.success && !cancelled) {
@@ -1065,13 +1088,13 @@ function App() {
       return () => {
           cancelled = true;
       };
-  }, [brandIconId, t, brandAssetRevision]);
+  }, [brandIconId, brandAssetRevision, runtimePlatform, t]);
 
   useEffect(() => {
       let cancelled = false;
       const loadBrandAssets = async () => {
           const loaded: Partial<Record<BrandIconId, string>> = {};
-          await Promise.all(BRAND_ICONS.map(async (icon) => {
+          await Promise.all(BRAND_ICONS.filter((icon) => !icon.bundled).map(async (icon) => {
               try {
                   const source = await GetBrandIconDataURL(icon.id);
                   if (source) loaded[icon.id] = source;
@@ -1176,9 +1199,6 @@ function App() {
   const effectiveOpacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const effectiveBlur = normalizeBlurForPlatform(resolvedAppearance.blur);
   const blurFilter = blurToFilter(effectiveBlur);
-  const [runtimePlatform, setRuntimePlatform] = useState('');
-  const [runtimeBuildType, setRuntimeBuildType] = useState('');
-  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const isWebRuntime = runtimeBuildType === 'web'
     || (typeof window !== 'undefined' && (window as any).__GONAVI_WEB_RUNTIME__?.buildType === 'web');
   const [installedFontFamilies, setInstalledFontFamilies] = useState<InstalledFontFamily[]>(EMPTY_INSTALLED_FONT_FAMILIES);
@@ -3308,6 +3328,14 @@ function App() {
       }
   }, [t]);
 
+  const restartApplication = useCallback(async (): Promise<boolean> => {
+      const res = await RestartApplication();
+      if (res && res.success === false) {
+          throw new Error(res.message || t('common.unknown'));
+      }
+      return true;
+  }, [t]);
+
   const handleApplicationQuitRequest = useCallback(async (
       confirmedAction?: ApplicationQuitConfirmedAction,
       cancelledAction?: () => void,
@@ -3457,6 +3485,52 @@ function App() {
           applicationQuitConfirmRef.current = confirmRef;
       });
   }, [applicationQuitModalZIndex, ensureSavedQueriesLoaded, forceQuitApplication, resetApplicationQuitRequest, saveQuery, t]);
+
+  const handleBrandIconChange = useCallback(async (id: BrandIconId) => {
+      if (id === brandIconId) return;
+      const previousId = brandIconId;
+      if (runtimePlatform !== 'windows') {
+          setBrandIconId(id);
+          message.success(t('app.settings.entry.brand_icon.applied'));
+          return;
+      }
+
+      // Windows applies the new ICO to existing shortcuts in place. The
+      // running taskbar group is intentionally left alone until restart.
+      windowsBrandIconRestartSelectionRef.current = id;
+      setBrandIconId(id);
+      try {
+          const source = resolveBrandDockSrc(id) || resolveBrandIconSrc(id);
+          if (!source) {
+              throw new Error('selected brand icon source is unavailable');
+          }
+          const b64 = await composeMacOSDockIconBase64(source, {
+              inset: resolveBrandIcon(id).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
+          });
+          const result = await PrepareWindowsBrandIconRestart(b64);
+          if (!result || result.success === false) {
+              throw new Error(result?.message || 'Windows shortcut icon update failed');
+          }
+          message.success(t('app.settings.entry.brand_icon.applied'));
+          Modal.confirm({
+              title: t('app.settings.entry.brand_icon.windows_restart.title'),
+              content: t('app.settings.entry.brand_icon.windows_restart.description'),
+              okText: t('app.settings.entry.brand_icon.windows_restart.now'),
+              cancelText: t('app.settings.entry.brand_icon.windows_restart.later'),
+              centered: true,
+              maskClosable: false,
+              zIndex: applicationQuitModalZIndex,
+              onOk: () => { void handleApplicationQuitRequest(restartApplication); },
+          });
+      } catch (error) {
+          if (windowsBrandIconRestartSelectionRef.current === id) {
+              windowsBrandIconRestartSelectionRef.current = null;
+          }
+          setBrandIconId(previousId);
+          console.warn('Failed to prepare Windows brand icon restart:', error);
+          message.error(t('app.settings.entry.brand_icon.native_sync_failed'));
+      }
+  }, [applicationQuitModalZIndex, brandIconId, handleApplicationQuitRequest, restartApplication, runtimePlatform, setBrandIconId, t]);
 
   const handleInstallUpdateRequest = useCallback(async () => {
       let pendingCloseInstanceCount: number | null = null;
@@ -4312,8 +4386,14 @@ function App() {
           finalizeSecurityRepairReturnFromAISettings();
       }
   }), [activeSettingsCenterPane?.key, closeConnectionPackageDialog, closeSettingsCenterWorkbenchTab, finalizeSecurityRepairReturnFromAISettings]);
-  const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryMode) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
-      addTab(buildDataSyncWorkbenchTab({ entryMode }));
+  const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryModeAlias) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
+      const normalized = normalizeDataSyncEntryMode(entryMode);
+      const nextTab = buildDataSyncWorkbenchTab({ entryMode: normalized });
+      const existingId = resolveExistingDataSyncWorkbenchTabId(
+          normalized,
+          useStore.getState().tabs,
+      );
+      addTab(existingId ? { ...nextTab, id: existingId } : nextTab);
   }), [addTab]);
   const isSettingsAboutPaneOpen = isSettingsModalOpen && activeSettingsCenterPane?.key === 'about-go-navi';
   const wasSettingsCenterTabOpenRef = useRef(false);
@@ -4381,7 +4461,7 @@ function App() {
   const handleTitleBarSettingsNavigation = useCallback((spec: {
     group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
     pane?: string;
-    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'drivers' | 'sql-audit';
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'compare' | 'sync' | 'drivers' | 'sql-audit';
   }) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       if (spec.action === 'import-connections') {
           handleOpenToolCenterPane('config', 'import');
@@ -4391,12 +4471,12 @@ function App() {
           void handleExportConnections('config');
           return;
       }
-      if (spec.action === 'schema-compare') {
-          handleOpenDataSyncWorkbench('schemaCompare');
-          return;
-      }
-      if (spec.action === 'data-compare') {
-          handleOpenDataSyncWorkbench('dataCompare');
+      if (
+          spec.action === 'compare' ||
+          spec.action === 'schema-compare' ||
+          spec.action === 'data-compare'
+      ) {
+          handleOpenDataSyncWorkbench('compare');
           return;
       }
       if (spec.action === 'sync') {
@@ -7999,10 +8079,7 @@ function App() {
                     darkMode={darkMode}
                     accentColor={overlayTheme.selectedText}
                     ariaLabel={t('app.settings.entry.brand_icon.title')}
-                    onChange={(id: BrandIconId) => {
-                        setBrandIconId(id);
-                        message.success(t('app.settings.entry.brand_icon.applied'));
-                    }}
+                    onChange={handleBrandIconChange}
                   />
               </div>
           );
@@ -8679,30 +8756,21 @@ function App() {
                 description: t('app.tools.group.workflow.description'),
                 items: [
                   {
-                    key: 'schema-compare',
-                    icon: <AppstoreOutlined />,
-                    title: t('app.tools.entry.schema_compare.title'),
-                    description: t('app.tools.entry.schema_compare.description'),
-                    onClick: () => {
-                      handleOpenDataSyncWorkbench('schemaCompare');
-                    },
-                  },
-                  {
-                    key: 'data-compare',
-                    icon: <SwitcherOutlined />,
-                    title: t('app.tools.entry.data_compare.title'),
-                    description: t('app.tools.entry.data_compare.description'),
-                    onClick: () => {
-                      handleOpenDataSyncWorkbench('dataCompare');
-                    },
-                  },
-                  {
                     key: 'sync',
                     icon: <UploadOutlined rotate={90} />,
                     title: t('app.tools.entry.sync.title'),
                     description: t('app.tools.entry.sync.description'),
                     onClick: () => {
                       handleOpenDataSyncWorkbench('sync');
+                    },
+                  },
+                  {
+                    key: 'compare',
+                    icon: <SwitcherOutlined />,
+                    title: t('app.tools.entry.compare.title'),
+                    description: t('app.tools.entry.compare.description'),
+                    onClick: () => {
+                      handleOpenDataSyncWorkbench('compare');
                     },
                   },
                 ],

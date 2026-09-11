@@ -1136,10 +1136,10 @@ describe('Sidebar locate toolbar', () => {
 
     expect(actionsSource).toContain("key: 'data-workflow'");
     expect(actionsSource).toContain('label: v2DataWorkflowLabel');
-    expect(actionsSource).toContain("key: 'schema-compare'");
-    expect(actionsSource).toContain("action: 'schema-compare'");
-    expect(actionsSource).toContain("key: 'data-compare'");
-    expect(actionsSource).toContain("action: 'data-compare'");
+    expect(actionsSource).toContain("key: 'compare'");
+    expect(actionsSource).toContain("action: 'compare'");
+    expect(actionsSource).not.toContain("key: 'schema-compare'");
+    expect(actionsSource).not.toContain("key: 'data-compare'");
     expect(actionsSource).toContain("key: 'sync'");
     expect(actionsSource).toContain("action: 'sync'");
     expect(actionsSource).not.toContain("key: 'batch-actions'");
@@ -1223,10 +1223,10 @@ describe('Sidebar locate toolbar', () => {
     expect(source).toContain("app.tools.group.workflow.title");
     expect(source).toContain("key: 'sql-tools'");
     expect(source).toContain("sidebar.action.sql_tools");
-    expect(source).toContain("key: 'schema-compare'");
-    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' })");
-    expect(source).toContain("key: 'data-compare'");
-    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' })");
+    expect(source).toContain("key: 'compare'");
+    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'compare' })");
+    expect(source).not.toContain("key: 'schema-compare'");
+    expect(source).not.toContain("key: 'data-compare'");
     expect(source).toContain("key: 'sync'");
     expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' })");
     expect(source).toContain('showObjectActions: false');
@@ -2297,6 +2297,7 @@ describe('Sidebar locate toolbar', () => {
           engine: 'InnoDB',
         }}
         supportsTruncate
+        supportsClear
       />,
     );
 
@@ -2332,8 +2333,20 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('用 AI 解释这张表');
     expect(markup).toContain('用 AI 生成查询');
     expect(markup).toContain('截断表 · TRUNCATE');
+    expect(markup).toContain('清空表 · DELETE');
     expect(markup).toContain('删除表 · DROP');
-    expect(markup).not.toContain('清空表');
+  });
+
+  it('hides clear-table when the caller marks the database as unsupported', () => {
+    const unsupportedMarkup = renderToStaticMarkup(
+      <V2TableContextMenuView tableName="search-index" supportsClear={false} />,
+    );
+    const supportedMarkup = renderToStaticMarkup(
+      <V2TableContextMenuView tableName="orders" supportsClear />,
+    );
+
+    expect(unsupportedMarkup).not.toContain('清空表');
+    expect(supportedMarkup).toContain('清空表 · DELETE');
   });
 
   it('renders the v2 table context menu pinned state', () => {
@@ -2795,12 +2808,14 @@ describe('Sidebar locate toolbar', () => {
     setCurrentLanguage('en-US');
 
     const markup = renderToStaticMarkup(
-      <V2TableContextMenuView tableName="t1" supportsTruncate />,
+      <V2TableContextMenuView tableName="t1" supportsTruncate supportsClear />,
     );
 
     expect(markup).toContain('Truncate table · TRUNCATE');
+    expect(markup).toContain('Clear table · DELETE');
     expect(markup).toContain('Delete table · DROP');
     expect(markup).toContain('TRUNCATE');
+    expect(markup).toContain('DELETE');
     expect(markup).toContain('DROP');
     expect(markup).not.toContain('截断表 · TRUNCATE');
     expect(markup).not.toContain('删除表 · DROP');

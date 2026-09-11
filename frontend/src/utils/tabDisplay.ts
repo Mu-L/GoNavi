@@ -537,7 +537,13 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'table-overview') return 'DB';
   if (tab.type === 'table-export') return 'EXPORT';
   if (tab.type === 'data-import') return 'IMPORT';
-  if (tab.type === 'data-sync') return 'SYNC';
+  if (tab.type === 'data-sync') {
+    return tab.dataSyncEntryMode === 'compare' ||
+      tab.dataSyncEntryMode === 'schemaCompare' ||
+      tab.dataSyncEntryMode === 'dataCompare'
+      ? 'COMPARE'
+      : 'SYNC';
+  }
   if (tab.type === 'sql-analysis') return 'ANALYZE';
   if (tab.type === 'sql-audit') return 'AUDIT';
   if (tab.type === 'driver-manager') return 'DRIVER';

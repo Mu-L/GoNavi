@@ -85,7 +85,15 @@ const getTabKindLabel = (tab: TabData): string => {
   if (tab.type === 'table-overview') return t('tab_manager.kind_badge.table_overview');
   if (tab.type === 'table-export') return t('tab_manager.kind_badge.table_export');
   if (tab.type === 'data-import') return t('tab_manager.kind_badge.data_import');
-  if (tab.type === 'data-sync') return t('app.tools.entry.sync.title');
+  if (tab.type === 'data-sync') {
+    return t(
+      tab.dataSyncEntryMode === 'compare' ||
+        tab.dataSyncEntryMode === 'schemaCompare' ||
+        tab.dataSyncEntryMode === 'dataCompare'
+        ? 'app.tools.entry.compare.title'
+        : 'app.tools.entry.sync.title',
+    );
+  }
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
@@ -332,7 +340,15 @@ const getTabKindTooltipLabel = (tab: TabData): string => {
   if (tab.type === 'table-overview') return t('tab_manager.hover.kind.table_overview');
   if (tab.type === 'table-export') return t('tab_manager.hover.kind.table_export');
   if (tab.type === 'data-import') return t('tab_manager.hover.kind.data_import');
-  if (tab.type === 'data-sync') return t('app.tools.entry.sync.title');
+  if (tab.type === 'data-sync') {
+    return t(
+      tab.dataSyncEntryMode === 'compare' ||
+        tab.dataSyncEntryMode === 'schemaCompare' ||
+        tab.dataSyncEntryMode === 'dataCompare'
+        ? 'app.tools.entry.compare.title'
+        : 'app.tools.entry.sync.title',
+    );
+  }
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.hover.kind.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.hover.kind.sql_audit');

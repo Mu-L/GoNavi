@@ -89,6 +89,10 @@ func main() {
 	// 会导致 RSS 单调爬升到峰值后不下降。这里收紧到 50，让 GC 更早触发。
 	// 代价是 CPU 开销略增，但导出/导入场景属 I/O 密集型，GC 开销可忽略。
 	debug.SetGCPercent(50)
+	if err := waitForWindowsRestartParent(os.Args[1:]); err != nil {
+		logger.Errorf("等待旧 GoNavi 进程退出失败：%v", err)
+		return
+	}
 
 	executablePath, executableErr := os.Executable()
 	if executableErr == nil {

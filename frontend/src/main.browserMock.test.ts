@@ -187,6 +187,19 @@ describe('main browser mock', () => {
     const sources = await Promise.all(['01', '02', '03', '04', '05', '06'].map((id) => app!.GetBrandIconDataURL(id)));
     expect(new Set(sources).size).toBe(6);
     expect(sources.every((source) => source.startsWith('https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/'))).toBe(true);
+    const bundledSources = await Promise.all(['07', '08', '09', '10', '11', '12', '13', '14', '15', '16'].map((id) => app!.GetBrandIconDataURL(id)));
+    expect(bundledSources).toEqual([
+      '/brand-icons/07-database-hug.webp',
+      '/brand-icons/08-database-search.webp',
+      '/brand-icons/09-bandana-badge.webp',
+      '/brand-icons/10-magnifier-wink.webp',
+      '/brand-icons/11-window-peek.webp',
+      '/brand-icons/12-hex-collar.webp',
+      '/brand-icons/13-graph-sit.webp',
+      '/brand-icons/14-cloud-banner.webp',
+      '/brand-icons/15-terminal-sit.webp',
+      '/brand-icons/16-compass-bandana.webp',
+    ]);
     await expect(app!.GetBrandIconDataURL('unknown')).resolves.toBe('');
     await expect((globalThis as any).window.runtime.Environment()).resolves.toMatchObject({
       platform: 'browser',

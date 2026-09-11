@@ -28,6 +28,7 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
     >
       {BRAND_ICONS.map((item, itemIndex) => {
         const active = value === item.id;
+        const usesBundledPreview = item.bundled === true;
         return (
           <button
             key={item.id}
@@ -72,7 +73,7 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
               textAlign: 'left',
             }}
           >
-            {/* The preview uses the same lossless source as every app surface. */}
+            {/* Keep legacy mascot previews on the lossless 0.9.7 artwork. */}
             <div
               style={{
                 width: 56,
@@ -81,9 +82,9 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'transparent',
-                border: 'none',
-                borderRadius: 12,
+                background: usesBundledPreview ? '#fff' : 'transparent',
+                border: usesBundledPreview ? `1px solid ${border}` : 'none',
+                borderRadius: usesBundledPreview ? 6 : 12,
                 overflow: 'hidden',
                 boxShadow: 'none',
               }}
@@ -92,9 +93,11 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 src={resolveBrandIconSrc(item.id)}
                 alt={item.titleZh}
                 style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: usesBundledPreview ? 'auto' : '100%',
+                  height: usesBundledPreview ? 'auto' : '100%',
+                  objectFit: usesBundledPreview ? 'contain' : 'cover',
                   display: 'block',
                 }}
                 draggable={false}

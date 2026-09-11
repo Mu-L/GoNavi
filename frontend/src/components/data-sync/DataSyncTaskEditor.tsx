@@ -12,7 +12,7 @@ import {
   createDataSyncTableMapping,
   canUseDataSyncRowErrorIsolation,
   clearDataSyncTargetModeExplicitMarks,
-  DATA_SYNC_TASK_STAGES,
+  dataSyncTaskStages,
   migrationAllowTargetCreate,
   repairMigrationTargetModes,
   validateDataSyncTask,
@@ -29,6 +29,7 @@ import {
   type DataSyncSavedConnectionView,
 } from './model';
 import {
+  dataSyncStageTextKey,
   dataSyncValidationIssueText,
   type DataSyncWorkbenchTranslate,
 } from './text';
@@ -278,7 +279,11 @@ const EndpointStage: React.FC<{
         disabled={!canContinue}
         onClick={onContinue}
       >
-        <span>{t('workbench.next_step', { stage: t('stage.mappings') })}</span>
+        <span>
+          {t('workbench.next_step', {
+            stage: t(dataSyncStageTextKey('mappings', task.kind, task.compareMode)),
+          })}
+        </span>
       </button>
     </div>
   </section>
@@ -324,7 +329,6 @@ const DeliveryStage: React.FC<{
 }> = ({ task, capability, t, onPatch }) => {
   const patchDelivery = (patch: Partial<DataSyncDeliveryPolicy>) =>
     onPatch({ delivery: { ...task.delivery, ...patch } });
-  const readOnly = task.kind === 'compare';
   const routeCanWrite =
     capability.level === 'unknown' ||
     (capability.canExecute &&
@@ -399,7 +403,7 @@ const DeliveryStage: React.FC<{
   useEffect(() => {
     const patch: Partial<DataSyncDeliveryPolicy> = {};
     const effectiveErrorPolicy =
-      readOnly || !rowIsolationAvailable ? 'stop' : task.delivery.errorPolicy;
+      !rowIsolationAvailable ? 'stop' : task.delivery.errorPolicy;
 
     if (task.delivery.errorPolicy !== effectiveErrorPolicy) {
       patch.errorPolicy = effectiveErrorPolicy;
@@ -446,7 +450,6 @@ const DeliveryStage: React.FC<{
     appendOnlyTarget,
     hasConfiguredMappings,
     onPatch,
-    readOnly,
     rowIsolationAvailable,
     structureCapabilityResolved,
     task.delivery.autoAddColumns,
@@ -457,47 +460,6 @@ const DeliveryStage: React.FC<{
     task.delivery.writeMode,
     task.resumePolicy,
   ]);
-
-  if (readOnly) {
-    return (
-      <section className="gn-data-sync-section" data-data-sync-delivery="true">
-        <header className="gn-data-sync-section__header">
-          <div>
-            <h2>{t('delivery.title')}</h2>
-            <p>{t('delivery.help')}</p>
-          </div>
-        </header>
-        <div
-          className="gn-data-sync-delivery-main"
-          data-data-sync-compare-mode="true"
-        >
-          <Field label={t('compare.mode.title')}>
-            <select
-              className="gn-data-sync-control"
-              value={task.compareMode || 'data'}
-              onChange={(event) =>
-                onPatch({
-                  compareMode: event.target
-                    .value as DataSyncTaskDefinition['compareMode'],
-                })
-              }
-            >
-              <option value="data">{t('compare.mode.data')}</option>
-              <option value="schema">{t('compare.mode.schema')}</option>
-              <option value="both">{t('compare.mode.both')}</option>
-            </select>
-          </Field>
-          <p className="gn-data-sync-inline-note" role="note">
-            {t('compare.mode.help')}
-          </p>
-        </div>
-        <div className="gn-data-sync-readonly-note" role="note">
-          <strong>{t('delivery.read_only_title')}</strong>
-          <span>{t('delivery.read_only_note')}</span>
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section className="gn-data-sync-section" data-data-sync-delivery="true">
@@ -613,7 +575,7 @@ const DeliveryStage: React.FC<{
               ))}
           </div>
         </div>
-        {!rowIsolationAvailable && !readOnly ? (
+        {!rowIsolationAvailable ? (
           <p className="gn-data-sync-inline-note" role="note">
             {t('delivery.row_isolation_note')}
           </p>
@@ -1241,6 +1203,7 @@ export const DataSyncTaskEditor: React.FC<{
   onStageChange,
   onPatch,
 }) => {
+  const stages = dataSyncTaskStages(task.kind);
   const sourceObjects = useDataSyncObjects(gateway, task.source);
   const targetObjects = useDataSyncObjects(gateway, task.target);
   const navigationIssues =
@@ -1616,18 +1579,18 @@ export const DataSyncTaskEditor: React.FC<{
   ) => {
     const targetIndex =
       event.key === 'ArrowRight'
-        ? Math.min(DATA_SYNC_TASK_STAGES.length - 1, currentIndex + 1)
+        ? Math.min(stages.length - 1, currentIndex + 1)
         : event.key === 'ArrowLeft'
           ? Math.max(0, currentIndex - 1)
           : event.key === 'Home'
             ? 0
             : event.key === 'End'
-              ? DATA_SYNC_TASK_STAGES.length - 1
+              ? stages.length - 1
               : -1;
     if (targetIndex < 0) return;
 
     event.preventDefault();
-    const targetStage = DATA_SYNC_TASK_STAGES[targetIndex];
+    const targetStage = stages[targetIndex];
     onStageChange(targetStage);
     stageNavRef.current
       ?.querySelector<HTMLButtonElement>(`button[data-stage="${targetStage}"]`)
@@ -1641,11 +1604,11 @@ export const DataSyncTaskEditor: React.FC<{
       className="gn-data-sync-stage-nav"
       aria-label={t('workbench.task_steps')}
     >
-      {DATA_SYNC_TASK_STAGES.map((stage, index) => {
+      {stages.map((stage, index) => {
         const issues = navigationIssues.filter((issue) => issue.stage === stage);
         const blockers = issues.filter((issue) => issue.severity === 'blocker').length;
         const warnings = issues.filter((issue) => issue.severity === 'warning').length;
-        const isFutureStage = index > DATA_SYNC_TASK_STAGES.indexOf(activeStage);
+        const isFutureStage = index > stages.indexOf(activeStage);
         const status =
           stage === 'preflight'
             ? preflightStale
@@ -1684,7 +1647,7 @@ export const DataSyncTaskEditor: React.FC<{
             data-active={stage === activeStage ? 'true' : 'false'}
             data-status={status}
             aria-current={stage === activeStage ? 'step' : undefined}
-            aria-label={`${t(`stage.${stage}`)} · ${statusLabel}`}
+            aria-label={`${t(dataSyncStageTextKey(stage, task.kind, task.compareMode))} · ${statusLabel}`}
             title={statusLabel}
             onClick={() => onStageChange(stage)}
             onKeyDown={(event) => moveStageFromKeyboard(event, index)}
@@ -1694,7 +1657,7 @@ export const DataSyncTaskEditor: React.FC<{
             </span>
             <span className="gn-data-sync-stage-nav__label">
               <span className="gn-data-sync-stage-nav__label-full">
-                {t(`stage.${stage}`)}
+                {t(dataSyncStageTextKey(stage, task.kind, task.compareMode))}
               </span>
               <span className="gn-data-sync-stage-nav__label-short" aria-hidden="true">
                 {t(`stage_short.${stage}`)}
@@ -1714,6 +1677,7 @@ export const DataSyncTaskEditor: React.FC<{
           target={task.target}
           capability={capability}
           t={t}
+          compare={task.kind === 'compare'}
           onEditEndpoints={editEndpoints}
         />
       ) : null}
@@ -1729,6 +1693,18 @@ export const DataSyncTaskEditor: React.FC<{
       ) : null}
       {activeStage === 'mappings' ? (
         <>
+          {/* Compare tasks never reach a delivery stage, so the read-only
+              contract is repeated where the objects are picked. */}
+          {task.kind === 'compare' ? (
+            <div
+              className="gn-data-sync-readonly-note"
+              role="note"
+              data-data-sync-compare-readonly="true"
+            >
+              <strong>{t('delivery.read_only_title')}</strong>
+              <span>{t('delivery.read_only_note')}</span>
+            </div>
+          ) : null}
           {mappingProbe?.taskId === task.id ? (
             <div
               className="gn-data-sync-mapping-probe"
@@ -1757,6 +1733,7 @@ export const DataSyncTaskEditor: React.FC<{
             key={task.id}
             mappings={task.mappings}
             taskKind={task.kind}
+            compareMode={task.compareMode}
             sourceObjects={sourceObjects}
             targetObjects={targetObjects}
             endpointsReady={Boolean(
@@ -1781,6 +1758,12 @@ export const DataSyncTaskEditor: React.FC<{
                 mappings: task.mappings.filter((mapping) => mapping.id !== mappingId),
               })
             }
+            onRemoveMany={(mappingIds) => {
+              const removed = new Set(mappingIds);
+              onPatch({
+                mappings: task.mappings.filter((mapping) => !removed.has(mapping.id)),
+              });
+            }}
             onInspectFields={setInspectedMappingId}
           />
           {inspectedMapping ? (
@@ -1796,7 +1779,7 @@ export const DataSyncTaskEditor: React.FC<{
           ) : null}
         </>
       ) : null}
-      {activeStage === 'delivery' ? (
+      {activeStage === 'delivery' && task.kind !== 'compare' ? (
         <DeliveryStage
           task={task}
           capability={capability}
@@ -1804,7 +1787,7 @@ export const DataSyncTaskEditor: React.FC<{
           onPatch={onPatch}
         />
       ) : null}
-      {activeStage === 'trigger' ? (
+      {activeStage === 'trigger' && task.kind !== 'compare' ? (
         <TriggerStage
           task={task}
           gateway={gateway}
@@ -1813,7 +1796,7 @@ export const DataSyncTaskEditor: React.FC<{
           onPatch={onPatch}
         />
       ) : null}
-      {activeStage === 'preflight' ? (
+      {activeStage === 'preflight' && task.kind !== 'compare' ? (
         preflightContent || (
           <PreflightStage
             task={task}

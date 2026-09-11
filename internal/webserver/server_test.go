@@ -355,7 +355,7 @@ func TestMethodInvokerRejectsDesktopOnlyAppMethodsBeforeReflection(t *testing.T)
 		"Shutdown", "ExportSQLAuditFile", "OpenSQLFile", "ExecuteSQLFile", "ReadSQLFile",
 		"ImportData", "GetDataRootDirectoryInfo",
 		"ApplyDataRootDirectory", "OpenDataRootDirectory", "SelectLogDirectory", "ApplyLogDirectory", "OpenLogDirectory",
-		"SelectSavedQueryDirectory", "ApplySavedQueryDirectory", "OpenSavedQueryDirectory", "RevealSavedQueryInFolder", "SetApplicationBrandIcon",
+		"SelectSavedQueryDirectory", "ApplySavedQueryDirectory", "OpenSavedQueryDirectory", "RevealSavedQueryInFolder", "SetApplicationBrandIcon", "PrepareWindowsBrandIconRestart", "RestartApplication",
 		"RefreshWebViewBounds", "RevealSavedConnectionPrimaryPassword",
 	} {
 		_, err := invoker.Invoke(context.Background(), invokeRequest{Namespace: "app", Receiver: "app", Method: method})

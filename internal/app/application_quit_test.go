@@ -75,6 +75,62 @@ func TestForceQuitApplicationAllowsNextCloseRequest(t *testing.T) {
 	}
 }
 
+func TestRestartApplicationStartsChildBeforeQuitting(t *testing.T) {
+	originalEmit := emitApplicationBeforeCloseRequest
+	originalQuit := quitApplicationRuntime
+	originalRestart := restartApplicationProcessFunc
+	t.Cleanup(func() {
+		emitApplicationBeforeCloseRequest = originalEmit
+		quitApplicationRuntime = originalQuit
+		restartApplicationProcessFunc = originalRestart
+	})
+
+	emitApplicationBeforeCloseRequest = func(context.Context, string, ...interface{}) {}
+	quitCalls := 0
+	quitApplicationRuntime = func(context.Context) { quitCalls++ }
+	restartCalls := 0
+	restartApplicationProcessFunc = func() error {
+		restartCalls++
+		return nil
+	}
+
+	app := NewAppWithSecretStore(nil)
+	app.ctx = context.Background()
+	result := app.RestartApplication()
+	if !result.Success {
+		t.Fatalf("expected restart success, got %#v", result)
+	}
+	if restartCalls != 1 || quitCalls != 1 {
+		t.Fatalf("restart/quit calls = %d/%d, want 1/1", restartCalls, quitCalls)
+	}
+	if prevent := NewBeforeCloseHandler(app)(context.Background()); prevent {
+		t.Fatal("expected next close request to be allowed after restart")
+	}
+}
+
+func TestRestartApplicationDoesNotQuitWhenChildLaunchFails(t *testing.T) {
+	originalQuit := quitApplicationRuntime
+	originalRestart := restartApplicationProcessFunc
+	t.Cleanup(func() {
+		quitApplicationRuntime = originalQuit
+		restartApplicationProcessFunc = originalRestart
+	})
+
+	quitCalls := 0
+	quitApplicationRuntime = func(context.Context) { quitCalls++ }
+	restartApplicationProcessFunc = func() error { return context.Canceled }
+
+	app := NewAppWithSecretStore(nil)
+	app.ctx = context.Background()
+	result := app.RestartApplication()
+	if result.Success {
+		t.Fatalf("expected restart failure, got %#v", result)
+	}
+	if quitCalls != 0 {
+		t.Fatalf("runtime quit calls = %d, want 0", quitCalls)
+	}
+}
+
 func TestInstallUpdateAndRestartAllowsGuardedCloseBeforeFallbackExit(t *testing.T) {
 	originalEmit := emitApplicationBeforeCloseRequest
 	originalQuit := quitApplicationRuntime

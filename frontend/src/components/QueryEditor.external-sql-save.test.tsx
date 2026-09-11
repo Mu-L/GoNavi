@@ -16001,6 +16001,22 @@ WHERE GRANTEE = 'APPUSER';`;
     expect(messageApi.warning).not.toHaveBeenCalled();
   });
 
+  it('switches the database before executing a qualified SQL Server table without editing SQL', async () => {
+    storeState.connections[0].config.type = 'sqlserver';
+    storeState.queryOptions.maxRows = 0;
+    const sql = 'SELECT * FROM ZODO_Hmi.dbo.HmiFirstInspectOperate';
+    backendApp.DBQueryMulti.mockResolvedValue({ success: true, data: [] });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'main', query: sql })} />);
+    });
+    await act(async () => { await findButton(renderer!, '运行').props.onClick(); });
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(expect.anything(), 'ZODO_Hmi', expect.stringContaining(sql), 'query-1');
+    expect(storeState.setActiveContext).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'ZODO_Hmi' });
+    expect(storeState.updateQueryTabDraft).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ dbName: 'ZODO_Hmi' }));
+    expect(editorState.value).toBe(sql);
+  });
+
   it('runs the SQL statement at the cursor instead of the whole editor when nothing is selected', async () => {
     backendApp.DBQueryMulti.mockResolvedValueOnce({
       success: true,

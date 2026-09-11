@@ -6,13 +6,20 @@ export interface DataGridClipboardPayload {
   json?: string;
 }
 
+export type DataGridClipboardCell = string | null;
+
+export const DATA_GRID_IN_APP_HTML_ATTR = 'data-gonavi-clipboard';
+export const DATA_GRID_IN_APP_NULL_ATTR = 'data-gonavi-null';
+export const DATA_GRID_IN_APP_JSON_MARKER = 'gonaviGrid';
+
 export interface BuildTabularClipboardPayloadInput {
   columns?: string[];
-  rows: string[][];
+  rows: DataGridClipboardCell[][];
   jsonRows?: Array<Record<string, unknown>>;
+  preserveCellTypes?: boolean;
 }
 
-type ClipboardWriter = Pick<Clipboard, 'write' | 'writeText'>;
+type ClipboardWriter = Partial<Pick<Clipboard, 'write' | 'writeText'>>;
 
 type ClipboardDataWriter = Pick<DataTransfer, 'clearData' | 'setData'>;
 
@@ -21,15 +28,24 @@ export interface ClipboardEventLike {
   preventDefault?: () => void;
 }
 
-const normalizeClipboardMatrixCell = (value: unknown): string => (
-  value === null || value === undefined ? '' : String(value)
+export const buildDataGridInAppClipboardJson = (values: DataGridClipboardCell[][]): string => (
+  JSON.stringify({ [DATA_GRID_IN_APP_JSON_MARKER]: 1, values })
 );
 
-const normalizePlainTextMatrixCell = (value: unknown): string => (
-  normalizeClipboardMatrixCell(value)
-    .replace(/\r\n/g, '\n')
-    .replace(/[\t\n\r]+/g, ' ')
+const normalizeClipboardMatrixCell = (value: unknown, nullToken = ''): string => (
+  value === null || value === undefined ? nullToken : String(value)
 );
+
+const formatPlainTextMatrixCell = (value: unknown, preserveCellTypes: boolean): string => {
+  if (value === null || value === undefined) {
+    return preserveCellTypes ? 'NULL' : '';
+  }
+  const text = String(value).replace(/\r\n/g, '\n').replace(/[\t\n\r]+/g, ' ');
+  if (preserveCellTypes && (text === 'NULL' || text.startsWith('"'))) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+};
 
 const escapeHtml = (value: string): string => (
   value
@@ -42,30 +58,57 @@ const escapeHtml = (value: string): string => (
 
 const escapeCsvCell = (value: string): string => `"${value.replace(/"/g, '""')}"`;
 
-const buildDelimitedText = (rows: string[][], delimiter: string, columns?: string[]): string => {
-  const matrix = columns ? [columns, ...rows] : rows;
-  return matrix.map((row) => row.map(normalizePlainTextMatrixCell).join(delimiter)).join('\n');
+const renderHtmlCell = (cell: unknown, preserveCellTypes: boolean, tag: 'td' | 'th'): string => {
+  if (preserveCellTypes && (cell === null || cell === undefined)) {
+    return `<${tag} ${DATA_GRID_IN_APP_NULL_ATTR}="true">NULL</${tag}>`;
+  }
+  return `<${tag}>${escapeHtml(normalizeClipboardMatrixCell(cell))}</${tag}>`;
 };
 
-const buildCsvText = (rows: string[][], columns?: string[]): string => {
+const buildDelimitedText = (
+  rows: DataGridClipboardCell[][],
+  delimiter: string,
+  columns?: string[],
+  preserveCellTypes = false,
+): string => {
   const matrix = columns ? [columns, ...rows] : rows;
-  return matrix.map((row) => row.map((cell) => escapeCsvCell(normalizeClipboardMatrixCell(cell))).join(',')).join('\n');
+  return matrix.map((row) => row.map((cell) => formatPlainTextMatrixCell(cell, preserveCellTypes)).join(delimiter)).join('\n');
 };
 
-const buildHtmlTable = (rows: string[][], columns?: string[]): string => {
+const buildCsvText = (
+  rows: DataGridClipboardCell[][],
+  columns?: string[],
+  preserveCellTypes = false,
+): string => {
+  const nullToken = preserveCellTypes ? 'NULL' : '';
+  const matrix = columns ? [columns, ...rows] : rows;
+  return matrix.map((row) => row.map((cell) => escapeCsvCell(normalizeClipboardMatrixCell(cell, nullToken))).join(',')).join('\n');
+};
+
+const buildHtmlTable = (
+  rows: DataGridClipboardCell[][],
+  columns?: string[],
+  preserveCellTypes = false,
+): string => {
+  const tableAttr = preserveCellTypes ? ` ${DATA_GRID_IN_APP_HTML_ATTR}="true"` : '';
   const header = columns && columns.length > 0
-    ? `<thead><tr>${columns.map((column) => `<th>${escapeHtml(normalizeClipboardMatrixCell(column))}</th>`).join('')}</tr></thead>`
+    ? `<thead><tr>${columns.map((column) => renderHtmlCell(column, false, 'th')).join('')}</tr></thead>`
     : '';
   const body = rows.map((row) => (
-    `<tr>${row.map((cell) => `<td>${escapeHtml(normalizeClipboardMatrixCell(cell))}</td>`).join('')}</tr>`
+    `<tr>${row.map((cell) => renderHtmlCell(cell, preserveCellTypes, 'td')).join('')}</tr>`
   )).join('');
-  return `<meta charset="utf-8"><table>${header}<tbody>${body}</tbody></table>`;
+  return `<meta charset="utf-8"><table${tableAttr}>${header}<tbody>${body}</tbody></table>`;
 };
 
-const buildMarkdownText = (rows: string[][], columns?: string[]): string => {
+const buildMarkdownText = (
+  rows: DataGridClipboardCell[][],
+  columns?: string[],
+  preserveCellTypes = false,
+): string => {
   if (!columns || columns.length === 0) return '';
-  const escapeMarkdownCell = (value: string): string => (
-    normalizeClipboardMatrixCell(value)
+  const nullToken = preserveCellTypes ? 'NULL' : '';
+  const escapeMarkdownCell = (value: unknown): string => (
+    normalizeClipboardMatrixCell(value, nullToken)
       .replace(/\|/g, '\\|')
       .replace(/\r?\n/g, ' ')
   );
@@ -79,12 +122,15 @@ export const buildTabularClipboardPayload = ({
   columns,
   rows,
   jsonRows,
+  preserveCellTypes = false,
 }: BuildTabularClipboardPayloadInput): DataGridClipboardPayload => ({
-  plainText: buildDelimitedText(rows, '\t', columns),
-  html: buildHtmlTable(rows, columns),
-  csv: buildCsvText(rows, columns),
-  markdown: buildMarkdownText(rows, columns) || undefined,
-  json: jsonRows ? JSON.stringify(jsonRows, null, 2) : undefined,
+  plainText: buildDelimitedText(rows, '\t', columns, preserveCellTypes),
+  html: buildHtmlTable(rows, columns, preserveCellTypes),
+  csv: buildCsvText(rows, columns, preserveCellTypes),
+  markdown: buildMarkdownText(rows, columns, preserveCellTypes) || undefined,
+  json: jsonRows
+    ? JSON.stringify(jsonRows, null, 2)
+    : (preserveCellTypes ? buildDataGridInAppClipboardJson(rows) : undefined),
 });
 
 export const buildTabularClipboardPayloadFromTsv = (
@@ -92,7 +138,7 @@ export const buildTabularClipboardPayloadFromTsv = (
   options: { firstRowIsHeader?: boolean } = {},
 ): DataGridClipboardPayload => {
   const matrix = text.split('\n').map((line) => line.split('\t'));
-  const columns = options.firstRowIsHeader ? matrix[0] || [] : undefined;
+  const columns = options.firstRowIsHeader ? matrix[0] : undefined;
   const rows = options.firstRowIsHeader ? matrix.slice(1) : matrix;
   return {
     ...buildTabularClipboardPayload({ columns, rows }),

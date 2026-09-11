@@ -4,7 +4,17 @@ export type BrandIconId =
   | '03'
   | '04'
   | '05'
-  | '06';
+  | '06'
+  | '07'
+  | '08'
+  | '09'
+  | '10'
+  | '11'
+  | '12'
+  | '13'
+  | '14'
+  | '15'
+  | '16';
 
 export type BrandIconDefinition = {
   id: BrandIconId;
@@ -14,6 +24,8 @@ export type BrandIconDefinition = {
   iconPath: string;
   aboutPath: string;
   titlebarPath?: string;
+  /** Asset is shipped with the frontend instead of fetched from the mirror. */
+  bundled?: boolean;
 };
 
 export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
@@ -72,6 +84,97 @@ export const BRAND_ICONS: BrandIconDefinition[] = [
     iconPath: BRAND_ICON_FALLBACK_SRC,
     aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
+  {
+    id: '07',
+    slug: 'database-hug',
+    titleZh: '抱库小狗',
+    titleEn: 'Database hug',
+    iconPath: '/brand-icons/07-database-hug.webp',
+    aboutPath: '/brand-icons/07-database-hug-about.png',
+    bundled: true,
+  },
+  {
+    id: '08',
+    slug: 'database-search',
+    titleZh: '搜库小狗',
+    titleEn: 'Database search',
+    iconPath: '/brand-icons/08-database-search.webp',
+    aboutPath: '/brand-icons/08-database-search-about.png',
+    titlebarPath: '/brand-marks/08-database-search-transparent.png',
+    bundled: true,
+  },
+  {
+    id: '09',
+    slug: 'bandana-badge',
+    titleZh: '头巾徽章',
+    titleEn: 'Bandana badge',
+    iconPath: '/brand-icons/09-bandana-badge.webp',
+    aboutPath: '/brand-icons/09-bandana-badge-about.png',
+    bundled: true,
+  },
+  {
+    id: '10',
+    slug: 'magnifier-wink',
+    titleZh: '放大镜眨眼',
+    titleEn: 'Magnifier wink',
+    iconPath: '/brand-icons/10-magnifier-wink.webp',
+    aboutPath: '/brand-icons/10-magnifier-wink-about.png',
+    bundled: true,
+  },
+  {
+    id: '11',
+    slug: 'window-peek',
+    titleZh: '窗口探头',
+    titleEn: 'Window peek',
+    iconPath: '/brand-icons/11-window-peek.webp',
+    aboutPath: '/brand-icons/11-window-peek-about.png',
+    bundled: true,
+  },
+  {
+    id: '12',
+    slug: 'hex-collar',
+    titleZh: '六边项圈',
+    titleEn: 'Hex collar',
+    iconPath: '/brand-icons/12-hex-collar.webp',
+    aboutPath: '/brand-icons/12-hex-collar-about.png',
+    bundled: true,
+  },
+  {
+    id: '13',
+    slug: 'graph-sit',
+    titleZh: '关系图',
+    titleEn: 'Graph sit',
+    iconPath: '/brand-icons/13-graph-sit.webp',
+    aboutPath: '/brand-icons/13-graph-sit-about.png',
+    bundled: true,
+  },
+  {
+    id: '14',
+    slug: 'cloud-banner',
+    titleZh: '云朵横幅',
+    titleEn: 'Cloud banner',
+    iconPath: '/brand-icons/14-cloud-banner.webp',
+    aboutPath: '/brand-icons/14-cloud-banner-about.png',
+    bundled: true,
+  },
+  {
+    id: '15',
+    slug: 'terminal-sit',
+    titleZh: '终端旁坐',
+    titleEn: 'Terminal sit',
+    iconPath: '/brand-icons/15-terminal-sit.webp',
+    aboutPath: '/brand-icons/15-terminal-sit-about.png',
+    bundled: true,
+  },
+  {
+    id: '16',
+    slug: 'compass-bandana',
+    titleZh: '罗盘头巾',
+    titleEn: 'Compass bandana',
+    iconPath: '/brand-icons/16-compass-bandana.webp',
+    aboutPath: '/brand-icons/16-compass-bandana-about.png',
+    bundled: true,
+  },
 ];
 
 const BRAND_ICON_BY_ID = new Map(BRAND_ICONS.map((item) => [item.id, item]));
@@ -88,11 +191,13 @@ export function resolveBrandIcon(id?: unknown): BrandIconDefinition {
   return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[2];
 }
 
-/** Browser-only harnesses use the same immutable assets as the native cache. */
+/** Browser-only harnesses use the same immutable assets as the native cache;
+ * bundled compatibility icons resolve to their local frontend asset. */
 export function resolveBrandIconRemoteSrc(id?: unknown): string {
   const raw = String(id || '').trim() as BrandIconId;
   const definition = BRAND_ICON_BY_ID.get(raw);
   if (!definition) return '';
+  if (definition.bundled) return definition.iconPath;
   return `${BRAND_ICON_REMOTE_BASE_URL}/${definition.id}-${definition.slug}.svg`;
 }
 
@@ -106,21 +211,26 @@ export function resolveBrandFullSrc(id?: unknown): string {
 }
 
 export function resolveBrandAboutSrc(id?: unknown): string {
-  return resolveBrandIconSrc(id);
+  const definition = resolveBrandIcon(id);
+  return definition.bundled ? definition.aboutPath : resolveBrandIconSrc(id);
 }
 
 export function resolveBrandTitlebarSrc(id?: unknown): string {
-  return resolveBrandIconSrc(id);
+  const definition = resolveBrandIcon(id);
+  return definition.bundled && definition.titlebarPath
+    ? definition.titlebarPath
+    : resolveBrandIconSrc(id);
 }
 
 /**
- * Native OS surfaces must wait for the selected verified asset. Sending the
+ * Native OS surfaces must wait for a verified remote asset. Sending the
  * shared UI fallback first makes Windows cache that placeholder as the
- * taskbar icon while the real asset update is still queued.
+ * taskbar icon while the real asset update is still queued. Bundled
+ * compatibility assets are already verified by being shipped with the app.
  */
 export function resolveBrandDockSrc(id?: unknown): string {
   const definition = resolveBrandIcon(id);
-  return loadedBrandIconSources.get(definition.id) || '';
+  return loadedBrandIconSources.get(definition.id) || (definition.bundled ? definition.iconPath : '');
 }
 
 export function setLoadedBrandIconSources(sources: Partial<Record<BrandIconId, string>>): void {

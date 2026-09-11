@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { supportsTableTruncateAction } from './tableDataDangerActions';
+import { supportsTableClearAction, supportsTableTruncateAction } from './tableDataDangerActions';
 
 describe('tableDataDangerActions', () => {
   it('supports native truncate for known relational dialects', () => {
@@ -25,5 +25,20 @@ describe('tableDataDangerActions', () => {
     expect(supportsTableTruncateAction('sqlite')).toBe(false);
     expect(supportsTableTruncateAction('mongodb')).toBe(false);
     expect(supportsTableTruncateAction('custom', 'sqlite3')).toBe(false);
+  });
+
+  it('supports delete-all only for SQL-style and MongoDB table backends', () => {
+    expect(supportsTableClearAction('mysql')).toBe(true);
+    expect(supportsTableClearAction('sqlite')).toBe(true);
+    expect(supportsTableClearAction('mongodb')).toBe(true);
+    expect(supportsTableClearAction('tdengine')).toBe(true);
+    expect(supportsTableClearAction('custom', 'postgresql')).toBe(true);
+    expect(supportsTableClearAction('custom', 'sqlite3')).toBe(true);
+
+    expect(supportsTableClearAction('elasticsearch')).toBe(false);
+    expect(supportsTableClearAction('redis')).toBe(false);
+    expect(supportsTableClearAction('qdrant')).toBe(false);
+    expect(supportsTableClearAction('iotdb')).toBe(false);
+    expect(supportsTableClearAction('custom', 'unknown-driver')).toBe(false);
   });
 });

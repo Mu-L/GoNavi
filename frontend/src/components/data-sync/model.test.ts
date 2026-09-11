@@ -7,6 +7,9 @@ import {
   buildDataSyncMappingsFromSelection,
   createDataSyncTableMapping,
   createDataSyncTaskDraft,
+  DATA_SYNC_FAMILY_KIND_CHOICES,
+  dataSyncTaskBelongsToFamily,
+  dataSyncTaskStages,
   isDataSyncPreflightCurrent,
   resolveDataSyncPreflightStatus,
   reviseDataSyncTask,
@@ -36,6 +39,22 @@ describe('data sync task model', () => {
       trigger: { mode: 'manual' },
       incremental: { mode: 'snapshot' },
     });
+    expect(dataSyncTaskStages('compare')).toEqual([
+      'endpoints',
+      'mappings',
+    ]);
+    expect(dataSyncTaskStages('reconcile')).toContain('delivery');
+    expect(dataSyncTaskBelongsToFamily(compare, 'compare')).toBe(true);
+    expect(dataSyncTaskBelongsToFamily(compare, 'sync')).toBe(false);
+    expect(dataSyncTaskBelongsToFamily(cdc, 'sync')).toBe(true);
+    expect(dataSyncTaskBelongsToFamily(cdc, 'compare')).toBe(false);
+    expect(DATA_SYNC_FAMILY_KIND_CHOICES.compare.map((choice) => choice.compareMode)).toEqual([
+      'schema',
+      'data',
+    ]);
+    expect(DATA_SYNC_FAMILY_KIND_CHOICES.sync.map((choice) => choice.kind)).not.toContain(
+      'compare',
+    );
     expect(cdc).toMatchObject({
       schemaVersion: 1,
       revision: 1,
@@ -77,6 +96,7 @@ describe('data sync task model', () => {
 
     // issue #1014：目标表缺列时必须默认补列并回填，否则字段同步不动。
     expect(migration.delivery.autoAddColumns).toBe(true);
+    expect(migration.delivery.createIndexes).toBe(true);
     expect(migration.content).toBe('both');
   });
 

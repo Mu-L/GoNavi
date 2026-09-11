@@ -61,6 +61,7 @@ describe('DataSyncRunHistory compare output', () => {
         errorRows={[]}
         compareResult={compareResult}
         compareMode="both"
+        family="compare"
         t={createDataSyncWorkbenchTranslate('zh-CN')}
         checkpoint={null}
         busyAction=""
@@ -79,6 +80,9 @@ describe('DataSyncRunHistory compare output', () => {
         onRetryErrorRow={() => undefined}
         checkpointResetEnabled={false}
         onResetCheckpoint={() => undefined}
+        onGenerateRepairSql={() => undefined}
+        onAskAiAboutDiffs={() => undefined}
+        onSyncDiffs={() => undefined}
       />,
     );
 
@@ -87,10 +91,101 @@ describe('DataSyncRunHistory compare output', () => {
     expect(markup).toContain('gn-data-sync-compare-row__schema-counts');
     expect(markup).toContain('gn-data-sync-compare-row__data-counts');
     expect(markup).toContain('data-data-sync-compare-field="true"');
-    expect(markup).toContain('删除记录');
-    expect(markup).toContain('第 1 页');
-    expect(markup).toContain('共 1 条');
+    expect(markup).toContain('返回运行记录');
+    expect(markup).toContain('查看每次比对的状态和结果');
+    expect(markup).not.toContain('data-data-sync-error-rows');
+    expect(markup).not.toContain('data-data-sync-checkpoint');
+    expect(markup).not.toContain('写入行数');
+    expect(markup).not.toContain('Checkpoint');
+    expect(markup).toContain('data-data-sync-compare');
+    expect(markup).toContain('data-compare-action="repair-sql"');
+    expect(markup).toContain('生成修复 SQL');
+    expect(markup).toContain('AI 分析差异');
+    expect(markup).toContain('同步差异');
+    expect(markup).toContain('运行过程');
+    expect(markup).toContain('data-data-sync-run-events="true"');
     expect(markup.match(/varchar\(255\)/g)).toHaveLength(1);
+  });
+
+  it('keeps identical tables on one compact row instead of zeroed count tiles', () => {
+    const run: DataSyncRunRecord = {
+      id: 'compare-same-run',
+      taskId: 'compare-task',
+      taskName: 'Orders compare',
+      status: 'succeeded',
+      trigger: 'manual',
+      attempt: 1,
+      resumable: false,
+      message: '',
+      startedAt: '2026-08-24T00:00:00.000Z',
+      finishedAt: '2026-08-24T00:01:00.000Z',
+      rowsRead: 0,
+      rowsWritten: 0,
+      rowsFailed: 0,
+      throughput: 0,
+      checkpoint: '',
+    };
+    const compareResult: DataSyncCompareResult = {
+      success: true,
+      message: '',
+      content: 'both',
+      tables: [{
+        table: 'orders',
+        canSync: true,
+        inserts: 0,
+        updates: 0,
+        deletes: 0,
+        same: 1240,
+        schemaDiffCount: 0,
+        hasSchema: true,
+        message: '',
+        warnings: [],
+      }],
+    };
+
+    const markup = renderToStaticMarkup(
+      <DataSyncRunHistory
+        runs={[run]}
+        runPage={1}
+        runPageSize={10}
+        runTotal={1}
+        hasPreviousRunPage={false}
+        hasNextRunPage={false}
+        selectedRunId={run.id}
+        runEvents={[]}
+        errorRows={[]}
+        compareResult={compareResult}
+        compareMode="both"
+        family="compare"
+        t={createDataSyncWorkbenchTranslate('zh-CN')}
+        checkpoint={null}
+        busyAction=""
+        onRefresh={() => undefined}
+        onPreviousRunPage={() => undefined}
+        onNextRunPage={() => undefined}
+        onRunPageSizeChange={() => undefined}
+        onDeleteRun={() => undefined}
+        onClearTerminalRuns={() => undefined}
+        onSelectRun={() => undefined}
+        onCancel={() => undefined}
+        onResume={() => undefined}
+        onRetry={() => undefined}
+        onDiscardErrorRow={() => undefined}
+        errorRowRetryAvailable={false}
+        onRetryErrorRow={() => undefined}
+        checkpointResetEnabled={false}
+        onResetCheckpoint={() => undefined}
+        onGenerateRepairSql={() => undefined}
+        onAskAiAboutDiffs={() => undefined}
+        onSyncDiffs={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-status="same"');
+    expect(markup).toContain('data-data-sync-compare-same-count="true"');
+    expect(markup).toContain(`共 ${(1240).toLocaleString()} 行`);
+    expect(markup).not.toContain('gn-data-sync-compare-row__data-counts');
+    expect(markup).not.toContain('gn-data-sync-compare-row__endpoints');
   });
 
   it('explains task-level failures when a run has no isolated error rows', () => {
