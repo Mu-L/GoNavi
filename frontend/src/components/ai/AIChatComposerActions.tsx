@@ -14,6 +14,7 @@ interface AIChatComposerActionsProps {
   sending: boolean;
   dispatchMode?: AIRunDispatchMode;
   hasActiveRun?: boolean;
+  stopRequestPending?: boolean;
   onDispatchModeChange?: (mode: AIRunDispatchMode) => void;
   overlayTheme: OverlayWorkbenchTheme;
   fileInputRef: React.RefObject<HTMLInputElement>;
@@ -30,6 +31,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
   sending,
   dispatchMode = 'queue',
   hasActiveRun = false,
+  stopRequestPending = false,
   onDispatchModeChange,
   overlayTheme,
   fileInputRef,
@@ -107,6 +109,8 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
           type="button"
           className="ai-chat-send-btn ai-chat-stop-btn gn-v2-ai-send"
           onClick={onStop}
+          disabled={stopRequestPending}
+          aria-busy={stopRequestPending}
           title={t('ai_chat.input.action.stop')}
         >
           <StopOutlined />

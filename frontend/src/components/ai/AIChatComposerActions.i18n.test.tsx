@@ -128,10 +128,18 @@ describe('AIChatComposerActions i18n source guards', () => {
     expect(idleMarkup).not.toContain('title="Stop generating"');
   });
 
-  it('keeps the stop control available while an active run is still in progress', () => {
-    const markup = renderComposerActions({ sending: false, hasActiveRun: true, input: '' });
+  it('keeps stop available for an active run and disables duplicate cancellation', () => {
+    const activeMarkup = renderComposerActions({ sending: false, hasActiveRun: true, input: '' });
+    expect(activeMarkup).toContain('title="Stop generating"');
+    expect(activeMarkup).toContain('ai-chat-stop-btn');
 
-    expect(markup).toContain('title="Stop generating"');
-    expect(markup).toContain('ai-chat-stop-btn');
+    const pendingMarkup = renderComposerActions({
+      sending: true,
+      hasActiveRun: true,
+      stopRequestPending: true,
+      input: '',
+    });
+    expect(pendingMarkup).toMatch(/ai-chat-stop-btn[^>]*disabled/);
+    expect(pendingMarkup).toContain('aria-busy="true"');
   });
 });
