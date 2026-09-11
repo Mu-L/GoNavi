@@ -44,6 +44,24 @@ func TestApplySQLiteAutoIncrement(t *testing.T) {
 		}
 	}
 
+	// 即便 DDL 文本碰巧匹配 AUTOINCREMENT，只要 PRI 列多于 1 列就不得打自增标记。
+	guarded := []connection.ColumnDefinition{
+		{Name: "a", Type: "INTEGER", Key: "PRI"},
+		{Name: "b", Type: "INTEGER", Key: "PRI"},
+	}
+	applySQLiteAutoIncrement(guarded, "CREATE TABLE t (a INTEGER PRIMARY KEY AUTOINCREMENT, b INTEGER)")
+	for _, col := range guarded {
+		if col.Extra != "" {
+			t.Fatalf("复合主键列数守卫失效: %s=%q", col.Name, col.Extra)
+		}
+	}
+
+	noPK := []connection.ColumnDefinition{{Name: "id", Type: "INTEGER"}}
+	applySQLiteAutoIncrement(noPK, "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+	if noPK[0].Extra != "" {
+		t.Fatalf("无 PRI 列不应标记自增: %q", noPK[0].Extra)
+	}
+
 	// 空 DDL（虚拟表等拿不到建表 SQL 的场景）必须原样返回。
 	untouched := []connection.ColumnDefinition{{Name: "id", Type: "INTEGER", Key: "PRI"}}
 	applySQLiteAutoIncrement(untouched, "")

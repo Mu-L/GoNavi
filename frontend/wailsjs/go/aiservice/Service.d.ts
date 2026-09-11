@@ -44,11 +44,11 @@ export function AIGetMCPServers():Promise<Array<ai.MCPServerConfig>>;
 
 export function AIGetProviders():Promise<Array<ai.ProviderConfig>>;
 
+export function AIGetResultMaskingSettings():Promise<ai.ResultMaskingSettings>;
+
 export function AIGetRunPolicy():Promise<runharness.RunPolicySnapshot>;
 
 export function AIGetSafetyLevel():Promise<string>;
-
-export function AIGetResultMaskingSettings():Promise<ai.ResultMaskingSettings>;
 
 export function AIGetSkills():Promise<Array<ai.SkillConfig>>;
 
@@ -92,13 +92,13 @@ export function AISaveMCPServer(arg1:ai.MCPServerConfig):Promise<void>;
 
 export function AISaveProvider(arg1:ai.ProviderConfig):Promise<void>;
 
+export function AISaveResultMaskingSettings(arg1:ai.ResultMaskingSettings):Promise<void>;
+
 export function AISaveRunPolicy(arg1:runharness.RunPolicyMutationRequest):Promise<runharness.RunPolicySnapshot>;
 
 export function AISaveSkill(arg1:ai.SkillConfig):Promise<void>;
 
 export function AISaveUserPromptSettings(arg1:ai.UserPromptSettings):Promise<void>;
-
-export function AISaveResultMaskingSettings(arg1:ai.ResultMaskingSettings):Promise<void>;
 
 export function AISelectAgentDataDirectory(arg1:string):Promise<string>;
 

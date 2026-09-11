@@ -200,6 +200,27 @@ const driverModalCatalogAliases: Record<string, CatalogAlias> = {
 
 const catalogAliases: Record<string, CatalogAlias> = {
   ...driverModalCatalogAliases,
+  "connection_modal.title.step1": {
+    aliasKey: "connection_modal.title.select_type",
+  },
+  "connection_modal.description.step1": {
+    aliasKey: "connection_modal.title.select_type_description",
+  },
+  "connection_modal.typeWarning.unavailable": {
+    aliasKey: "connection_modal.message.driver_unavailable_title",
+  },
+  "connection_modal.driver.installAction": {
+    aliasKey: "connection_modal.action.open_driver_manager",
+  },
+  "connection_modal.driver.unavailableTitle": {
+    aliasKey: "connection_modal.message.driver_unavailable_title",
+  },
+  "connection_modal.driver.unavailableFallback": {
+    aliasKey: "connection_modal.message.driver_not_enabled_with_name",
+  },
+  "connection_modal.driver.unavailableAlert": {
+    aliasKey: "connection_modal.message.current_driver_not_enabled",
+  },
   "connection_modal.field.driver.label": {
     aliasKey: "connection_modal.field.driver_name",
   },

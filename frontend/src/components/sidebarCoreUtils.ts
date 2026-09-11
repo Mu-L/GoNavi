@@ -54,6 +54,14 @@ export const resolveSidebarContextMenuPosition = (
   };
 };
 
+export const resolveSidebarTreeRowKey = (target: EventTarget | null | undefined): string | null => {
+  if (!target || typeof (target as Element).closest !== 'function') return null;
+  const row = (target as Element).closest('.ant-tree-treenode');
+  const key = row?.getAttribute('data-sidebar-node-key')
+    || row?.querySelector('[data-sidebar-node-key]')?.getAttribute('data-sidebar-node-key');
+  return String(key || '').trim() || null;
+};
+
 export const isV2SidebarObjectNode = (node: Pick<SidebarObjectNodeLike, 'type'> | null | undefined): boolean => {
   return node?.type === 'message-object'
     || node?.type === 'table'

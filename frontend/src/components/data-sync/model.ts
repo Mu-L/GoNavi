@@ -895,6 +895,7 @@ const normalizeAtomicTargetType = (value: string): string => {
   if (['open_gauss', 'open-gauss'].includes(normalized)) return 'opengauss';
   if (['gauss_db', 'gauss-db'].includes(normalized)) return 'gaussdb';
   if (['intersystems', 'intersystemsiris', 'inter-systems', 'inter-systems-iris'].includes(normalized)) return 'iris';
+  if (['cache', 'caché', 'intersystems cache', 'intersystems caché', 'intersystems-cache', 'intersystems-caché', 'intersystemscache', 'intersystemscaché', 'inter-systems-cache', 'inter-systems-caché', 'intersystems-cache-database', 'cache-db', 'cachedb'].includes(normalized)) return 'iris';
   if (['dm', 'dm8'].includes(normalized)) return 'dameng';
   if (normalized === 'sqlite3') return 'sqlite';
   if (['goldendb', 'greatdb', 'gdb'].includes(normalized)) return 'mysql';
