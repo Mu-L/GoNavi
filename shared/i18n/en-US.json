@@ -1472,6 +1472,7 @@
   "ai_chat.panel.message.error": "❌ Error: {{detail}}",
   "ai_chat.panel.message.request_interrupted": "❌ Request interrupted: no concrete reply was received.",
   "ai_chat.panel.message.send_failed": "❌ Send failed: {{detail}}",
+  "ai_chat.panel.message.stop_failed": "❌ Failed to stop: {{detail}}. You can try stopping again.",
   "ai_chat.run.approval.approve": "Approve",
   "ai_chat.run.approval.deny": "Deny",
   "ai_chat.run.approval.pending": "Waiting",

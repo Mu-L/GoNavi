@@ -162,6 +162,22 @@ describe('AI run harness client', () => {
     expect(mergeAIChatSessionMessages([], [terminalError])).toEqual([terminalError]);
   });
 
+  it('keeps a run-scoped stop error until the run terminal handler clears it', () => {
+    const stopError = {
+      id: 'agent-run-run-1-stop-error',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: 'Failed to stop: revision conflict',
+      rawError: 'revision conflict',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle' as const,
+      excludeFromAIContext: true,
+    };
+
+    expect(mergeAIChatSessionMessages([], [stopError])).toEqual([stopError]);
+  });
+
   it('keeps a terminal run failure visible after hydrating its durable tool turn', () => {
     const durable = [{
       id: 'durable-tool-turn',

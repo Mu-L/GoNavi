@@ -1472,6 +1472,7 @@
   "ai_chat.panel.message.error": "❌ 错误: {{detail}}",
   "ai_chat.panel.message.request_interrupted": "❌ 请求中断：未收到任何具体回复。",
   "ai_chat.panel.message.send_failed": "❌ 发送失败: {{detail}}",
+  "ai_chat.panel.message.stop_failed": "❌ 停止失败: {{detail}}。可再次尝试停止。",
   "ai_chat.run.approval.approve": "批准",
   "ai_chat.run.approval.deny": "拒绝",
   "ai_chat.run.approval.pending": "等待确认",
