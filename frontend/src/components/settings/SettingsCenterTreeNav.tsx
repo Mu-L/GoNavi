@@ -255,8 +255,6 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     ? settingsCenterTreeNodeId({ type: 'item', groupKey: activeGroupKey, itemKey: activeItemKey })
     : settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey });
   const [focusedNodeId, setFocusedNodeId] = useState(selectedNodeId);
-  const focusedNodeIdRef = useRef(focusedNodeId);
-  focusedNodeIdRef.current = focusedNodeId;
 
   useEffect(() => {
     const previous = previousExpandableIdsRef.current;
@@ -287,7 +285,10 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   }, [collapsedKeys, expandableIds]);
 
   useEffect(() => {
-    focusedNodeIdRef.current = selectedNodeId;
+    const activeElement = treeRef.current?.ownerDocument.activeElement;
+    if (activeElement && treeRef.current?.contains(activeElement)) {
+      return;
+    }
     setFocusedNodeId(selectedNodeId);
   }, [selectedNodeId]);
 
@@ -353,7 +354,6 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   );
 
   const setFocusedTreeNode = (nodeId: string, syncDomFocus: boolean) => {
-    focusedNodeIdRef.current = nodeId;
     setFocusedNodeId(nodeId);
     if (syncDomFocus) {
       focusSettingsCenterTreeNode(treeRef.current, nodeId);
@@ -391,20 +391,19 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   };
 
   const handleTreeKeyDown = (event: React.KeyboardEvent<HTMLElement>, node: VisibleTreeNode) => {
-    const currentNode = visibleNodes.find((visible) => visible.id === focusedNodeIdRef.current) ?? node;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      activateNode(currentNode, true);
+      activateNode(node, true);
       return;
     }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      moveFocus(currentNode.id, 1);
+      moveFocus(node.id, 1);
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      moveFocus(currentNode.id, -1);
+      moveFocus(node.id, -1);
       return;
     }
     if (event.key === 'Home') {
@@ -422,31 +421,31 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
       }
       return;
     }
-    if (event.key === 'ArrowRight' && currentNode.expandable) {
+    if (event.key === 'ArrowRight' && node.expandable) {
       event.preventDefault();
-      if (collapsedKeys.has(currentNode.id)) {
-        toggleCollapsed(currentNode.id);
+      if (collapsedKeys.has(node.id)) {
+        toggleCollapsed(node.id);
         return;
       }
-      moveFocus(currentNode.id, 1);
+      moveFocus(node.id, 1);
       return;
     }
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      if (currentNode.expandable && !collapsedKeys.has(currentNode.id)) {
-        toggleCollapsed(currentNode.id);
+      if (node.expandable && !collapsedKeys.has(node.id)) {
+        toggleCollapsed(node.id);
         return;
       }
-      if (currentNode.type === 'item' && currentNode.parentItemKey) {
+      if (node.type === 'item' && node.parentItemKey) {
         setFocusedTreeNode(settingsCenterTreeNodeId({
           type: 'item',
-          groupKey: currentNode.groupKey,
-          itemKey: currentNode.parentItemKey,
+          groupKey: node.groupKey,
+          itemKey: node.parentItemKey,
         }), true);
         return;
       }
-      if (currentNode.type === 'item') {
-        setFocusedTreeNode(settingsCenterTreeNodeId({ type: 'group', groupKey: currentNode.groupKey }), true);
+      if (node.type === 'item') {
+        setFocusedTreeNode(settingsCenterTreeNodeId({ type: 'group', groupKey: node.groupKey }), true);
       }
     }
   };
@@ -554,7 +553,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
         handleTreeKeyDown(event, {
           type: 'group',
           groupKey: activeGroupKey,
-          id: focusedNodeIdRef.current,
+          id: focusedNodeId,
           expandable: false,
           depth: 0,
         });

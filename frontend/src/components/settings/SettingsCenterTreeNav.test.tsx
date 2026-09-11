@@ -597,11 +597,9 @@ describe('SettingsCenterTreeNav keyboard focus', () => {
     expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
   });
 
-  it('advances twice even when both ArrowDown events fire on the original DOM node', () => {
+  it('continues from the real DOM focus after programmatic selection changes', () => {
     const onLanguageClick = vi.fn();
-    const onThemeClick = vi.fn();
     const groups = createGroups(onLanguageClick);
-    groups[0].items[1].onClick = onThemeClick;
 
     reactAct(() => {
       root?.render(
@@ -622,11 +620,26 @@ describe('SettingsCenterTreeNav keyboard focus', () => {
       group.focus();
     });
 
-    pressKey(group, 'ArrowDown');
-    pressKey(group, 'ArrowDown');
-    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:theme'));
+    reactAct(() => {
+      root?.render(
+        <SettingsCenterTreeNav
+          groups={groups}
+          activeGroupKey="services"
+          activeItemKey="proxy"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          ariaLabel="设置中心"
+          onSelectGroup={vi.fn()}
+        />,
+      );
+    });
+    expect(document.activeElement).toBe(group);
+    expect(group.tabIndex).toBe(0);
+    expect(treeNode(container!, 'item:services:proxy').tabIndex).toBe(-1);
+
+    pressKey(document.activeElement, 'ArrowDown');
+    expect(document.activeElement).toBe(treeNode(container!, 'item:preferences:language'));
     expect(onLanguageClick).toHaveBeenCalledTimes(1);
-    expect(onThemeClick).toHaveBeenCalledTimes(1);
   });
 
   it('activates the keyboard-focused leaf with Space and wraps ArrowUp', () => {
