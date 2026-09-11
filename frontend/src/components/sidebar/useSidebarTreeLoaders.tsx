@@ -247,6 +247,20 @@ export const normalizeDriverType = (value: string): string => {
     normalized === 'inter-systems' ||
     normalized === 'inter-systems-iris'
   ) return 'iris';
+  if (
+    normalized === 'caché' ||
+    normalized === 'intersystems cache' ||
+    normalized === 'intersystems caché' ||
+    normalized === 'intersystems-cache' ||
+    normalized === 'intersystems-caché' ||
+    normalized === 'intersystemscache' ||
+    normalized === 'intersystemscaché' ||
+    normalized === 'inter-systems-cache' ||
+    normalized === 'inter-systems-caché' ||
+    normalized === 'intersystems-cache-database' ||
+    normalized === 'cache-db' ||
+    normalized === 'cachedb'
+  ) return 'cache';
   return normalized;
 };
 

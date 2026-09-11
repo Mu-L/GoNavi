@@ -1264,6 +1264,43 @@ describe('store appearance persistence', () => {
     expect(connections[1]?.config.type).toBe('iris');
   });
 
+  it('keeps InterSystems Caché saved connections independent from IRIS', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'cache-user',
+        name: 'Caché USER',
+        config: {
+          id: 'cache-user',
+          type: 'cache',
+          host: 'cache.local',
+          port: 1972,
+          user: '_SYSTEM',
+          database: 'USER',
+        },
+      },
+      {
+        id: 'cache-alias',
+        name: 'Caché Alias',
+        config: {
+          id: 'cache-alias',
+          type: 'InterSystems Caché',
+          host: 'cache-alias.local',
+          port: 1972,
+          user: '_SYSTEM',
+          database: 'APP',
+        },
+      },
+    ]);
+
+    const connections = useStore.getState().connections;
+    expect(connections[0]?.config.type).toBe('cache');
+    expect(connections[0]?.config.port).toBe(1972);
+    expect(connections[1]?.config.type).toBe('cache');
+    expect(connections.every((connection) => connection.config.type !== 'iris')).toBe(true);
+  });
+
   it('normalizes saved connection type aliases without falling back to mysql', async () => {
     const { useStore } = await importStore();
 

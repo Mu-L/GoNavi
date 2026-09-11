@@ -22,8 +22,8 @@ frontend/dist.zip
 docker.*.env
 GoNavi-Wails
 GoNavi-Wails.exe
-optional-driver-agent
-optional-driver-agent.exe
+/optional-driver-agent
+/optional-driver-agent.exe
 .ace-tool/
 .superpowers/
 .claude/

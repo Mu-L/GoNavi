@@ -1257,9 +1257,10 @@ describe('Sidebar locate toolbar', () => {
     const explorerFilterTabsIndex = markup.indexOf('class="gn-v2-explorer-filter-tabs"');
 
     expect(explorerFilterTabsIndex).toBeGreaterThan(locateActionIndex);
-    expect(markup).toContain('全部');
-    expect(markup).toContain('视图');
-    expect(markup).toContain('函数');
+    expect(markup).toContain(`aria-label="${t('sidebar.command_search.object_kind.all')}"`);
+    expect(markup).toContain(`aria-label="${t('sidebar.command_search.object_kind.views')}"`);
+    expect(markup).toContain(`aria-label="${t('sidebar.command_search.object_kind.routines')}"`);
+    expect(markup).toContain('data-object-kind-filter="all"');
     expect(markup).toContain('aria-pressed="true"');
   });
 
@@ -1280,8 +1281,9 @@ describe('Sidebar locate toolbar', () => {
     const markup = renderSidebarMarkup({  });
 
     expect(markup).toContain('gn-v2-explorer-filter-tabs');
-    expect(markup).toContain(`>${t('sidebar.command_search.object_kind.all')}<`);
-    expect(markup).toContain(`>${t('sidebar.command_search.object_kind.tables')}<`);
+    expect(markup).toContain(`aria-label="${t('sidebar.command_search.object_kind.all')}"`);
+    expect(markup).toContain(`aria-label="${t('sidebar.command_search.object_kind.tables')}"`);
+    expect(markup).not.toContain(`>${t('sidebar.command_search.object_kind.tables')}<`);
   });
 
   it('keeps relational object-kind filters hidden without an active host when only dedicated workbenches exist', () => {
@@ -1520,8 +1522,9 @@ describe('Sidebar locate toolbar', () => {
     const css = readV2ThemeCss();
 
     expect(css).toMatch(/\.gn-v2-explorer-filter-tabs \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;/s);
-    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*flex: 1 0 calc\(3em \+ 4px \* var\(--gn-v2-explorer-scale\)\);[^}]*min-width: calc\(3em \+ 4px \* var\(--gn-v2-explorer-scale\)\);[^}]*height: calc\(28px \* var\(--gn-v2-explorer-scale\)\);/s);
-    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*font-size: var\(--gn-sidebar-tree-font-size, var\(--gn-font-size-sm, 12px\)\);[^}]*white-space: nowrap;[^}]*cursor: pointer;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*flex: 1 1 0;[^}]*min-width: calc\(28px \* var\(--gn-v2-explorer-scale\)\);[^}]*height: calc\(28px \* var\(--gn-v2-explorer-scale\)\);/s);
+    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \{[^}]*overflow: hidden;[^}]*cursor: pointer;/s);
+    expect(css).toMatch(/\.gn-v2-explorer-filter-tabs button \.anticon \{[^}]*font-size: calc\(14px \* var\(--gn-v2-explorer-scale\)\);/s);
   });
 
   it('shows a pending state while a database node is loading', () => {

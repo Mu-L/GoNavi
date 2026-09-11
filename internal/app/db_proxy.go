@@ -101,7 +101,7 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		return config, nil
 	}
 
-	normalizedType := strings.ToLower(strings.TrimSpace(config.Type))
+	normalizedType := normalizeDriverType(config.Type)
 	if normalizedType == "nacos" {
 		// Nacos is HTTP-based and must keep its remote authority for the Host
 		// header and TLS SNI/certificate verification. Its transport dials the
@@ -265,10 +265,10 @@ func formatHostPort(host string, port int) string {
 }
 
 func defaultPortByType(driverType string) int {
-	switch strings.ToLower(strings.TrimSpace(driverType)) {
+	switch normalizeDriverType(driverType) {
 	case "mysql", "mariadb":
 		return 3306
-	case "goldendb", "greatdb", "gdb":
+	case "goldendb":
 		return 1523
 	case "oceanbase":
 		return 2881
@@ -302,7 +302,7 @@ func defaultPortByType(driverType string) int {
 		return 8080
 	case "highgo":
 		return 5866
-	case "iris":
+	case "iris", "cache":
 		return 1972
 	case "chroma":
 		return 8000

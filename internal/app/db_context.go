@@ -16,7 +16,7 @@ func normalizeRunConfig(config connection.ConnectionConfig, dbName string) conne
 		return runConfig
 	}
 
-	switch strings.ToLower(strings.TrimSpace(config.Type)) {
+	switch normalizeDriverType(config.Type) {
 	case "rocketmq", "rocket-mq", "rocket_mq", "apache-rocketmq", "apache_rocketmq", "rmq":
 		// RocketMQ 的 Database 字段表示默认 Topic，不能被树上的 synthetic database(topics) 覆盖。
 	case "mqtt", "mqtts":
@@ -32,7 +32,7 @@ func normalizeRunConfig(config connection.ConnectionConfig, dbName string) conne
 	case "oracle":
 		// Oracle 的 Database 是 Service Name；所选 Schema 作为独立运行期上下文传给驱动。
 		runConfig = runConfig.WithRuntimeOracleCurrentSchema(name)
-	case "mysql", "mariadb", "goldendb", "greatdb", "gdb", "diros", "starrocks", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris", "mongodb", "milvus", "milvusdb", "milvus-db", "tdengine", "iotdb", "clickhouse", "trino", "rabbitmq", "rabbit-mq", "rabbit_mq":
+	case "mysql", "mariadb", "goldendb", "diros", "starrocks", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "cache", "mongodb", "milvus", "tdengine", "iotdb", "clickhouse", "trino", "rabbitmq":
 		// 这些类型的 dbName 表示"数据库"，需要写入连接配置以选择目标库。
 		runConfig.Database = name
 	case "dameng":

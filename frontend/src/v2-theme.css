@@ -3079,20 +3079,24 @@ body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs::-webkit-scrollbar {
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button {
-  flex: 1 0 calc(3em + 4px * var(--gn-v2-explorer-scale));
-  min-width: calc(3em + 4px * var(--gn-v2-explorer-scale));
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(28px * var(--gn-v2-explorer-scale));
   height: calc(28px * var(--gn-v2-explorer-scale));
-  padding: 0 calc(2px * var(--gn-v2-explorer-scale));
+  padding: 0;
+  overflow: hidden;
   border: none;
   border-radius: calc(7px * var(--gn-v2-explorer-scale));
   background: transparent;
   color: var(--gn-fg-4);
-  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
-  font-weight: 500;
-  text-align: center;
-  white-space: nowrap;
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button .anticon {
+  font-size: calc(14px * var(--gn-v2-explorer-scale));
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button:hover {

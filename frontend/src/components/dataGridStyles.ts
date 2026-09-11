@@ -223,7 +223,7 @@ export const buildDataGridCssText = ({
                 /*
                  * 固定列：
                  * - 表头：scrollLeft + sticky（保留全选 / 行号）
-                 * - 虚拟表体：marginLeft + translateX 补偿
+                 * - 虚拟表体：合成层 translate + 固定列 translateX 补偿
                  * - 固定列表头 z-index 必须 > 列宽手柄(10)，否则其他列拖拽/筛选图标会穿透进来
                  */
                 /* 普通表头压低层级，子元素（拖拽区/缩放条）不得盖过固定列 */
@@ -646,6 +646,8 @@ export const buildDataGridCssText = ({
 
                     contain: layout style;
 
+                    will-change: transform;
+
                 }
 
                 .${gridId} .ant-table-tbody-virtual-holder .ant-table-row,
@@ -1056,6 +1058,42 @@ export const buildDataGridCssText = ({
                 .${gridId} .rc-virtual-list-holder::-webkit-scrollbar-thumb:hover {
 
                     background: ${floatingScrollbarThumbHoverBg};
+
+                    border: 1px solid ${floatingScrollbarThumbBorderColor};
+
+                    background-clip: border-box;
+
+                    box-shadow: ${floatingScrollbarThumbShadow};
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-holder[data-virtual-scrollbar-controlled="true"] {
+
+                    scrollbar-width: none;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-holder[data-virtual-scrollbar-controlled="true"]::-webkit-scrollbar {
+
+                    width: 0;
+
+                    height: 0;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-scrollbar-vertical {
+
+                    width: ${floatingScrollbarHeight}px !important;
+
+                    right: 0 !important;
+
+                    z-index: 25;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-scrollbar-vertical .ant-table-tbody-virtual-scrollbar-thumb {
+
+                    background: ${floatingScrollbarThumbBg} !important;
 
                     border: 1px solid ${floatingScrollbarThumbBorderColor};
 

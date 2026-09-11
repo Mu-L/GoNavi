@@ -172,6 +172,16 @@ describe('settings center tool entries', () => {
     expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");
     expect(appSource).toContain("activeSettingsCenterPane.key === 'drivers'");
     expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenDriverManagerWorkbench\(\);/);
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'export')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'connection-health')");
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenConnectionHealth\(\);/);
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('schemaCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('dataCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('sync')");
+    expect(appSource).not.toContain('LazyDataSyncWorkbench');
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*addTab\(buildDataSyncWorkbenchTab/);
     expect(appSource).toContain('hideSidebar');
     expect(appSource).toContain('section={aiSettingsSection}');
     expect(appSource).toContain("title: t('app.settings.entry.about.title')");
@@ -193,6 +203,29 @@ describe('settings center tool entries', () => {
     expect(appSource).not.toContain('apismart');
     expect(appSource).not.toContain("gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)'");
     expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
+  });
+
+  it('keeps connection import, export, and health checks inside settings panes', () => {
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'import'");
+    expect(appSource).toContain('<ConnectionImportSettingsPanel');
+    expect(appSource).toContain("setActiveSettingsCenterPane({ key: 'export', group: sourceGroup })");
+    expect(appSource).toMatch(/isConnectionPackageSettingsPaneKey\(activeSettingsCenterPane\.key\)[\s\S]*?<ConnectionPackagePasswordModal[\s\S]*?embedded/);
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).toMatch(/activeSettingsCenterPane\.key === 'connection-health'[\s\S]*?<ConnectionHealthModal[\s\S]*?embedded/);
+    expect(appSource).not.toContain('isConnectionHealthModalOpen');
+
+    const toolCenterGroupsStart = appSource.indexOf('const toolCenterGroups:');
+    const importEntryStart = appSource.indexOf("key: 'import',", toolCenterGroupsStart);
+    const exportEntryStart = appSource.indexOf("key: 'export',", importEntryStart);
+    const importEntrySource = appSource.slice(importEntryStart, exportEntryStart);
+    expect(importEntrySource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(importEntrySource).not.toContain('handleImportConnections');
+
+    const titlebarImportStart = appSource.indexOf("if (spec.action === 'import-connections')");
+    const titlebarExportStart = appSource.indexOf("if (spec.action === 'export-connections')", titlebarImportStart);
+    const titlebarImportSource = appSource.slice(titlebarImportStart, titlebarExportStart);
+    expect(titlebarImportSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(titlebarImportSource).not.toContain('handleImportConnections');
   });
 
   it('keeps button loading indicators animated when reduced motion is enabled', () => {

@@ -504,10 +504,9 @@ export const mergeAIChatSessionMessages = (
       && hasDurableAssistantAfterLatestUser
       && message.timestamp >= latestDurableUserTimestamp)
   ));
-  // A terminal error is emitted after the assistant's tool-call turn has
-  // already been persisted. Keep that run-scoped error across the terminal
-  // hydration; otherwise the durable empty tool-call row replaces it and the
-  // user sees a blank assistant bubble with no failure explanation.
+  // Run-scoped control and terminal errors are local UI projections. Keep them
+  // across hydration until their owner explicitly clears them; otherwise a
+  // durable session refresh can erase the only actionable failure message.
   const terminalFailures = current.filter((message) => (
     message.role === 'assistant'
     && message.loading === false

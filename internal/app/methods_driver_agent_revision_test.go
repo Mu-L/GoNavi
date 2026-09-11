@@ -253,6 +253,7 @@ func optionalDriverAgentRevisionTestDrivers(t *testing.T) []string {
 		"opengauss",
 		"gaussdb",
 		"iris",
+		"cache",
 		"mongodb",
 		"tdengine",
 		"iotdb",

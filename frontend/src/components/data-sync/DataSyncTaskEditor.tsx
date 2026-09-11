@@ -134,7 +134,8 @@ const EndpointStage: React.FC<{
   connectionTree: DataSyncConnectionTreeItem[];
   t: DataSyncWorkbenchTranslate;
   onPatch: (patch: TaskPatch) => void;
-}> = ({ task, gateway, connectionTree, t, onPatch }) => {
+  onContinue: () => void;
+}> = ({ task, gateway, connectionTree, t, onPatch, onContinue }) => {
   const connections = useDataSyncSavedConnections(gateway);
   const sourceDatabases = useDataSyncDatabases(gateway, task.source.connectionId);
   const targetDatabases = useDataSyncDatabases(gateway, task.target.connectionId);
@@ -178,51 +179,85 @@ const EndpointStage: React.FC<{
     });
   };
 
+  const sourceReady = Boolean(task.source.connectionId.trim());
+  const targetReady = Boolean(task.target.connectionId.trim());
+  const canContinue = sourceReady && targetReady;
+
   return (
-  <section className="gn-data-sync-section" data-data-sync-endpoints="true">
-    <header className="gn-data-sync-section__header">
-      <div>
-        <h2>{t('stage.endpoints')}</h2>
-        <p>{t('editor.endpoint_help')}</p>
-      </div>
+  <section className="gn-data-sync-guide" data-data-sync-endpoints="true">
+    <header className="gn-data-sync-guide__header">
+      <h2>{t('stage.endpoints')}</h2>
+      <p>{t('editor.endpoint_help')}</p>
     </header>
-    <div className="gn-data-sync-field-grid gn-data-sync-task-name-row">
-      <Field label={t('editor.task_name')} wide>
-        <input
-          className="gn-data-sync-control"
-          value={task.name}
-          placeholder={t('editor.task_name_placeholder')}
-          onChange={(event) => onPatch({ name: event.target.value })}
+    <label className="gn-data-sync-field gn-data-sync-guide__name">
+      <span>{t('editor.task_name')}</span>
+      <input
+        className="gn-data-sync-control"
+        value={task.name}
+        placeholder={t('editor.task_name_placeholder')}
+        onChange={(event) => onPatch({ name: event.target.value })}
+      />
+    </label>
+    <div
+      className="gn-data-sync-guide__step"
+      data-guide-step="source"
+      data-complete={sourceReady ? 'true' : 'false'}
+    >
+      <span className="gn-data-sync-guide__index" aria-hidden="true">
+        {sourceReady ? '✓' : '1'}
+      </span>
+      <div className="gn-data-sync-guide__step-body">
+        <h3>{t('editor.guide.source_title')}</h3>
+        <DataSyncEndpointSelector
+          role="source"
+          title={t('editor.source_endpoint')}
+          hideLegend
+          endpoint={task.source}
+          connections={connections}
+          connectionTree={connectionTree}
+          databases={sourceDatabases}
+          t={t}
+          onConnectionChange={(connection) => selectConnection('source', connection)}
+          onDatabaseChange={(database) => selectDatabase('source', database)}
+          onSchemaChange={(schema) => changeSchema('source', schema)}
         />
-      </Field>
+      </div>
     </div>
-    <div className="gn-data-sync-endpoints-grid">
-      <DataSyncEndpointSelector
-        role="source"
-        title={t('editor.source_endpoint')}
-        endpoint={task.source}
-        connections={connections}
-        connectionTree={connectionTree}
-        databases={sourceDatabases}
-        t={t}
-        onConnectionChange={(connection) => selectConnection('source', connection)}
-        onDatabaseChange={(database) => selectDatabase('source', database)}
-        onSchemaChange={(schema) => changeSchema('source', schema)}
-      />
-      <DataSyncEndpointSelector
-        role="target"
-        title={t('editor.target_endpoint')}
-        endpoint={task.target}
-        connections={connections}
-        connectionTree={connectionTree}
-        databases={targetDatabases}
-        t={t}
-        onConnectionChange={(connection) => selectConnection('target', connection)}
-        onDatabaseChange={(database) => selectDatabase('target', database)}
-        onSchemaChange={(schema) => changeSchema('target', schema)}
-      />
+    <div
+      className="gn-data-sync-guide__step"
+      data-guide-step="target"
+      data-complete={targetReady ? 'true' : 'false'}
+      data-locked={sourceReady ? 'false' : 'true'}
+    >
+      <span className="gn-data-sync-guide__index" aria-hidden="true">
+        {targetReady ? '✓' : '2'}
+      </span>
+      <div className="gn-data-sync-guide__step-body">
+        <h3>{t('editor.guide.target_title')}</h3>
+        {sourceReady ? null : (
+          <p className="gn-data-sync-guide__locked">{t('editor.guide.target_locked')}</p>
+        )}
+        <div
+          className="gn-data-sync-guide__endpoint"
+          data-visible={sourceReady ? 'true' : 'false'}
+        >
+          <DataSyncEndpointSelector
+            role="target"
+            title={t('editor.target_endpoint')}
+            hideLegend
+            endpoint={task.target}
+            connections={connections}
+            connectionTree={connectionTree}
+            databases={targetDatabases}
+            t={t}
+            onConnectionChange={(connection) => selectConnection('target', connection)}
+            onDatabaseChange={(database) => selectDatabase('target', database)}
+            onSchemaChange={(schema) => changeSchema('target', schema)}
+          />
+        </div>
+      </div>
     </div>
-    {task.sourceMode === 'query' ? (
+    {task.sourceMode === 'query' && sourceReady ? (
       <div className="gn-data-sync-query-field">
         <Field label={t('editor.source_query')} wide>
           <textarea
@@ -235,6 +270,17 @@ const EndpointStage: React.FC<{
         </Field>
       </div>
     ) : null}
+    <div className="gn-data-sync-guide__actions">
+      <button
+        type="button"
+        className="gn-data-sync-button gn-data-sync-button--primary"
+        data-guide-continue="true"
+        disabled={!canContinue}
+        onClick={onContinue}
+      >
+        <span>{t('workbench.next_step', { stage: t('stage.mappings') })}</span>
+      </button>
+    </div>
   </section>
   );
 };
@@ -1678,6 +1724,7 @@ export const DataSyncTaskEditor: React.FC<{
           connectionTree={connectionTree}
           t={t}
           onPatch={onPatch}
+          onContinue={() => onStageChange('mappings')}
         />
       ) : null}
       {activeStage === 'mappings' ? (
