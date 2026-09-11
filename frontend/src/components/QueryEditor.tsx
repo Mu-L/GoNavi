@@ -228,6 +228,7 @@ import {
     collectQueryEditorObjectDecorationCandidates,
     collectQueryEditorReferencedDatabaseNames,
     collectQueryEditorTableReferences,
+    resolveQueryEditorExecutionContext,
     QUERY_EDITOR_OBJECT_DECORATION_MAX_IDENTIFIERS,
     dispatchQueryEditorSidebarLocate,
     findCompletionTablesByDatabase,
@@ -10452,7 +10453,41 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
         clearUnpinnedResultSets();
         return;
     }
-    if (!canUseQueryEditorDatabaseContext(currentConnection, currentDb)) {
+    const executionDialect = resolveSqlDialect(
+        String(currentConnection?.config?.type || ''),
+        String(currentConnection?.config?.driver || ''),
+        { oceanBaseProtocol: currentConnection?.config?.oceanBaseProtocol },
+    );
+    const sqlContext = resolveQueryEditorExecutionContext(
+        executableSQL,
+        executionDialect,
+        currentDbRef.current,
+        currentSchemaRef.current,
+        visibleDbsRef.current,
+    );
+    if (sqlContext.dbName || sqlContext.schemaName) {
+        if (sqlContext.schemaName && canSelectQuerySchema && pendingSqlTransactionRef.current) {
+            message.warning(translate('query_editor.transaction.message.pending_managed_transaction'));
+            return;
+        }
+        if (sqlContext.schemaName && canSelectQuerySchema && queryContextLockRunSeqRef.current !== 0) {
+            message.info(translate('common.loading'));
+            return;
+        }
+        if (sqlContext.dbName && !switchQueryContext(currentConnectionIdRef.current, sqlContext.dbName)) return;
+        if (sqlContext.schemaName && canSelectQuerySchema) {
+            const nextSchema = sqlContext.schemaName;
+            schemaContextKeyRef.current = `${tab.id}\u0000${currentConnectionIdRef.current}\u0000${currentDbRef.current}`;
+            currentSchemaRef.current = nextSchema;
+            latestSelectedSchemaRef.current = nextSchema;
+            setCurrentSchema(nextSchema);
+            setSchemaList((current) => current.includes(nextSchema) ? current : [nextSchema, ...current]);
+            updateQueryTabDraft(tab.id, { schemaName: nextSchema });
+        }
+    }
+    const executionDbName = currentDbRef.current;
+    const executionSchemaName = currentSchemaRef.current;
+    if (!canUseQueryEditorDatabaseContext(currentConnection, executionDbName)) {
         message.error(translate('query_editor.message.select_database_first'));
         return;
     }
@@ -10505,7 +10540,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
         const approved = await confirmProductionRisk({
             connection: conn,
             action: translate('connection.production_risk.action.execute_sql'),
-            target: currentDb,
+            target: executionDbName,
             translate,
         });
         if (!isCurrentRun()) return;
@@ -10524,7 +10559,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
         ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" },
         timeout: resolveQueryEditorConnectionTimeout(conn.config),
     };
-        const executionConfig = buildSqlExecutionConnectionConfig(config);
+        const executionConfig = buildSqlExecutionConnectionConfig(config, executionSchemaName);
         const executionConnectionParams = canSelectQuerySchema
             ? String(executionConfig.connectionParams || '')
             : undefined;
@@ -10607,8 +10642,8 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                 const mongoRPCConfig = buildRpcConnectionConfig(config) as any;
                 const res = await invokeRequestScopedApp(
                     'DBQueryWithCancel',
-                    [mongoRPCConfig, currentDb, executedSql, queryId],
-                    () => DBQueryWithCancel(mongoRPCConfig, currentDb, executedSql, queryId),
+                    [mongoRPCConfig, executionDbName, executedSql, queryId],
+                    () => DBQueryWithCancel(mongoRPCConfig, executionDbName, executedSql, queryId),
                 );
                 if (!isCurrentRun()) return;
                 if (currentQueryIdRef.current === queryId) {
@@ -10625,7 +10660,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                     duration,
                     message: res.success ? '' : res.message,
                     affectedRows: (res.success && !Array.isArray(res.data)) ? (res.data as any).affectedRows : (Array.isArray(res.data) ? res.data.length : undefined),
-                    dbName: currentDb
+                    dbName: executionDbName
                 });
                 if (!res.success) {
                     const prefix = statements.length > 1
@@ -10830,7 +10865,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                         const leadingSegments = splitQueryIdentifierPathSegments(leadingTable.tableText);
                         const oracleLookupDbCandidates = leadingSegments.length >= 2
                             ? [String(leadingSegments[0]?.value || '').trim()].filter(Boolean)
-                            : resolveOracleLikeLookupSchemaCandidates(config, currentDb);
+                            : resolveOracleLikeLookupSchemaCandidates(config, executionDbName);
                         let exactQualifiedTable: string | undefined;
                         for (const oracleLookupDbName of oracleLookupDbCandidates) {
                             const oracleTables = oracleLookupDbName ? await getOracleTablesForDb(oracleLookupDbName) : [];
@@ -10867,7 +10902,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                         statement: statementForPlan,
                         originalStatement: sourceStatements[index],
                         dbType: normalizedDbType,
-                        currentDb,
+                        currentDb: executionDbName,
                         config: executionConfig,
                         forceReadOnly: forceReadOnlyResult,
                         allowOracleRowID: allowOracleRowIDByStatement[index],
@@ -10918,13 +10953,13 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                 res = useManagedTransaction
                     ? await DBQueryMultiTransactional(
                         buildRpcConnectionConfig(executionConfig) as any,
-                        currentDb,
+                        executionDbName,
                         fullSQL,
                         queryId,
                     )
                     : await executeSqlEditorMultiQuery(
                         config,
-                        currentDb,
+                        executionDbName,
                         fullSQL,
                         queryId,
                         executableStatements,
@@ -10985,7 +11020,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                 status: res.success ? 'success' : 'error',
                 duration,
                 message: res.success ? '' : res.message,
-                dbName: currentDb
+                dbName: executionDbName
             });
 
             const confirmedStatementCount = res.success
@@ -11002,7 +11037,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                 invalidateQueryEditorHoverDdlCacheForConnection(conn.id);
                 dispatchSidebarDatabaseRefresh({
                     connectionId: conn.id,
-                    dbName: currentDb,
+                    dbName: executionDbName,
                 });
             }
 
@@ -11050,7 +11085,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                     try {
                         const restoreResult = await DBQueryAudited(
                             buildRpcConnectionConfig(executionConfig) as any,
-                            currentDb,
+                            executionDbName,
                             triggerRollbackSql,
                             'table_designer',
                         );
@@ -11077,7 +11112,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                     invalidateQueryEditorHoverDdlCacheForConnection(conn.id);
                     dispatchSidebarDatabaseRefresh({
                         connectionId: conn.id,
-                        dbName: currentDb,
+                        dbName: executionDbName,
                     });
                 }
                 const errorMsg = String(res.message || '').toLowerCase();
@@ -11117,7 +11152,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                         createdAt: Date.now(),
                         statementCount: managedTransactionStatementCount,
                         dbType: normalizedDbType,
-                        dbName: currentDb,
+                        dbName: executionDbName,
                         statements: sourceStatements,
                         executionDurationMs: duration,
                     });
@@ -11257,7 +11292,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                         ddlDbName: tableRef?.ddlDbName,
                         ddlTableName: tableRef?.ddlTableName,
                         executionConnectionId: currentConnectionId,
-                        executionDbName: currentDb,
+                        executionDbName: executionDbName,
                         executionConnectionParams,
                         pkColumns: plan?.pkColumns || [],
                         editLocator,
@@ -11324,7 +11359,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
             status: 'error',
             duration: Date.now() - runStartTime,
             message: e.message,
-            dbName: currentDb
+            dbName: executionDbName
         });
         updateResultPanelVisibility(true);
         setExecutionError(formattedError);
