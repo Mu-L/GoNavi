@@ -271,6 +271,7 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
 .gonavi-ai-provider-test-result-toggle,
 .gonavi-ai-provider-test-error-copy {
   flex-shrink: 0;
+  max-width: 100%;
   min-height: 24px;
   padding: 0 8px;
   border: 1px solid var(--provider-control-border);
@@ -279,18 +280,21 @@ body.gonavi-ai-provider-dragging, body.gonavi-ai-provider-dragging * { cursor: g
   color: inherit;
   cursor: pointer;
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .gonavi-ai-provider-test-result-toggle:focus-visible,
 .gonavi-ai-provider-test-error-copy:focus-visible { outline: 2px solid var(--provider-active); outline-offset: 2px; }
 .gonavi-ai-provider-test-result .anticon { color: var(--provider-active); }
 .gonavi-ai-provider-test-result[data-error='true'] { color: var(--gn-danger, #cf4343); }
+.gonavi-ai-provider-test-error-disclosure { display: flex; justify-content: flex-end; min-width: 0; padding-top: 4px; color: var(--gn-danger, #cf4343); }
 .gonavi-ai-provider-test-error-details {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--gn-danger, #cf4343) 35%, var(--provider-line));
   border-radius: 8px;

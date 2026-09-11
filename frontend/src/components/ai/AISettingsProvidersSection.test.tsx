@@ -125,6 +125,8 @@ describe('AISettingsProvidersSection', () => {
     expect(providerStyles).toContain('.gonavi-ai-provider-footer { flex-shrink: 0; display: flex; flex-direction: column; min-width: 0; }');
     expect(providerStyles).toMatch(/\.gonavi-ai-provider-actions \{[^}]*flex-wrap: nowrap;/);
     expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-summary \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-disclosure \{[^}]*justify-content: flex-end;[^}]*min-width: 0;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-toggle,[^{]*\{[^}]*max-width: 100%;[^}]*text-overflow: ellipsis;/);
     expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-body \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/);
   });
 

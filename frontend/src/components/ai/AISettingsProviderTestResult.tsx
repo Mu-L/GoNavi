@@ -6,10 +6,10 @@ import type { ProviderCheckResult } from '../../utils/aiProviderManagement';
 export const PROVIDER_TEST_ERROR_DETAILS_ID = 'gonavi-ai-provider-test-error-details';
 
 export const copyProviderTestError = async (text: string): Promise<boolean> => {
-  const writeText = typeof navigator === 'undefined' ? undefined : navigator.clipboard?.writeText;
-  if (typeof writeText !== 'function') return false;
+  const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+  if (typeof clipboard?.writeText !== 'function') return false;
   try {
-    await writeText(text);
+    await clipboard.writeText(text);
     return true;
   } catch {
     return false;
@@ -63,20 +63,22 @@ const AISettingsProviderTestResult: React.FC<AISettingsProviderTestResultProps> 
           data-error={testStatus === 'error'}
         >
           {summary && <span className="gonavi-ai-provider-test-result-summary">{summary}</span>}
-          {canInspectError && (
-            <button
-              type="button"
-              className="gonavi-ai-provider-test-result-toggle"
-              aria-expanded={detailsOpen}
-              aria-controls={PROVIDER_TEST_ERROR_DETAILS_ID}
-              onClick={() => setDetailsOpen((open) => !open)}
-            >
-              {copy(detailsOpen ? 'ai_settings.test.error.hide' : 'ai_settings.test.error.details')}
-            </button>
-          )}
         </div>
         {saveAction}
       </div>
+      {canInspectError && (
+        <div className="gonavi-ai-provider-test-error-disclosure">
+          <button
+            type="button"
+            className="gonavi-ai-provider-test-result-toggle"
+            aria-expanded={detailsOpen}
+            aria-controls={PROVIDER_TEST_ERROR_DETAILS_ID}
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {copy(detailsOpen ? 'ai_settings.test.error.hide' : 'ai_settings.test.error.details')}
+          </button>
+        </div>
+      )}
       {canInspectError && detailsOpen && (
         <div id={PROVIDER_TEST_ERROR_DETAILS_ID} className="gonavi-ai-provider-test-error-details">
           <pre className="gonavi-ai-provider-test-error-body">{errorMessage}</pre>

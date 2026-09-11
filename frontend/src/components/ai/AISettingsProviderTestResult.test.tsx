@@ -23,9 +23,14 @@ describe('copyProviderTestError', () => {
     vi.unstubAllGlobals();
   });
 
-  it('copies the full redacted error when the clipboard API is available', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { clipboard: { writeText } });
+  it('copies the full redacted error with the Clipboard receiver intact', async () => {
+    let clipboard: { writeText: ReturnType<typeof vi.fn> };
+    const writeText = vi.fn(function (this: unknown, text: string) {
+      if (this !== clipboard) return Promise.reject(new TypeError('Illegal invocation'));
+      return Promise.resolve(text);
+    });
+    clipboard = { writeText };
+    vi.stubGlobal('navigator', { clipboard });
     await expect(copyProviderTestError(longError)).resolves.toBe(true);
     expect(writeText).toHaveBeenCalledWith(longError);
   });
@@ -109,6 +114,7 @@ describe('AISettingsProviderTestResult', () => {
     expect(toggle.props['aria-expanded']).toBe(false);
     expect(toggle.props['aria-controls']).toBe(PROVIDER_TEST_ERROR_DETAILS_ID);
     expect(renderedText(toggle)).toBe('View full error');
+    expect(toggle.parent?.props.className).toBe('gonavi-ai-provider-test-error-disclosure');
     await act(async () => toggle.props.onClick());
 
     const details = renderer!.root.findByProps({ id: PROVIDER_TEST_ERROR_DETAILS_ID });
