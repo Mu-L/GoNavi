@@ -217,6 +217,7 @@ import {
   SIDEBAR_CONTEXT_MENU_FALLBACK_HEIGHT,
   SIDEBAR_CONTEXT_MENU_FALLBACK_WIDTH,
   resolveSidebarContextMenuPosition,
+  resolveSidebarTreeRowKey,
   type SearchScope,
 } from './sidebarCoreUtils';
 export { resolveSidebarContextMenuPosition } from './sidebarCoreUtils';
@@ -4455,6 +4456,16 @@ const Sidebar: React.FC<{
       }
   };
 
+  const handleV2TreeContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented) return;
+      const nodeKey = resolveSidebarTreeRowKey(event.target);
+      if (!nodeKey) return;
+      const node = findTreeNodeByKeyRef.current(treeDataRef.current, nodeKey);
+      if (!node) return;
+      event.preventDefault();
+      onRightClick({ event, node });
+  };
+
   const v2RailObjectActionsLabel = t('sidebar.rail.object_actions');
   const v2RailSystemActionsLabel = t('sidebar.rail.system_actions');
   const v2NewGroupLabel = t('sidebar.action.new_group');
@@ -4841,6 +4852,7 @@ const Sidebar: React.FC<{
                     itemHeight={30}
                     itemHeightResolver={resolveSidebarTreeRowHeight}
                     scrollWidth={v2TreeHorizontalScrollWidth}
+                    onContextMenu={handleV2TreeContextMenu}
                     onRightClick={onRightClick}
                 />
             </div>

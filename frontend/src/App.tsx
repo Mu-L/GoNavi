@@ -295,6 +295,7 @@ import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/
 import { useAppUtilityStyles } from './hooks/useAppUtilityStyles';
 import { useWorkbenchTabs } from './hooks/useWorkbenchTabs';
 import { useAIWorkspaceSnapshot } from './components/ai/useAIWorkspaceSnapshot';
+import { shouldAllowNativeContextMenu } from './utils/nativeContextMenu';
 import AgentDataSettingsPanel from './components/ai/AgentDataSettingsPanel';
 import {
   ApplyDataRootDirectory,
@@ -8092,6 +8093,10 @@ function App() {
   const sidebarPanelCollapseLabel = t('app.sidebar.collapse');
   const sidebarPanelExpandLabel = t('app.sidebar.expand');
   const sidebarPanelToggleLabel = isSidebarCollapsed ? sidebarPanelExpandLabel : sidebarPanelCollapseLabel;
+  const handleAppContextMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (event.defaultPrevented || shouldAllowNativeContextMenu(event.target)) return;
+    event.preventDefault();
+  }, []);
 
   return (
     <ConfigProvider
@@ -8107,6 +8112,7 @@ function App() {
         <ToolbarAppearanceStyleHost />
         <Layout
           className="gn-v2-app-root"
+          onContextMenu={handleAppContextMenu}
           data-gonavi-close-shortcut-scope="workspace"
           data-empty-workbench={tabs.length === 0 ? 'true' : 'false'}
           data-collapsed-sidebar-actions-docked={
