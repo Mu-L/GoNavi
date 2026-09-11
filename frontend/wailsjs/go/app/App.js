@@ -1050,6 +1050,10 @@ export function PreflightDatabaseSQLImport(arg1, arg2, arg3) {
   return window['go']['app']['App']['PreflightDatabaseSQLImport'](arg1, arg2, arg3);
 }
 
+export function PrepareWindowsBrandIconRestart(arg1) {
+  return window['go']['app']['App']['PrepareWindowsBrandIconRestart'](arg1);
+}
+
 export function PreviewChanges(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PreviewChanges'](arg1, arg2, arg3, arg4);
 }
@@ -1248,6 +1252,10 @@ export function ResolveDriverPackageDownloadURL(arg1, arg2) {
 
 export function ResolveDriverRepositoryURL(arg1) {
   return window['go']['app']['App']['ResolveDriverRepositoryURL'](arg1);
+}
+
+export function RestartApplication() {
+  return window['go']['app']['App']['RestartApplication']();
 }
 
 export function RestartSecurityUpdate(arg1) {

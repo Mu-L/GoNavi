@@ -3,6 +3,9 @@ const DOCK_ICON_SIZE = 1024;
 // 100px transparent border here makes GoNavi render visibly smaller than
 // neighbouring macOS apps, so use the full 1024px canvas.
 const DOCK_ICON_INSET = 0;
+// The 0.9.7 mascot artwork is a full rounded white tile. Keep its original
+// safe area so it does not appear larger than neighbouring Dock icons.
+export const LEGACY_MASCOT_DOCK_ICON_INSET = 100;
 // Keep the same rounded-tile proportion used by the source artwork.
 const DOCK_ICON_CORNER_RADIUS_RATIO = 184 / 824;
 
@@ -44,8 +47,13 @@ function canvasToBase64Png(canvas: HTMLCanvasElement): string {
   return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 }
 
-export function calculateMacOSDockImageRect(imageWidth: number, imageHeight: number): MacOSDockImageRect {
-  const tileSize = DOCK_ICON_SIZE - (DOCK_ICON_INSET * 2);
+export function calculateMacOSDockImageRect(
+  imageWidth: number,
+  imageHeight: number,
+  inset = DOCK_ICON_INSET,
+): MacOSDockImageRect {
+  const safeInset = Math.max(0, Math.min((DOCK_ICON_SIZE / 2) - 1, Number(inset) || 0));
+  const tileSize = DOCK_ICON_SIZE - (safeInset * 2);
   const sourceWidth = Math.max(1, Number(imageWidth) || tileSize);
   const sourceHeight = Math.max(1, Number(imageHeight) || tileSize);
   const scale = Math.min(tileSize / sourceWidth, tileSize / sourceHeight);
@@ -88,7 +96,10 @@ function clipMacOSDockImage(ctx: CanvasRenderingContext2D, rect: MacOSDockImageR
  * Keep the source artwork intact while normalising its outer tile to the
  * standard macOS corner geometry.
  */
-export async function composeMacOSDockIconBase64(src: string): Promise<string> {
+export async function composeMacOSDockIconBase64(
+  src: string,
+  options: { inset?: number } = {},
+): Promise<string> {
   const img = await loadImage(src);
   const size = DOCK_ICON_SIZE;
   const canvas = document.createElement('canvas');
@@ -100,7 +111,11 @@ export async function composeMacOSDockIconBase64(src: string): Promise<string> {
   }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  const rect = calculateMacOSDockImageRect(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  const rect = calculateMacOSDockImageRect(
+    img.naturalWidth || img.width,
+    img.naturalHeight || img.height,
+    options.inset,
+  );
   clipMacOSDockImage(ctx, rect);
   ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
   return canvasToBase64Png(canvas);

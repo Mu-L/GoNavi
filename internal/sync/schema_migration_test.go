@@ -9,12 +9,14 @@ import (
 )
 
 type fakeMigrationDB struct {
-	columns   map[string][]connection.ColumnDefinition
-	indexes   map[string][]connection.IndexDefinition
-	tables    map[string][]string
-	queryData map[string][]map[string]interface{}
-	queryCols map[string][]string
-	queryLog  []string
+	columns       map[string][]connection.ColumnDefinition
+	indexes       map[string][]connection.IndexDefinition
+	triggers      map[string][]connection.TriggerDefinition
+	tableComments map[string]string
+	tables        map[string][]string
+	queryData     map[string][]map[string]interface{}
+	queryCols     map[string][]string
+	queryLog      []string
 }
 
 func (f *fakeMigrationDB) Connect(config connection.ConnectionConfig) error { return nil }
@@ -59,7 +61,14 @@ func (f *fakeMigrationDB) GetForeignKeys(dbName, tableName string) ([]connection
 	return nil, nil
 }
 func (f *fakeMigrationDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
+	key := dbName + "." + tableName
+	if rows, ok := f.triggers[key]; ok {
+		return rows, nil
+	}
 	return nil, nil
+}
+func (f *fakeMigrationDB) GetTableComment(dbName, tableName string) (string, error) {
+	return f.tableComments[dbName+"."+tableName], nil
 }
 func (f *fakeMigrationDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
 	return f.Query(query)
@@ -702,6 +711,61 @@ func TestBuildMySQLToPGLikeCreateTablePlan_GeneratesPostgresDDL(t *testing.T) {
 	}
 	if len(warnings) != 0 || len(unsupported) != 0 || len(unmigrated) != 0 {
 		t.Fatalf("unexpected warnings/unsupported: warnings=%v unsupported=%v unmigrated=%v", warnings, unsupported, unmigrated)
+	}
+}
+
+func TestBuildPGLikeToPGLikeCreateTablePlan_CopiesTableDependents(t *testing.T) {
+	t.Parallel()
+
+	nextval := "nextval('public.orders_id_seq'::regclass)"
+	sourceDB := &fakeMigrationDB{
+		indexes: map[string][]connection.IndexDefinition{
+			"public.orders": {
+				{Name: "idx_orders_status", ColumnName: "status", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE"},
+			},
+		},
+		triggers: map[string][]connection.TriggerDefinition{
+			"public.orders": {
+				{Name: "orders_bi", Timing: "BEFORE", Event: "INSERT", Statement: "EXECUTE FUNCTION orders_bi()", Orientation: "ROW"},
+			},
+		},
+		tableComments: map[string]string{"public.orders": "order header"},
+	}
+	cols := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI", Default: &nextval, Comment: "primary key"},
+		{Name: "status", Type: "text", Nullable: "YES"},
+	}
+	cfg := SyncConfig{CreateIndexes: true}
+	createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildPGLikeToPGLikeCreateTablePlan(
+		"postgres", cfg, "ods.orders", cols, sourceDB, "public", "orders",
+	)
+	if err != nil {
+		t.Fatalf("buildPGLikeToPGLikeCreateTablePlan returned error: %v", err)
+	}
+	joined := strings.Join(postSQL, "\n")
+	if !strings.Contains(createSQL, `CREATE TABLE "ods"."orders"`) {
+		t.Fatalf("unexpected create SQL: %s", createSQL)
+	}
+	if !strings.Contains(joined, `CREATE SEQUENCE IF NOT EXISTS "ods"."orders_id_seq"`) {
+		t.Fatalf("missing owned sequence: %s", joined)
+	}
+	if !strings.Contains(joined, `COMMENT ON COLUMN "ods"."orders"."id" IS 'primary key'`) {
+		t.Fatalf("missing column comment: %s", joined)
+	}
+	if !strings.Contains(joined, `COMMENT ON TABLE "ods"."orders" IS 'order header'`) {
+		t.Fatalf("missing table comment: %s", joined)
+	}
+	if !strings.Contains(joined, `CREATE TRIGGER "orders_bi" BEFORE INSERT ON "ods"."orders" FOR EACH ROW EXECUTE FUNCTION orders_bi()`) {
+		t.Fatalf("missing trigger: %s", joined)
+	}
+	if !strings.Contains(joined, `CREATE INDEX "idx_orders_status"`) {
+		t.Fatalf("missing index: %s", joined)
+	}
+	if idxCreate != 1 || idxSkip != 0 {
+		t.Fatalf("unexpected index summary: create=%d skip=%d", idxCreate, idxSkip)
+	}
+	if len(warnings) != 0 || len(unsupported) != 0 {
+		t.Fatalf("unexpected warnings/unsupported: warnings=%v unsupported=%v", warnings, unsupported)
 	}
 }
 

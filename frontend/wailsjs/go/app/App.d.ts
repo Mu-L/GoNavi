@@ -535,6 +535,8 @@ export function OpenSavedQueryDirectory():Promise<connection.QueryResult>;
 
 export function PreflightDatabaseSQLImport(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function PrepareWindowsBrandIconRestart(arg1:string):Promise<connection.QueryResult>;
+
 export function PreviewChanges(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:connection.ChangeSet):Promise<connection.QueryResult>;
 
 export function PreviewImportFile(arg1:string):Promise<connection.QueryResult>;
@@ -634,6 +636,8 @@ export function ResolveDriverDownloadDirectory(arg1:string):Promise<connection.Q
 export function ResolveDriverPackageDownloadURL(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
 export function ResolveDriverRepositoryURL(arg1:string):Promise<connection.QueryResult>;
+
+export function RestartApplication():Promise<connection.QueryResult>;
 
 export function RestartSecurityUpdate(arg1:app.RestartSecurityUpdateRequest):Promise<app.SecurityUpdateStatus>;
 

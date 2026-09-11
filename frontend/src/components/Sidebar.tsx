@@ -1,7 +1,7 @@
 import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
 import Modal from './common/ResizableDraggableModal';
 import TitleBarQuickActions, { type TitleBarQuickAction } from './TitleBarQuickActions';
-import { type DataSyncEntryMode } from './dataSyncEntryMode';
+import { type DataSyncEntryModeAlias } from './dataSyncEntryMode';
 import type { DatabaseCharsetOption, DatabaseCollationOption } from '../utils/databaseCharset';
 import SidebarSearchPanel, { type SidebarSearchPanelProps } from './sidebar/SidebarSearchPanel';
 import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
@@ -911,11 +911,11 @@ const Sidebar: React.FC<{
   onOpenSettingsNavigation?: (spec: {
     group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
     pane?: string;
-    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'drivers' | 'sql-audit';
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'compare' | 'sync' | 'drivers' | 'sql-audit';
   }) => void;
   /** Whether web-only settings entries (e.g. browser auth) should appear. */
   isWebRuntime?: boolean;
-  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryMode) => void;
+  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryModeAlias) => void;
   onToggleAI?: () => void;
   onToggleLogPanel?: () => void;
   v2ExplorerContext?: V2ExplorerContext;
@@ -4568,22 +4568,16 @@ const Sidebar: React.FC<{
           onClick: handleOpenDataImportWorkbench,
         },
         {
-          key: 'schema-compare',
-          label: t('app.tools.entry.schema_compare.title'),
-          icon: <AppstoreOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' }),
-        },
-        {
-          key: 'data-compare',
-          label: t('app.tools.entry.data_compare.title'),
-          icon: <SwitcherOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' }),
-        },
-        {
           key: 'sync',
           label: t('app.tools.entry.sync.title'),
           icon: <UploadOutlined rotate={90} aria-hidden="true" />,
           onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' }),
+        },
+        {
+          key: 'compare',
+          label: t('app.tools.entry.compare.title'),
+          icon: <SwitcherOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'compare' }),
         },
       ],
     },

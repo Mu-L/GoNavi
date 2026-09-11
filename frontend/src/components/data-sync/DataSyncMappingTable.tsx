@@ -9,6 +9,7 @@ import React, {
 import { createPortal } from 'react-dom';
 
 import type {
+  DataSyncCompareMode,
   DataSyncObjectMetadata,
   DataSyncTableMapping,
   DataSyncTaskKind,
@@ -312,6 +313,7 @@ const targetStatus = (
 export const DataSyncMappingTable: React.FC<{
   mappings: DataSyncTableMapping[];
   taskKind: DataSyncTaskKind;
+  compareMode?: DataSyncCompareMode;
   sourceObjects: DataSyncMetadataResult<DataSyncObjectMetadata>;
   targetObjects: DataSyncMetadataResult<DataSyncObjectMetadata>;
   endpointsReady?: boolean;
@@ -322,10 +324,12 @@ export const DataSyncMappingTable: React.FC<{
   onAddMany: (sourceNames: string[]) => void;
   onChange: (mapping: DataSyncTableMapping) => void;
   onRemove: (mappingId: string) => void;
+  onRemoveMany?: (mappingIds: string[]) => void;
   onInspectFields?: (mappingId: string) => void;
 }> = ({
   mappings,
   taskKind,
+  compareMode,
   sourceObjects,
   targetObjects,
   endpointsReady: endpointsReadyProp,
@@ -336,6 +340,7 @@ export const DataSyncMappingTable: React.FC<{
   onAddMany,
   onChange,
   onRemove,
+  onRemoveMany,
   onInspectFields,
 }) => {
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -448,6 +453,29 @@ export const DataSyncMappingTable: React.FC<{
     [catalogNeedle, sourceObjects.items],
   );
   const showCatalog = !querySink && canPickSources;
+  const compareTask = taskKind === 'compare';
+  const mappingTitleKey = compareTask
+    ? compareMode === 'schema'
+      ? 'mapping.title_schema_compare'
+      : 'mapping.title_data_compare'
+    : 'mapping.title';
+  const mappingHelpKey = compareTask
+    ? compareMode === 'schema'
+      ? 'mapping.help_schema_compare'
+      : 'mapping.help_data_compare'
+    : querySink
+      ? 'mapping.query_help'
+      : 'mapping.help';
+  const mappingWriteToKey = compareTask ? 'mapping.write_to_compare' : 'mapping.write_to';
+  const mappingEmptyDescKey = compareTask
+    ? 'mapping.none_selected_desc_compare'
+    : 'mapping.none_selected_desc';
+  const catalogSelectedCount = catalogObjects.filter((object) =>
+    mappedSourceNames.has(normalizeName(object.name)),
+  ).length;
+  const catalogAllSelected =
+    catalogObjects.length > 0 && catalogSelectedCount === catalogObjects.length;
+  const catalogSomeSelected = catalogSelectedCount > 0 && !catalogAllSelected;
   const toggleCatalogObject = (objectName: string, checked: boolean) => {
     if (checked) {
       const selected = mappings
@@ -465,6 +493,35 @@ export const DataSyncMappingTable: React.FC<{
       (item) => normalizeName(item.sourceObject) === normalizeName(objectName),
     );
     if (mapping) onRemove(mapping.id);
+  };
+  const toggleCatalogFiltered = (checked: boolean) => {
+    if (checked) {
+      const selected = mappings
+        .map((mapping) => mapping.sourceObject.trim())
+        .filter(Boolean);
+      const selectedKeys = new Set(selected.map(normalizeName));
+      catalogObjects.forEach((object) => {
+        const key = normalizeName(object.name);
+        if (!selectedKeys.has(key)) {
+          selected.push(object.name);
+          selectedKeys.add(key);
+        }
+      });
+      onAddMany(selected);
+      return;
+    }
+    const filteredKeys = new Set(
+      catalogObjects.map((object) => normalizeName(object.name)),
+    );
+    const removedIds = mappings
+      .filter((mapping) => filteredKeys.has(normalizeName(mapping.sourceObject)))
+      .map((mapping) => mapping.id);
+    if (removedIds.length === 0) return;
+    if (onRemoveMany) {
+      onRemoveMany(removedIds);
+      return;
+    }
+    onRemove(removedIds[0]);
   };
 
   useEffect(() => {
@@ -492,8 +549,8 @@ export const DataSyncMappingTable: React.FC<{
     >
       <header className="gn-data-sync-section__header">
         <div>
-          <h2>{t('mapping.title')}</h2>
-          <p>{t(querySink ? 'mapping.query_help' : 'mapping.help')}</p>
+          <h2>{t(mappingTitleKey)}</h2>
+          <p>{t(mappingHelpKey)}</p>
         </div>
         {endpointsReady && querySink && targetObjects.status === 'ready' ? (
           <button
@@ -542,6 +599,26 @@ export const DataSyncMappingTable: React.FC<{
               onChange={(event) => setCatalogSearch(event.target.value)}
             />
           </label>
+          {catalogObjects.length > 0 ? (
+            <label className="gn-data-sync-mapping-catalog__select-all">
+              <input
+                type="checkbox"
+                checked={catalogAllSelected}
+                disabled={disabled || selectionBusy}
+                ref={(input) => {
+                  if (input) input.indeterminate = catalogSomeSelected;
+                }}
+                onChange={() =>
+                  toggleCatalogFiltered(!(catalogAllSelected || catalogSomeSelected))
+                }
+              />
+              <span>
+                {catalogNeedle
+                  ? t('mapping.select_filtered', { count: catalogObjects.length })
+                  : t('mapping.select_all', { count: catalogObjects.length })}
+              </span>
+            </label>
+          ) : null}
           <div className="gn-data-sync-mapping-catalog__list">
             {catalogObjects.map((object) => {
               const checked = mappedSourceNames.has(normalizeName(object.name));
@@ -573,7 +650,7 @@ export const DataSyncMappingTable: React.FC<{
           {showCatalog || emptyState !== 'prerequisite' ? (
             <strong>{showCatalog ? t('mapping.none_selected_title') : emptyTitle}</strong>
           ) : null}
-          <p>{showCatalog ? t('mapping.none_selected_desc') : emptyDescription}</p>
+          <p>{showCatalog ? t(mappingEmptyDescKey) : emptyDescription}</p>
           {emptyState === 'error' ? (
             <button
               type="button"
@@ -668,7 +745,7 @@ export const DataSyncMappingTable: React.FC<{
                       id={`${mapping.id}-target-label`}
                       data-mapping-field-label="target"
                     >
-                      {t(showCatalog ? 'mapping.write_to' : 'mapping.target')}
+                      {t(showCatalog ? mappingWriteToKey : 'mapping.target')}
                     </span>
                     <div className="gn-data-sync-mapping-row__target-controls">
                       <DataSyncObjectCombobox

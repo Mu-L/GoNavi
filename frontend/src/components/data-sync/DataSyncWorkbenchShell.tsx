@@ -19,7 +19,8 @@ import {
 import {
   canStartDataSyncTask,
   createDataSyncTaskDraft,
-  DATA_SYNC_TASK_STAGES,
+  dataSyncTaskBelongsToFamily,
+  dataSyncTaskStages,
   isDataSyncPreflightCurrent,
   reviseDataSyncTask,
   validateDataSyncTask,
@@ -38,20 +39,31 @@ import {
   type DataSyncRunEvent,
   type DataSyncCompareResult,
   type DataSyncScheduleSummary,
+  type DataSyncCompareMode,
   type DataSyncTaskDefinition,
   type DataSyncTaskKind,
   type DataSyncTaskStage,
+  type DataSyncWorkbenchFamily,
 } from './model';
 import {
   createDataSyncWorkbenchTranslate,
+  dataSyncStageTextKey,
+  dataSyncTaskKindTextKey,
   dataSyncValidationIssueText,
   type DataSyncWorkbenchLocale,
+  type DataSyncWorkbenchTextKey,
 } from './text';
+import {
+  buildCompareAiPrompt,
+  buildCompareRepairSQL,
+  tableHasCompareDiff,
+} from './compareRepairSql';
 import { decodeCompareResult } from './wailsDto';
 import {
   dispatchSidebarDatabaseRefresh,
   type SidebarDatabaseRefreshRequest,
 } from '../../utils/sidebarDatabaseRefresh';
+import { setDataSyncHandoff, takeDataSyncHandoff } from '../../utils/dataSyncHandoff';
 import { registerWorkbenchTabCloseGuard } from '../../utils/workbenchTabCloseProtection';
 import Modal from '../common/ResizableDraggableModal';
 import './DataSyncWorkbench.css';
@@ -96,7 +108,18 @@ const EMPTY_CAPABILITY: DataSyncRouteCapability = {
   supportsCdc: false,
 };
 
-const viewKeys: WorkbenchView[] = ['tasks', 'runs', 'schedules', 'cdc'];
+const DATA_SYNC_WORKBENCH_VIEWS: readonly WorkbenchView[] = [
+  'tasks',
+  'runs',
+  'schedules',
+  'cdc',
+];
+const DATA_SYNC_COMPARE_WORKBENCH_VIEWS: readonly WorkbenchView[] = ['tasks', 'runs'];
+
+const workbenchViewKeys = (
+  family?: DataSyncWorkbenchFamily,
+): readonly WorkbenchView[] =>
+  family === 'compare' ? DATA_SYNC_COMPARE_WORKBENCH_VIEWS : DATA_SYNC_WORKBENCH_VIEWS;
 const RUN_POLL_INTERVAL_MS = 3_000;
 const FOCUSABLE_SELECTOR =
   'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
@@ -204,6 +227,50 @@ export const createSchemaSyncTaskFromCompare = ({
   });
 };
 
+export const createSyncTaskFromCompare = ({
+  compareTask,
+  id,
+  name,
+  now = new Date().toISOString(),
+  tables,
+}: {
+  compareTask: DataSyncTaskDefinition;
+  id: string;
+  name: string;
+  now?: string;
+  tables?: string[];
+}): DataSyncTaskDefinition | null => {
+  if (compareTask.kind !== 'compare') return null;
+  const allowed = tables && tables.length > 0 ? new Set(tables) : null;
+  const mappings = allowed
+    ? compareTask.mappings.filter(
+        (mapping) =>
+          allowed.has(mapping.sourceObject) || allowed.has(mapping.targetObject),
+      )
+    : compareTask.mappings;
+  const scoped = { ...compareTask, mappings };
+  if (compareTask.compareMode === 'schema') {
+    return createSchemaSyncTaskFromCompare({
+      compareTask: scoped,
+      id,
+      name,
+      now,
+    });
+  }
+  const draft = createDataSyncTaskDraft({
+    id,
+    kind: 'reconcile',
+    name,
+    now,
+    sourceConnectionId: compareTask.source.connectionId,
+  });
+  return reviseDataSyncTask(draft, {
+    source: compareTask.source,
+    target: compareTask.target,
+    mappings,
+  });
+};
+
 export const resolveDataSyncSidebarRefreshes = ({
   previousStatuses,
   runs,
@@ -247,6 +314,60 @@ export type DataSyncWorkbenchShellProps = {
   locale?: DataSyncWorkbenchLocale | string;
   onClose?: () => void;
   workbenchTabId?: string;
+  workbenchFamily?: DataSyncWorkbenchFamily;
+  onOpenQueryTab?: (tab: {
+    title: string;
+    connectionId: string;
+    dbName?: string;
+    schemaName?: string;
+    query: string;
+  }) => void;
+  onAskAi?: (prompt: string) => void;
+  onOpenSyncWorkbench?: (handoff?: {
+    taskId: string;
+    stage?: DataSyncTaskStage;
+  }) => void;
+  focusTaskId?: string;
+  focusStage?: DataSyncTaskStage;
+  focusRequestId?: string;
+};
+
+const resolveWorkbenchChrome = (
+  family: DataSyncWorkbenchFamily | undefined,
+  task: DataSyncTaskDefinition | null,
+): {
+  title: DataSyncWorkbenchTextKey;
+  titleShort: DataSyncWorkbenchTextKey;
+  subtitle: DataSyncWorkbenchTextKey;
+} => {
+  const compareMode = task?.kind === 'compare' ? task.compareMode : undefined;
+  if (family === 'compare' || (!family && task?.kind === 'compare')) {
+    return {
+      title:
+        family === 'compare'
+          ? 'workbench.title_compare'
+          : compareMode === 'schema'
+            ? 'workbench.title_schema_compare'
+            : 'workbench.title_data_compare',
+      titleShort:
+        family === 'compare'
+          ? 'workbench.title_compare_short'
+          : compareMode === 'schema'
+            ? 'workbench.title_schema_compare'
+            : 'workbench.title_data_compare',
+      subtitle:
+        compareMode === 'schema'
+          ? 'workbench.subtitle_schema_compare'
+          : compareMode === 'data'
+            ? 'workbench.subtitle_data_compare'
+            : 'workbench.subtitle_compare',
+    };
+  }
+  return {
+    title: 'workbench.title',
+    titleShort: 'workbench.title_short',
+    subtitle: 'workbench.subtitle',
+  };
 };
 
 /**
@@ -273,6 +394,13 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   locale,
   onClose,
   workbenchTabId,
+  workbenchFamily,
+  onOpenQueryTab,
+  onAskAi,
+  onOpenSyncWorkbench,
+  focusTaskId,
+  focusStage,
+  focusRequestId,
 }) => {
   const t = useMemo(() => createDataSyncWorkbenchTranslate(locale), [locale]);
   const taskListId = React.useId();
@@ -281,13 +409,15 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     initialTasksRef.current =
       initialTasks.length > 0
         ? initialTasks
-        : [
-            createDataSyncTaskDraft({
-              id: 'data-sync-local-draft',
-              kind: 'reconcile',
-              name: t('task_kind.reconcile'),
-            }),
-          ];
+        : workbenchFamily === 'compare'
+          ? []
+          : [
+              createDataSyncTaskDraft({
+                id: 'data-sync-local-draft',
+                kind: 'reconcile',
+                name: t('task_kind.reconcile'),
+              }),
+            ];
   }
   const gatewayRef = useRef<DataSyncWorkbenchGateway>();
   if (!gatewayRef.current) {
@@ -296,6 +426,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
       createStaticDataSyncWorkbenchGateway({ tasks: initialTasksRef.current });
   }
 
+  const viewKeys = workbenchViewKeys(workbenchFamily);
   const [activeView, setActiveView] = useState<WorkbenchView>('tasks');
   const [tasks, setTasks] = useState<DataSyncTaskDefinition[]>(initialTasksRef.current);
   const tasksRef = useRef(tasks);
@@ -321,6 +452,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const [dirtyTaskIds, setDirtyTaskIds] = useState<Set<string>>(() => new Set());
   const dirtyTaskIdsRef = useRef(dirtyTaskIds);
   const deletedTaskIdsRef = useRef(new Set<string>());
+  const handoffTaskRef = useRef<DataSyncTaskDefinition | null>(null);
   const markTaskDirty = (taskId: string) => {
     const next = new Set(dirtyTaskIdsRef.current).add(taskId);
     dirtyTaskIdsRef.current = next;
@@ -423,9 +555,17 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const reloadFirstRunPage = async () => {
     const page = await requestRunPage(null, runPageSize);
     if (page) applyRunPage(page, 0, [null]);
+    return page;
   };
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
+  useEffect(() => {
+    if (!selectedTask) return;
+    const stages = dataSyncTaskStages(selectedTask.kind);
+    if (!stages.includes(activeStage)) {
+      setActiveStage(stages.includes('mappings') ? 'mappings' : stages[0]);
+    }
+  }, [activeStage, selectedTask]);
   const selectedRun = runs.find((run) => run.id === selectedRunId) || null;
   const selectedRunActive = Boolean(
     selectedRun && ACTIVE_RUN_STATUSES.has(selectedRun.status),
@@ -451,15 +591,22 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
       !isDataSyncPreflightCurrent(selectedTask, selectedPreflight),
   );
   const filteredTasks = useMemo(() => {
+    const visibleTasks = workbenchFamily
+      ? tasks.filter(
+          (task) =>
+            dataSyncTaskBelongsToFamily(task, workbenchFamily) ||
+            task.id === selectedTaskId,
+        )
+      : tasks;
     const query = search.trim().toLowerCase();
-    if (!query) return tasks;
-    return tasks.filter((task) =>
+    if (!query) return visibleTasks;
+    return visibleTasks.filter((task) =>
       [task.name, task.kind, task.source.connectionName, task.target.connectionName]
         .join(' ')
         .toLowerCase()
         .includes(query),
     );
-  }, [search, tasks]);
+  }, [search, selectedTaskId, tasks, workbenchFamily]);
 
   const closeTaskRailAndRestoreFocus = () => {
     setTaskRailOpen(false);
@@ -546,6 +693,12 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   }, [activeView, selectedTaskId]);
 
   useEffect(() => {
+    if (!viewKeys.includes(activeView)) {
+      setActiveView('tasks');
+    }
+  }, [activeView, viewKeys]);
+
+  useEffect(() => {
     if (!taskMenuOpen || typeof document === 'undefined') return undefined;
     const closeTaskMenu = (event: MouseEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
@@ -570,6 +723,31 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   }, [taskMenuOpen]);
 
   useEffect(() => {
+    if (!focusTaskId && !focusRequestId) return;
+    const handoff = takeDataSyncHandoff();
+    const handed = handoff?.task;
+    if (handed) {
+      handoffTaskRef.current = handed;
+      setTasks((current) => {
+        const others = current.filter((task) => task.id !== handed.id);
+        return [handed, ...others];
+      });
+    }
+    const targetId = handed?.id || focusTaskId;
+    if (!targetId) return;
+    const targetKind =
+      handed?.kind ||
+      tasksRef.current.find((task) => task.id === targetId)?.kind ||
+      'migration';
+    const stages = dataSyncTaskStages(targetKind);
+    const requestedStage = focusStage || handoff?.stage || 'mappings';
+    setSelectedTaskId(targetId);
+    setActiveStage(stages.includes(requestedStage) ? requestedStage : 'mappings');
+    setShowKindSelector(false);
+    setActiveView('tasks');
+  }, [focusTaskId, focusStage, focusRequestId]);
+
+  useEffect(() => {
     let active = true;
     const taskController = new AbortController();
     const cdcController = new AbortController();
@@ -579,10 +757,18 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
       .listTasks({ signal: taskController.signal })
       .then((loadedTasks) => {
         if (!active) return;
-        if (loadedTasks.length > 0) {
+        const familyLoaded = workbenchFamily
+          ? loadedTasks.filter((task) =>
+              dataSyncTaskBelongsToFamily(task, workbenchFamily),
+            )
+          : loadedTasks;
+        if (familyLoaded.length > 0 || handoffTaskRef.current) {
+          const seededInitial = handoffTaskRef.current
+            ? [handoffTaskRef.current, ...initialTasksRef.current!]
+            : initialTasksRef.current!;
           const mergedTasks = mergeDataSyncInitialTasks(
-            initialTasksRef.current!,
-            loadedTasks,
+            seededInitial,
+            familyLoaded,
             deletedTaskIdsRef.current,
           );
           setTasks((current) => {
@@ -596,14 +782,20 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           setSelectedTaskId((current) =>
             mergedTasks.some((task) => task.id === current)
               ? current
-              : mergedTasks[0].id,
+              : mergedTasks[0]?.id || '',
           );
         }
+        const extraRequests =
+          workbenchFamily === 'compare'
+            ? []
+            : [
+                gatewayRef.current!.listSchedules(),
+                gatewayRef.current!.listCdcSources({ signal: cdcController.signal }),
+              ];
         return Promise.allSettled([
           requestRunPage(null, 10),
-          gatewayRef.current!.listSchedules(),
-          gatewayRef.current!.listCdcSources({ signal: cdcController.signal }),
-        ] as const);
+          ...extraRequests,
+        ]);
       })
       .then((results) => {
         if (!active || !results) return;
@@ -611,10 +803,10 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
         if (runPage.status === 'fulfilled' && runPage.value) {
           applyRunPage(runPage.value, 0, [null]);
         }
-        if (schedules.status === 'fulfilled') {
+        if (schedules?.status === 'fulfilled') {
           setSchedules(schedules.value);
         }
-        if (sources.status === 'fulfilled') {
+        if (sources?.status === 'fulfilled') {
           setCdcSources(sources.value);
         }
         const rejected = results.find(
@@ -771,37 +963,18 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     });
   };
 
-  const createTask = (kind: DataSyncTaskKind) => {
+  const createTask = (kind: DataSyncTaskKind, compareMode?: DataSyncCompareMode) => {
     const task = createDataSyncTaskDraft({
       id: nextLocalTaskId(),
       kind,
-      name: t(`task_kind.${kind}`),
+      compareMode,
+      name: t(dataSyncTaskKindTextKey({ kind, compareMode })),
     });
     deletedTaskIdsRef.current.delete(task.id);
     setTasks((current) => [...current, task]);
     setSelectedTaskId(task.id);
     markTaskDirty(task.id);
     setActiveStage('endpoints');
-    setShowKindSelector(false);
-    setActiveView('tasks');
-  };
-
-  const createSchemaSyncTask = () => {
-    if (!selectedTask || selectedTask.kind !== 'compare' || selectedTask.compareMode !== 'schema') {
-      return;
-    }
-    const schemaSyncName = `${selectedTask.name || t('task_kind.schema_sync')} · ${t('task_kind.schema_sync')}`;
-    const task = createSchemaSyncTaskFromCompare({
-      compareTask: selectedTask,
-      id: nextLocalTaskId(),
-      name: schemaSyncName,
-    });
-    if (!task) return;
-    deletedTaskIdsRef.current.delete(task.id);
-    setTasks((current) => [...current, task]);
-    setSelectedTaskId(task.id);
-    markTaskDirty(task.id);
-    setActiveStage('delivery');
     setShowKindSelector(false);
     setActiveView('tasks');
   };
@@ -998,7 +1171,10 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
         delete next[selectedTask.id];
         return next;
       });
-      if (selectedTaskIdRef.current === selectedTask.id) {
+      if (
+        selectedTaskIdRef.current === selectedTask.id &&
+        selectedTask.kind !== 'compare'
+      ) {
         setActiveStage('preflight');
       }
     } catch (error) {
@@ -1068,44 +1244,33 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     }
   };
 
-  const startTask = async () => {
-    if (
-      preflighting ||
-      operationBusy === 'start' ||
-      !selectedTask ||
-      !selectedPreflight ||
-      !capability.canExecute ||
-      dirtyTaskIds.has(selectedTask.id) ||
-      !canStartDataSyncTask(selectedTask, selectedPreflight, selectedApproval)
-    ) {
-      return;
-    }
-    const startedTaskId = selectedTask.id;
-    const startedEditEpoch = selectedTask.editEpoch;
+  const launchStartedTask = async (
+    taskToStart: DataSyncTaskDefinition,
+    preflight: DataSyncPreflightSnapshot,
+  ) => {
+    const startedTaskId = taskToStart.id;
+    const startedEditEpoch = taskToStart.editEpoch;
     setOperationBusy('start');
     setOperationError('');
     try {
-      await gatewayRef.current!.startTask(
-        selectedTask,
-        selectedPreflight,
-      );
+      await gatewayRef.current!.startTask(taskToStart, preflight);
       // The backend may consume a production approval and persist a new job
       // revision before creating the run. Invalidate the one-shot evidence
       // immediately, then refresh the authoritative task before the run page
       // so a history-load failure cannot leave the editor on the old revision.
       setPreflights((current) => {
         const next = { ...current };
-        delete next[selectedTask.id];
+        delete next[startedTaskId];
         return next;
       });
       setApprovals((current) => {
         const next = { ...current };
-        delete next[selectedTask.id];
+        delete next[startedTaskId];
         return next;
       });
       setApprovalChallenges((current) => {
         const next = { ...current };
-        delete next[selectedTask.id];
+        delete next[startedTaskId];
         return next;
       });
       const refreshedTask = (await gatewayRef.current!.listTasks()).find(
@@ -1142,17 +1307,142 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           return next;
         });
       }
-      await reloadFirstRunPage();
+      const page = await reloadFirstRunPage();
       setActiveView('runs');
+      const firstRunId = page?.runs[0]?.id;
+      if (firstRunId) {
+        const requestEpoch = ++selectedRunRequestEpochRef.current;
+        const eventRequestEpoch = ++runEventsRequestEpochRef.current;
+        setSelectedRunId(firstRunId);
+        setRunEvents([]);
+        setErrorRows([]);
+        setCheckpoint(null);
+        setCompareResult(null);
+        void Promise.all([
+          gatewayRef.current!.listErrorRows(firstRunId),
+          gatewayRef.current!.getCheckpoint(startedTaskId),
+          gatewayRef.current!.listRunEvents(firstRunId),
+        ]).then(([rows, loadedCheckpoint, events]) => {
+          if (requestEpoch !== selectedRunRequestEpochRef.current) return;
+          if (eventRequestEpoch === runEventsRequestEpochRef.current) {
+            setRunEvents(events);
+            setCompareResult(extractCompareResult(events));
+          }
+          setErrorRows(rows);
+          setCheckpoint(loadedCheckpoint);
+        }).catch((error) => {
+          if (requestEpoch === selectedRunRequestEpochRef.current) {
+            setOperationError(error instanceof Error ? error.message : String(error));
+          }
+        });
+      }
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
       setApprovals((current) => {
         const next = { ...current };
-        delete next[selectedTask.id];
+        delete next[startedTaskId];
         return next;
       });
       setOperationBusy('');
+    }
+  };
+
+  const startTask = async () => {
+    if (
+      preflighting ||
+      operationBusy === 'start' ||
+      !selectedTask ||
+      !selectedPreflight ||
+      !capability.canExecute ||
+      dirtyTaskIds.has(selectedTask.id) ||
+      !canStartDataSyncTask(selectedTask, selectedPreflight, selectedApproval)
+    ) {
+      return;
+    }
+    await launchStartedTask(selectedTask, selectedPreflight);
+  };
+
+  const runCompare = async () => {
+    if (
+      !selectedTask ||
+      selectedTask.kind !== 'compare' ||
+      preflightingRef.current ||
+      savingRef.current ||
+      deletingTaskRef.current ||
+      operationBusy === 'start'
+    ) {
+      return;
+    }
+    const blockers = validateDataSyncTask(selectedTask).filter(
+      (issue) => issue.severity === 'blocker',
+    );
+    if (blockers.length > 0) return;
+
+    const sourceTask = selectedTask;
+    const candidate =
+      sourceTask.lifecycle === 'draft'
+        ? reviseDataSyncTask(sourceTask, { lifecycle: 'ready' })
+        : sourceTask;
+    preflightingRef.current = true;
+    setPreflighting(true);
+    setOperationError('');
+    preflightAbortRef.current?.abort();
+    const controller = new AbortController();
+    preflightAbortRef.current = controller;
+    try {
+      const snapshot = await gatewayRef.current!.preflightTask(candidate, {
+        signal: controller.signal,
+      });
+      const latestTask = tasksRef.current.find((task) => task.id === sourceTask.id);
+      if (!latestTask || latestTask.editEpoch !== sourceTask.editEpoch) {
+        setOperationError(t('workbench.definition_changed_retry'));
+        return;
+      }
+      setPreflights((current) => ({ ...current, [sourceTask.id]: snapshot }));
+      if (snapshot.status === 'blocked') {
+        return;
+      }
+      let taskToStart = sourceTask;
+      if (
+        sourceTask.lifecycle === 'draft' ||
+        dirtyTaskIdsRef.current.has(sourceTask.id)
+      ) {
+        const saved = await saveTask(candidate, sourceTask.editEpoch, true);
+        if (!saved) return;
+        taskToStart = saved;
+      }
+      const startPreflight =
+        taskToStart.id === sourceTask.id &&
+        isDataSyncPreflightCurrent(taskToStart, snapshot)
+          ? snapshot
+          : await gatewayRef.current!.preflightTask(taskToStart, {
+              signal: controller.signal,
+            });
+      if (startPreflight.status === 'blocked') {
+        setPreflights((current) => ({
+          ...current,
+          [taskToStart.id]: startPreflight,
+        }));
+        return;
+      }
+      if (
+        !canStartDataSyncTask(taskToStart, startPreflight, selectedApproval)
+      ) {
+        setPreflights((current) => ({
+          ...current,
+          [taskToStart.id]: startPreflight,
+        }));
+        return;
+      }
+      await launchStartedTask(taskToStart, startPreflight);
+    } catch (error) {
+      if (isWebRPCAbortError(error)) return;
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (preflightAbortRef.current === controller) preflightAbortRef.current = null;
+      preflightingRef.current = false;
+      setPreflighting(false);
     }
   };
 
@@ -1456,7 +1746,10 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
         setOperationError(t('workbench.definition_changed_retry'));
         return;
       }
-      if (selectedTaskIdRef.current === selectedTask.id) {
+      if (
+        selectedTaskIdRef.current === selectedTask.id &&
+        selectedTask.kind !== 'compare'
+      ) {
         setActiveStage('preflight');
       }
       if (snapshot.status === 'blocked') {
@@ -1727,16 +2020,17 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                 Date.parse(selectedApproval.expiresAt) > Date.now(),
             )))),
   );
-  const activeStageIndex = DATA_SYNC_TASK_STAGES.indexOf(activeStage);
-  const nextStage = DATA_SYNC_TASK_STAGES[activeStageIndex + 1];
-  const previousStage = DATA_SYNC_TASK_STAGES[activeStageIndex - 1];
+  const taskStages = dataSyncTaskStages(selectedTask?.kind ?? 'reconcile');
+  const activeStageIndex = taskStages.indexOf(activeStage);
+  const nextStage = taskStages[activeStageIndex + 1];
+  const previousStage = taskStages[activeStageIndex - 1];
   const selectedTaskIssues =
     selectedPreflight && !preflightStale
       ? selectedPreflight.issues
       : selectedTask
         ? validateDataSyncTask(selectedTask)
         : [];
-  const relevantBlockerStage = DATA_SYNC_TASK_STAGES
+  const relevantBlockerStage = taskStages
     .slice(0, activeStageIndex + 1)
     .find((stage) =>
       selectedTaskIssues.some(
@@ -1753,6 +2047,13 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const preflightNeedsRefresh = Boolean(
     activeStage === 'preflight' &&
       (!selectedPreflight || preflightStale || selectedPreflight.status === 'blocked'),
+  );
+  const compareStartEnabled = Boolean(
+    selectedTask?.kind === 'compare' &&
+      !relevantBlocker &&
+      !saving &&
+      !preflighting &&
+      operationBusy !== 'start',
   );
   const actionHint = relevantBlocker
     ? dataSyncValidationIssueText(relevantBlocker, t)
@@ -1771,25 +2072,84 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const serviceUnavailableError = /window\.go\.app\.App\.[A-Za-z0-9_]+ is not a function/.test(
     operationError,
   );
+  const workbenchChrome = resolveWorkbenchChrome(workbenchFamily, selectedTask);
+  const handleGenerateRepairSql = () => {
+    if (!selectedTask || !compareResult || !onOpenQueryTab) return;
+    onOpenQueryTab({
+      title: t('compare.repair_sql_tab'),
+      connectionId: selectedTask.target.connectionId,
+      dbName: selectedTask.target.database,
+      schemaName: selectedTask.target.schema,
+      query: buildCompareRepairSQL(compareResult, {
+        dialect: selectedTask.target.type,
+        schema: selectedTask.target.schema,
+      }),
+    });
+  };
+  const handleAskAiAboutDiffs = () => {
+    if (!selectedTask || !compareResult || !onAskAi) return;
+    onAskAi(
+      buildCompareAiPrompt(compareResult, {
+        dialect: selectedTask.target.type,
+        sourceName:
+          selectedTask.source.connectionName || selectedTask.source.connectionId,
+        targetName:
+          selectedTask.target.connectionName || selectedTask.target.connectionId,
+      }),
+    );
+  };
+  const handleSyncDiffs = async () => {
+    if (!selectedTask || selectedTask.kind !== 'compare') return;
+    const tables = (compareResult?.tables || [])
+      .filter((summary) =>
+        tableHasCompareDiff(
+          summary,
+          compareResult?.content || selectedTask.compareMode,
+        ),
+      )
+      .map((summary) => summary.table);
+    const task = createSyncTaskFromCompare({
+      compareTask: selectedTask,
+      id: nextLocalTaskId(),
+      name: t('compare.sync_task_name', {
+        name: selectedTask.name || t('task_kind.compare'),
+      }),
+      tables,
+    });
+    if (!task) return;
+    try {
+      const saved = await gatewayRef.current!.saveTask(task);
+      const requestId = `handoff-${Date.now()}`;
+      setDataSyncHandoff({
+        task: saved,
+        stage: 'mappings',
+        requestId,
+      });
+      onOpenSyncWorkbench?.({ taskId: saved.id, stage: 'mappings' });
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   return (
     <div
       ref={workbenchRef}
       className="gn-data-sync-workbench"
       data-data-sync-workbench-shell="true"
+      data-workbench-family={workbenchFamily || ''}
     >
       <header className="gn-data-sync-workbench__header">
         <div className="gn-data-sync-workbench__identity">
           <strong>
             <span className="gn-data-sync-workbench__title-full">
-              {t('workbench.title')}
+              {t(workbenchChrome.title)}
             </span>
             <span className="gn-data-sync-workbench__title-short">
-              {t('workbench.title_short')}
+              {t(workbenchChrome.titleShort)}
             </span>
           </strong>
           <span className="gn-data-sync-workbench__subtitle">
-            {t('workbench.subtitle')}
+            {t(workbenchChrome.subtitle)}
           </span>
         </div>
         <nav className="gn-data-sync-global-nav" aria-label={t('workbench.view_navigation')}>
@@ -1940,7 +2300,11 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           />
           <main ref={editorColumnRef} className="gn-data-sync-editor-column">
             {showKindSelector || !selectedTask ? (
-              <DataSyncTaskKindSelector t={t} onSelect={createTask} />
+              <DataSyncTaskKindSelector
+                t={t}
+                family={workbenchFamily}
+                onSelect={createTask}
+              />
             ) : (
               <>
                 <DataSyncTaskEditor
@@ -2073,20 +2437,8 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                             : t('workbench.delete')}
                         </button>
                       ) : null}
-                      {selectedTask.kind === 'compare' &&
-                      selectedTask.compareMode === 'schema' ? (
-                        <button
-                          type="button"
-                          data-data-sync-action="create-schema-sync"
-                          onClick={() => {
-                            setTaskMenuOpen(false);
-                            createSchemaSyncTask();
-                          }}
-                        >
-                          {t('workbench.create_schema_sync')}
-                        </button>
-                      ) : null}
-                      {activeStage !== 'preflight' || !preflightNeedsRefresh ? (
+                      {selectedTask.kind !== 'compare' &&
+                      (activeStage !== 'preflight' || !preflightNeedsRefresh) ? (
                         <button
                           type="button"
                           disabled={preflighting || saving}
@@ -2100,7 +2452,18 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                             : t('workbench.run_preflight')}
                         </button>
                       ) : null}
-                      {activeStage !== 'preflight' ? (
+                      {selectedTask.kind === 'compare' ? (
+                        <button
+                          type="button"
+                          disabled={!compareStartEnabled}
+                          onClick={() => {
+                            setTaskMenuOpen(false);
+                            void runCompare();
+                          }}
+                        >
+                          {t('workbench.start_compare')}
+                        </button>
+                      ) : activeStage !== 'preflight' ? (
                         <button
                           type="button"
                           disabled={preflighting || !actionEnabled || operationBusy === 'start'}
@@ -2158,7 +2521,13 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                       onClick={() => setActiveStage(relevantBlockerStage)}
                     >
                       {t('workbench.return_to_stage', {
-                        stage: t(`stage.${relevantBlockerStage}`),
+                        stage: t(
+                          dataSyncStageTextKey(
+                            relevantBlockerStage,
+                            selectedTask.kind,
+                            selectedTask.compareMode,
+                          ),
+                        ),
                       })}
                     </button>
                   ) : nextStage ? (
@@ -2169,8 +2538,28 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
                         title={relevantBlocker ? actionHint : undefined}
                         onClick={() => setActiveStage(nextStage)}
                       >
-                        {t('workbench.next_step', { stage: t(`stage.${nextStage}`) })}
+                        {t('workbench.next_step', {
+                          stage: t(
+                            dataSyncStageTextKey(
+                              nextStage,
+                              selectedTask.kind,
+                              selectedTask.compareMode,
+                            ),
+                          ),
+                        })}
                       </button>
+                  ) : selectedTask.kind === 'compare' ? (
+                    <button
+                      type="button"
+                      className="gn-data-sync-button gn-data-sync-button--primary"
+                      disabled={!compareStartEnabled}
+                      title={relevantBlocker ? actionHint : undefined}
+                      onClick={() => void runCompare()}
+                    >
+                      {preflighting || operationBusy === 'start'
+                        ? t('workbench.preflighting')
+                        : t('workbench.start_compare')}
+                    </button>
                   ) : preflightNeedsRefresh ? (
                     <button
                       type="button"
@@ -2218,6 +2607,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           errorRows={errorRows}
           compareResult={compareResult}
           compareMode={selectedRunCompareMode}
+          family={workbenchFamily}
           t={t}
           onSelectRun={(runId) => void selectRun(runId)}
           checkpoint={checkpoint}
@@ -2236,6 +2626,19 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           onRetryErrorRow={(errorRowId) => void retryErrorRow(errorRowId)}
           checkpointResetEnabled={checkpointTask?.lifecycle === 'paused'}
           onResetCheckpoint={requestResetCheckpoint}
+          onGenerateRepairSql={
+            workbenchFamily === 'compare' && onOpenQueryTab
+              ? handleGenerateRepairSql
+              : undefined
+          }
+          onAskAiAboutDiffs={
+            workbenchFamily === 'compare' && onAskAi
+              ? handleAskAiAboutDiffs
+              : undefined
+          }
+          onSyncDiffs={
+            workbenchFamily === 'compare' ? () => void handleSyncDiffs() : undefined
+          }
         />
       ) : null}
       {activeView === 'schedules' ? (

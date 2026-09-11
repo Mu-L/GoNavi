@@ -80,6 +80,22 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	return nil
 }
 
+func prepareWindowsBrandIconRestartPNG(pngBytes []byte, configDir string) error {
+	if len(pngBytes) == 0 {
+		return errors.New("application icon PNG is empty")
+	}
+	if strings.TrimSpace(configDir) == "" {
+		configDir = resolveAppConfigDir()
+	}
+	iconPath, err := persistWindowsApplicationIcon(pngBytes, configDir)
+	if err != nil {
+		return err
+	}
+	// Update existing shortcuts in place. The next process launch lets
+	// Explorer rebuild the live taskbar group from this persisted ICO.
+	return updateCurrentWindowsApplicationShortcuts(iconPath)
+}
+
 func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath string) (uintptr, error) {
 	small, err := loadWindowsApplicationIcon(iconPath, windowsSmallIconPixels)
 	if err != nil {

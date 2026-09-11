@@ -22,8 +22,9 @@ export const DataSyncRouteBar: React.FC<{
   target: DataSyncEndpointRef;
   capability: DataSyncRouteCapability;
   t: DataSyncWorkbenchTranslate;
+  compare?: boolean;
   onEditEndpoints?: () => void;
-}> = ({ source, target, capability, t, onEditEndpoints }) => {
+}> = ({ source, target, capability, t, compare = false, onEditEndpoints }) => {
   const sourceTitle = endpointTitle(source, t('route.pending_source'));
   const targetTitle = endpointTitle(target, t('route.pending_target'));
   const sourceScope = endpointScope(source, t('route.database_fallback'));
@@ -45,9 +46,11 @@ export const DataSyncRouteBar: React.FC<{
       data-data-sync-route="true"
       data-capability={capability.level}
       data-complete={complete ? 'true' : 'false'}
-      aria-label={t('route.summary')}
+      aria-label={t(compare ? 'route.summary_compare' : 'route.summary')}
     >
-      <span className="gn-data-sync-route__title">{t('route.summary')}</span>
+      <span className="gn-data-sync-route__title">
+        {t(compare ? 'route.summary_compare' : 'route.summary')}
+      </span>
       <button
         type="button"
         className="gn-data-sync-route__path"

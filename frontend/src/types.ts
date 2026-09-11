@@ -575,7 +575,10 @@ export interface TabData {
   savedQueryId?: string; // Saved query identity for quick-save behavior
   objectType?: 'table' | 'view' | 'materialized-view'; // Table-like object type for shared viewers
   exportWorkbenchMode?: 'single' | 'batch-tables' | 'batch-databases' | 'database' | 'schema';
-  dataSyncEntryMode?: 'sync' | 'schemaCompare' | 'dataCompare';
+  dataSyncEntryMode?: 'sync' | 'compare' | 'schemaCompare' | 'dataCompare';
+  dataSyncFocusTaskId?: string;
+  dataSyncFocusStage?: 'endpoints' | 'mappings' | 'delivery' | 'trigger' | 'preflight';
+  dataSyncFocusRequestId?: string;
   tableExportScopeOptions?: TableExportScopeOption[];
   tableExportInitialScope?: TableExportScope;
   tableExportQueryByScope?: Partial<Record<TableExportScope, string>>;

@@ -852,7 +852,7 @@ if (
                 // The native backend downloads, verifies, and caches these immutable
                 // assets. Browser/Playwright harnesses have no Go backend, so point
                 // image elements at the same origin instead of showing one fallback
-                // glyph for all six choices.
+                // glyph for the remotely hosted choices.
                 GetBrandIconDataURL: async (id: string) => resolveBrandIconRemoteSrc(id),
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
                 BootstrapConnectionSidebarLayout: async (input: any) => {

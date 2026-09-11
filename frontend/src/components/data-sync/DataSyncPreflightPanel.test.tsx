@@ -106,7 +106,7 @@ describe('DataSyncPreflightPanel production approval', () => {
         },
         t,
       ),
-    ).toBe('所选 CDC 适配器当前未就绪。 MongoDB 必须运行在副本集或分片集群模式。');
+    ).toBe('当前选择的增量同步方式还不能用。 MongoDB 必须运行在副本集或分片集群模式。');
     expect(
       dataSyncValidationIssueText(
         { code: 'driver_specific_failure', message: 'driver unavailable' },

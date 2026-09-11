@@ -37,6 +37,15 @@ describe('shouldSyncApplicationBrandIcon', () => {
     expect(calculateMacOSDockCornerRadius(rect)).toBe(229);
   });
 
+  it('keeps the restored 0.9.7 mascot inside the Dock safe area', () => {
+    expect(calculateMacOSDockImageRect(512, 512, 100)).toEqual({
+      x: 100,
+      y: 100,
+      width: 824,
+      height: 824,
+    });
+  });
+
   it('centres portrait brand lockups without stretching them into a square', () => {
     expect(calculateMacOSDockImageRect(272, 449)).toEqual({
       x: 202,

@@ -1136,10 +1136,10 @@ describe('Sidebar locate toolbar', () => {
 
     expect(actionsSource).toContain("key: 'data-workflow'");
     expect(actionsSource).toContain('label: v2DataWorkflowLabel');
-    expect(actionsSource).toContain("key: 'schema-compare'");
-    expect(actionsSource).toContain("action: 'schema-compare'");
-    expect(actionsSource).toContain("key: 'data-compare'");
-    expect(actionsSource).toContain("action: 'data-compare'");
+    expect(actionsSource).toContain("key: 'compare'");
+    expect(actionsSource).toContain("action: 'compare'");
+    expect(actionsSource).not.toContain("key: 'schema-compare'");
+    expect(actionsSource).not.toContain("key: 'data-compare'");
     expect(actionsSource).toContain("key: 'sync'");
     expect(actionsSource).toContain("action: 'sync'");
     expect(actionsSource).not.toContain("key: 'batch-actions'");
@@ -1223,10 +1223,10 @@ describe('Sidebar locate toolbar', () => {
     expect(source).toContain("app.tools.group.workflow.title");
     expect(source).toContain("key: 'sql-tools'");
     expect(source).toContain("sidebar.action.sql_tools");
-    expect(source).toContain("key: 'schema-compare'");
-    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' })");
-    expect(source).toContain("key: 'data-compare'");
-    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' })");
+    expect(source).toContain("key: 'compare'");
+    expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'compare' })");
+    expect(source).not.toContain("key: 'schema-compare'");
+    expect(source).not.toContain("key: 'data-compare'");
     expect(source).toContain("key: 'sync'");
     expect(source).toContain("onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' })");
     expect(source).toContain('showObjectActions: false');
