@@ -2,7 +2,10 @@ package app
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
@@ -116,20 +119,59 @@ func TestDataSyncJobEndpointFingerprintHMACTracksSecretsAndSelection(t *testing.
 	}
 }
 
-func TestDataSyncJobFingerprintKeyIsStableAndSecretStoreBacked(t *testing.T) {
-	store := newFakeAppSecretStore()
-	firstApp := NewAppWithSecretStore(store)
+func TestDataSyncJobFingerprintKeyIsStableAndConfigDirBacked(t *testing.T) {
+	root := t.TempDir()
+	firstStore := &recordingSecretStore{inner: newFakeAppSecretStore()}
+	firstApp := NewAppWithSecretStore(firstStore)
+	firstApp.configDir = root
 	first, err := firstApp.dataSyncJobFingerprintKeyBytes()
-	if err != nil || len(first) != 32 {
+	if err != nil || len(first) != dataSyncFingerprintKeySize {
 		t.Fatalf("create fingerprint key: len=%d err=%v", len(first), err)
 	}
-	secondApp := NewAppWithSecretStore(store)
+	if len(firstStore.gets) != 0 || len(firstStore.puts) != 0 {
+		t.Fatalf("fingerprint key touched secret store: gets=%v puts=%v", firstStore.gets, firstStore.puts)
+	}
+
+	secondStore := &recordingSecretStore{inner: newFakeAppSecretStore()}
+	secondApp := NewAppWithSecretStore(secondStore)
+	secondApp.configDir = root
 	second, err := secondApp.dataSyncJobFingerprintKeyBytes()
 	if err != nil {
 		t.Fatalf("reload fingerprint key: %v", err)
 	}
 	if !bytes.Equal(first, second) {
 		t.Fatal("fingerprint key changed across application instances")
+	}
+	if len(secondStore.gets) != 0 || len(secondStore.puts) != 0 {
+		t.Fatalf("reloaded fingerprint key touched secret store: gets=%v puts=%v", secondStore.gets, secondStore.puts)
+	}
+
+	info, err := os.Stat(filepath.Join(root, dataSyncFingerprintKeyFileName))
+	if err != nil {
+		t.Fatalf("fingerprint key file: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("fingerprint key file permission = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestDataSyncJobFingerprintKeyRejectsSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink ACL semantics differ on Windows")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "elsewhere.key")
+	if err := os.WriteFile(target, bytes.Repeat([]byte{1}, dataSyncFingerprintKeySize), 0o600); err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, dataSyncFingerprintKeyFileName)); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = root
+	_, err := application.dataSyncJobFingerprintKeyBytes()
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink key file must be rejected, got %v", err)
 	}
 }
 

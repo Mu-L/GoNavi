@@ -695,6 +695,9 @@ func resolveDDLDBType(config connection.ConnectionConfig) string {
 	if dbType == "intersystems" || dbType == "intersystemsiris" || dbType == "inter-systems" || dbType == "inter-systems-iris" {
 		return "iris"
 	}
+	if dbType == "cache" || dbType == "caché" || dbType == "intersystems cache" || dbType == "intersystems caché" || dbType == "intersystems-cache" || dbType == "intersystems-caché" || dbType == "intersystemscache" || dbType == "intersystemscaché" || dbType == "inter-systems-cache" || dbType == "inter-systems-caché" || dbType == "intersystems-cache-database" || dbType == "cache-db" || dbType == "cachedb" {
+		return "iris"
+	}
 	if dbType == "oceanbase" && isOceanBaseOracleProtocol(config) {
 		return "oracle"
 	}
@@ -731,6 +734,8 @@ func resolveDDLDBType(config connection.ConnectionConfig) string {
 	case "vastbase":
 		return "vastbase"
 	case "iris", "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris":
+		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
 		return "iris"
 	case "oceanbase":
 		return "oceanbase"

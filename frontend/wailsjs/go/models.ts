@@ -262,6 +262,22 @@ export namespace ai {
 	        this.effort = source["effort"];
 	    }
 	}
+	export class ResultMaskingSettings {
+	    enabled: boolean;
+	    fullMaskFields: string[];
+	    partialMaskFields: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultMaskingSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.fullMaskFields = source["fullMaskFields"];
+	        this.partialMaskFields = source["partialMaskFields"];
+	    }
+	}
 	export class SafetyResult {
 	    allowed: boolean;
 	    operationType: string;
@@ -320,22 +336,6 @@ export namespace ai {
 	        this.database = source["database"];
 	        this.jvm = source["jvm"];
 	        this.jvmDiagnostic = source["jvmDiagnostic"];
-	    }
-	}
-	export class ResultMaskingSettings {
-	    enabled: boolean;
-	    fullMaskFields: string[];
-	    partialMaskFields: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new ResultMaskingSettings(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.fullMaskFields = source["fullMaskFields"];
-	        this.partialMaskFields = source["partialMaskFields"];
 	    }
 	}
 

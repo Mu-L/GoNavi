@@ -112,6 +112,80 @@ describe('tableDesignerSchemaSql', () => {
     expect(sql).toContain('AFTER `id`');
   });
 
+  it('generates modify statements when only the column order changed', () => {
+    const originalColumns = [
+      baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+      baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+      baseColumn({ _key: 'email', name: 'email', type: 'varchar(100)', nullable: 'YES' }),
+    ];
+    const sql = buildAlterTablePreviewSql(buildInput({
+      dbType: 'mysql',
+      tableName: 'users',
+      originalColumns,
+      columns: [
+        baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+        baseColumn({ _key: 'email', name: 'email', type: 'varchar(100)', nullable: 'YES' }),
+        baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+      ],
+    }));
+
+    // Moving `name` after `email` alone restores the target order,
+    // so `email` and `id` do not need redundant MODIFY statements.
+    expect(sql).toContain('MODIFY COLUMN `name` varchar(50) NULL COMMENT \'\' AFTER `email`');
+    expect(sql.match(/MODIFY COLUMN/g)).toHaveLength(1);
+    expect(sql).not.toContain('MODIFY COLUMN `id`');
+    expect(sql).not.toContain('MODIFY COLUMN `email`');
+    expect(
+      hasAlterTableDraftChanges(buildInput({
+        dbType: 'mysql',
+        tableName: 'users',
+        originalColumns,
+        columns: [
+          baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+          baseColumn({ _key: 'email', name: 'email', type: 'varchar(100)', nullable: 'YES' }),
+          baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+        ],
+      })),
+    ).toBe(true);
+  });
+
+  it('reports no changes when the column order is untouched', () => {
+    const unchangedColumns = [
+      baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+      baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+    ];
+    const input = buildInput({
+      dbType: 'mysql',
+      tableName: 'users',
+      originalColumns: unchangedColumns,
+      columns: unchangedColumns,
+    });
+
+    expect(buildAlterTablePreviewSql(input)).toBe('');
+    expect(hasAlterTableDraftChanges(input)).toBe(false);
+  });
+
+  it('moves a column to the first position with FIRST when reordered to the top', () => {
+    const sql = buildAlterTablePreviewSql(buildInput({
+      dbType: 'mysql',
+      tableName: 'users',
+      originalColumns: [
+        baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+        baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+        baseColumn({ _key: 'created', name: 'created', type: 'datetime', nullable: 'NO' }),
+      ],
+      columns: [
+        baseColumn({ _key: 'created', name: 'created', type: 'datetime', nullable: 'NO' }),
+        baseColumn({ _key: 'id', name: 'id', type: 'int', key: 'PRI', nullable: 'NO' }),
+        baseColumn({ _key: 'name', name: 'name', type: 'varchar(50)', nullable: 'YES' }),
+      ],
+    }));
+
+    // `id` and `name` keep their relative order, so only `created` needs a move.
+    expect(sql).toContain('MODIFY COLUMN `created` datetime NOT NULL COMMENT \'\' FIRST');
+    expect(sql.match(/MODIFY COLUMN/g)).toHaveLength(1);
+  });
+
   it('preserves explicit MySQL default states and expressions', () => {
     const columns = [
       baseColumn({ _key: 'none', name: 'none_value', type: 'varchar(16)', nullable: 'YES', hasDefault: false }),

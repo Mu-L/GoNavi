@@ -108,6 +108,46 @@ const collectPrimaryKeyColumnKeys = (columns: EditableColumnSnapshot[]): string[
     .map((col) => col._key)
 );
 
+// Columns in the longest common subsequence of both orders keep their relative
+// position, so only the remaining survivors need an explicit AFTER/FIRST move.
+const longestCommonSubsequenceKeys = (originalSeq: string[], currentSeq: string[]): Set<string> => {
+  const n = originalSeq.length;
+  const m = currentSeq.length;
+  if (n === 0 || m === 0) return new Set();
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      dp[i][j] = originalSeq[i] === currentSeq[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const kept = new Set<string>();
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (originalSeq[i] === currentSeq[j]) {
+      kept.add(originalSeq[i]);
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+  return kept;
+};
+
+const collectPositionChangedColumnKeys = (input: BuildAlterTablePreviewInput): Set<string> => {
+  const currentKeys = new Set(input.columns.map((col) => col._key));
+  const originalKeys = new Set(input.originalColumns.map((col) => col._key));
+  const originalSeq = input.originalColumns.filter((col) => currentKeys.has(col._key)).map((col) => col._key);
+  const currentSeq = input.columns.filter((col) => originalKeys.has(col._key)).map((col) => col._key);
+  const keptKeys = longestCommonSubsequenceKeys(originalSeq, currentSeq);
+  return new Set(currentSeq.filter((key) => !keptKeys.has(key)));
+};
+
 const escapeSqlString = (value: string) => String(value || '').replace(/'/g, "''");
 
 const translateSchemaSqlComment = (
@@ -347,6 +387,8 @@ const buildMySqlAlterPreviewSql = (input: BuildAlterTablePreviewInput, dbType: s
     }
   });
 
+  const positionChangedKeys = collectPositionChangedColumnKeys(input);
+
   input.columns.forEach((curr, index) => {
     const orig = input.originalColumns.find((col) => col._key === curr._key);
     const prevCol = index > 0 ? input.columns[index - 1] : null;
@@ -363,7 +405,7 @@ const buildMySqlAlterPreviewSql = (input: BuildAlterTablePreviewInput, dbType: s
       return;
     }
 
-    if (definitionChanged(curr, orig, dbType === 'mysql')) {
+    if (definitionChanged(curr, orig, dbType === 'mysql') || positionChangedKeys.has(curr._key)) {
       alters.push(`MODIFY COLUMN ${colDef} ${positionSql}`.trim());
     }
   });

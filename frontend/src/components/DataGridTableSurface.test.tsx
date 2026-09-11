@@ -41,6 +41,8 @@ describe('DataGridTableSurface', () => {
       virtualListItemColumnVirtual: true,
       virtualListItemHeight: 28,
       virtualListItemHeightFixed: true,
+      virtualListItemNativeScrollbarControlled: true,
+      virtualListItemHorizontalOffsetComposited: true,
     };
     const Harness = ({ containerWidth, columnWidth }: { containerWidth: number; columnWidth?: number }) => (
       <section data-container-width={containerWidth}>
