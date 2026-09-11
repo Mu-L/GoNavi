@@ -116,6 +116,39 @@ Skip the lightweight pitch (including GoNavi’s) if you:
 
 Honesty here converts better than stacking every MB claim on one slide.
 
+
+## Multi-engine reach still counts as “light”
+
+Lightweight is not only process math. On a locked laptop, **five companion GUIs** are heavier than one 25 MB installer — even if each companion looks “small” alone.
+
+A practical day-one set people try to collapse:
+
+- Relational SQL client
+- Redis / cache browser
+- Document or vector UI
+- Kafka / MQ console
+- SSH / tunnel habits that never lived inside the SQL app
+
+GoNavi’s workbench pitch is: keep SQL · cache · vector · MQ · search · time-series · domestic engines in **one sidebar**, so “lightweight” includes **fewer installs**, not only a smaller Chromium tax. You still will not replace every specialist tool on day one; you cut the tray that made LibreDB-style complaints go viral.
+
+Screens:
+
+- [Multi-DB workbench](https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/01-home-workbench.png)
+- [AI panel](https://raw.githubusercontent.com/Syngnat/GoNavi/dev/assets/screenshots/04-ai-assistant.png) (UI evidence; configure your own provider)
+
+## What to put in your next comparison blog post
+
+If you write “GoNavi vs X” for SEO, use this skeleton so you do not recreate the trap:
+
+1. **State the three columns** up front (installer / RSS / stack).
+2. **Cite versions** for every MB number.
+3. **One method paragraph** for any RSS figure (OS, idle vs load, helpers counted or not).
+4. **Separate** “multi-engine cockpit” from “RAM winner.”
+5. **Never** invent Search Console traffic or unverified “~80 MB native” as a GoNavi claim.
+6. Link readers to measure on **their** Windows / macOS box — cloud Linux samples travel poorly without a caveat.
+
+That skeleton is how this page tries to rank: decision clarity, not slogan density.
+
 ## FAQ
 
 **Is a 20 MB installer “lighter” than a 400 MB RSS?**  
