@@ -64,6 +64,7 @@ export type V2TableContextMenuActionKey =
   | 'ai-explain'
   | 'ai-generate-query'
   | 'truncate-table'
+  | 'clear-table'
   | 'drop-table';
 
 export type V2TableContextMenuStats = {
@@ -173,6 +174,7 @@ export const V2TableContextMenuView: React.FC<{
   stats?: V2TableContextMenuStats;
   isPinned?: boolean;
   supportsTruncate?: boolean;
+  supportsClear?: boolean;
   supportsCopyTable?: boolean;
   supportsStarRocksRollup?: boolean;
   supportsMessagePublish?: boolean;
@@ -184,6 +186,7 @@ export const V2TableContextMenuView: React.FC<{
   stats,
   isPinned = false,
   supportsTruncate = true,
+  supportsClear = false,
   supportsCopyTable = false,
   supportsStarRocksRollup = false,
   supportsMessagePublish = false,
@@ -207,6 +210,12 @@ export const V2TableContextMenuView: React.FC<{
       action: 'truncate-table' as const,
       icon: <DeleteOutlined />,
       title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.v2_table_menu.truncate_table'), suffix: 'TRUNCATE' }),
+      tone: 'danger' as const,
+    }] : []),
+    ...(supportsClear ? [{
+      action: 'clear-table' as const,
+      icon: <ClearOutlined />,
+      title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.clear_table'), suffix: 'DELETE' }),
       tone: 'danger' as const,
     }] : []),
     {

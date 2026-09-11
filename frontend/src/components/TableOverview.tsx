@@ -10,7 +10,7 @@ import type { TabData } from '../types';
 import { useAutoFetchVisibility } from '../utils/autoFetchVisibility';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
-import { supportsTableTruncateAction, type TableDataDangerActionKind } from './tableDataDangerActions';
+import { supportsTableClearAction, supportsTableTruncateAction, type TableDataDangerActionKind } from './tableDataDangerActions';
 import { resolveTableSelectQuery } from '../utils/objectQueryTemplates';
 import {
     TABLE_OVERVIEW_RENDER_BATCH_SIZE,
@@ -33,6 +33,7 @@ import { confirmCopyTable } from './tableCopyAction';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
 import { formatSidebarTableTimestamp } from './sidebar/sidebarHelpers';
 import { confirmProductionMutation } from '../utils/productionRiskConfirm';
+import { isConnectionDataEditRestricted } from '../utils/connectionReadOnly';
 import { stripSchemaFromTabObjectLabel } from '../utils/tabDisplay';
 
 interface TableOverviewProps {
@@ -310,8 +311,13 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const overviewSchemaName = isSchemaScopedTableOverviewDialect(metadataDialect)
         ? (schemaName || 'public')
         : '';
-    const supportsDesignWrite = !getDataSourceCapabilities(connection?.config).forceReadOnlyStructureDesigner;
-    const supportsCopyTable = getDataSourceCapabilities(connection?.config).supportsCopyTable;
+    const dataSourceCapabilities = getDataSourceCapabilities(connection?.config);
+    const supportsDesignWrite = !dataSourceCapabilities.forceReadOnlyStructureDesigner;
+    const supportsCopyTable = dataSourceCapabilities.supportsCopyTable;
+    const allowClear = supportsTableClearAction(
+        connection?.config?.type || '',
+        connection?.config?.driver,
+    ) && !isConnectionDataEditRestricted(connection?.config);
     const autoFetchVisible = useAutoFetchVisibility();
     const loadDataRequestIdRef = useRef(0);
 
@@ -737,6 +743,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     }, [buildConfig, connection, loadData, t, tab.dbName]);
 
     const handleTableDataDangerAction = useCallback((tableName: string, action: TableDataDangerActionKind) => {
+        if (action === 'clear' && !allowClear) return;
         const config = buildConfig();
         if (!config) return;
 
@@ -783,7 +790,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 }
             },
         });
-    }, [buildConfig, connection, loadData, t, tab.dbName]);
+    }, [allowClear, buildConfig, connection, loadData, t, tab.dbName]);
 
     const toggleOverviewTablePinned = useCallback((tableName: string, pinned?: boolean) => {
         if (!connection?.id || !tab.dbName || !tableName) return;
@@ -1034,6 +1041,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             case 'truncate-table':
                 void handleTableDataDangerAction(tableName, 'truncate');
                 return;
+            case 'clear-table':
+                void handleTableDataDangerAction(tableName, 'clear');
+                return;
             case 'drop-table':
                 handleDeleteTable(tableName);
                 return;
@@ -1074,6 +1084,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             }}
             isPinned={isOverviewTablePinned(pinnedSidebarTables, connection?.id, tab.dbName, schemaName, table.name)}
             supportsTruncate={allowTruncate}
+            supportsClear={allowClear}
             supportsCopyTable={supportsCopyTable}
             supportsStarRocksRollup={metadataDialect === 'starrocks'}
             onAction={(action) => {
@@ -1081,7 +1092,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 handleV2TableContextMenuAction(table, action);
             }}
         />
-    ), [activeShortcutPlatform, allowTruncate, connection?.id, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
+    ), [activeShortcutPlatform, allowClear, allowTruncate, connection?.id, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
 
     const renderOverviewSectionTitle = (section: OverviewTableSection) => {
         const sectionTitle = section.kind === 'pinned'
