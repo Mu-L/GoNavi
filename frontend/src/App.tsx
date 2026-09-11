@@ -896,6 +896,9 @@ function App() {
   const updateShortcut = useStore(state => state.updateShortcut);
   const resetShortcutOptions = useStore(state => state.resetShortcutOptions);
   const [systemThemeMode, setSystemThemeMode] = useState<'light' | 'dark'>(() => getSystemThemeMode());
+  const [runtimePlatform, setRuntimePlatform] = useState('');
+  const [runtimeBuildType, setRuntimeBuildType] = useState('');
+  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const activeCustomTheme = useMemo(
       () => resolveAvailableCustomTheme(customThemes, activeCustomThemeId),
       [activeCustomThemeId, customThemes],
@@ -1196,9 +1199,6 @@ function App() {
   const effectiveOpacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const effectiveBlur = normalizeBlurForPlatform(resolvedAppearance.blur);
   const blurFilter = blurToFilter(effectiveBlur);
-  const [runtimePlatform, setRuntimePlatform] = useState('');
-  const [runtimeBuildType, setRuntimeBuildType] = useState('');
-  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const isWebRuntime = runtimeBuildType === 'web'
     || (typeof window !== 'undefined' && (window as any).__GONAVI_WEB_RUNTIME__?.buildType === 'web');
   const [installedFontFamilies, setInstalledFontFamilies] = useState<InstalledFontFamily[]>(EMPTY_INSTALLED_FONT_FAMILIES);

@@ -785,17 +785,22 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
               : mergedTasks[0]?.id || '',
           );
         }
-        const extraRequests =
+        const runPageRequest = requestRunPage(null, 10);
+        const pendingRequests:
+          | readonly [Promise<DataSyncRunPage | null>]
+          | readonly [
+              Promise<DataSyncRunPage | null>,
+              Promise<DataSyncScheduleSummary[]>,
+              Promise<DataSyncCdcSourceStatus[]>,
+            ] =
           workbenchFamily === 'compare'
-            ? []
+            ? [runPageRequest]
             : [
+                runPageRequest,
                 gatewayRef.current!.listSchedules(),
                 gatewayRef.current!.listCdcSources({ signal: cdcController.signal }),
               ];
-        return Promise.allSettled([
-          requestRunPage(null, 10),
-          ...extraRequests,
-        ]);
+        return Promise.allSettled(pendingRequests);
       })
       .then((results) => {
         if (!active || !results) return;
@@ -809,7 +814,8 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
         if (sources?.status === 'fulfilled') {
           setCdcSources(sources.value);
         }
-        const rejected = results.find(
+        const settledResults: ReadonlyArray<PromiseSettledResult<unknown>> = results;
+        const rejected = settledResults.find(
           (result): result is PromiseRejectedResult => result.status === 'rejected',
         );
         if (rejected && !isWebRPCAbortError(rejected.reason)) {
