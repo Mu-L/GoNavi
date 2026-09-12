@@ -10,7 +10,6 @@ import './ConnectionToolSettings.css';
 const { Text } = Typography;
 
 type ConnectionPackagePasswordModalMode = 'import' | 'export';
-
 export type ConnectionPackageExportOption = {
   value: string;
   label: string;

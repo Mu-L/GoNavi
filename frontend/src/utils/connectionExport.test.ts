@@ -7,6 +7,7 @@ import {
   isConnectionPackageExportCanceled,
   resolveConnectionPackageExportResult,
   normalizeConnectionPackagePassword,
+  parseConnectionsExcelImportEnvelope,
 } from './connectionExport';
 
 describe('connectionExport', () => {
@@ -149,6 +150,15 @@ describe('connectionExport', () => {
     expect(isConnectionPackageExportCanceled({ success: false, message: '导出失败' })).toBe(false);
     expect(isConnectionPackageExportCanceled({ success: true, message: '已取消' })).toBe(false);
     expect(isConnectionPackageExportCanceled(undefined)).toBe(false);
+  });
+
+  it('parses excel import envelopes from the unified import entry', () => {
+    expect(parseConnectionsExcelImportEnvelope('not-json')).toBeNull();
+    expect(parseConnectionsExcelImportEnvelope(JSON.stringify({ connections: [] }))).toBeNull();
+    expect(parseConnectionsExcelImportEnvelope(JSON.stringify({
+      gonaviExcelImport: true,
+      result: { connections: [{ id: 'conn-1' }] },
+    }))).toEqual({ connections: [{ id: 'conn-1' }] });
   });
 
   it('maps export results to dialog state transitions', () => {

@@ -679,6 +679,20 @@ export namespace app {
 	        this.dirty = source["dirty"];
 	    }
 	}
+	export class ConnectionExcelGroupAssignment {
+	    connectionName: string;
+	    groupPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionExcelGroupAssignment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectionName = source["connectionName"];
+	        this.groupPath = source["groupPath"];
+	    }
+	}
 	export class ConnectionExportOptions {
 	    includeSecrets: boolean;
 	    filePassword?: string;
@@ -700,6 +714,7 @@ export namespace app {
 	export class ConnectionPackageImportResult {
 	    connections: connection.SavedConnectionView[];
 	    redisDbAliases?: Record<string, any>;
+	    excelGroups?: ConnectionExcelGroupAssignment[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionPackageImportResult(source);
@@ -709,6 +724,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.connections = this.convertValues(source["connections"], connection.SavedConnectionView);
 	        this.redisDbAliases = source["redisDbAliases"];
+	        this.excelGroups = this.convertValues(source["excelGroups"], ConnectionExcelGroupAssignment);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
