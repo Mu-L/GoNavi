@@ -171,6 +171,6 @@ Download from [Releases](https://github.com/Syngnat/GoNavi/releases), measure on
 
 ---
 
-*Related:* [Best TablePlus Alternatives in 2026](./tableplus-alternative-2026.md) · AI SQL vs GUI (validation culture) — link lands with article ③.
+*Related:* [Best TablePlus Alternatives in 2026](./tableplus-alternative-2026.md) · [After AI Can Write SQL, Do You Still Need a Database GUI?](./ai-sql-still-need-gui-2026.md)
 
 *Source notes:* aligned with GoNavi README “Why GoNavi?” three-number framing (PR #1230); product facts from v0.9.8 releases — not Search Console metrics.
