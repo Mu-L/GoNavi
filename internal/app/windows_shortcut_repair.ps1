@@ -425,11 +425,32 @@ function Repair-LegacyGoNaviTaskbarPins {
     return $repairCount
 }
 
+function Get-GoNaviShortcutAppUserModelID {
+    param([string]$ShortcutPath)
+
+    try {
+        $folderPath = Split-Path -LiteralPath $ShortcutPath -Parent
+        $fileName = Split-Path -LiteralPath $ShortcutPath -Leaf
+        $namespace = (New-Object -ComObject Shell.Application).Namespace($folderPath)
+        if ($null -eq $namespace) {
+            return ''
+        }
+        $item = $namespace.ParseName($fileName)
+        if ($null -eq $item) {
+            return ''
+        }
+        return [string]$item.ExtendedProperty('System.AppUserModel.ID')
+    } catch {
+        return ''
+    }
+}
+
 function Set-GoNaviShortcutBrandIcon {
     param(
         [string]$TargetPath,
         [string]$IconPath,
-        [string[]]$ShortcutDirectories
+        [string[]]$ShortcutDirectories,
+        [string]$TaskbarDirectory
     )
 
     $updatedCount = 0
@@ -454,8 +475,11 @@ function Set-GoNaviShortcutBrandIcon {
             )
         }
 
-        $applicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
-        $taskbarDirectory = Get-NormalizedFilePath (Join-Path $applicationData 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar')
+        if ([string]::IsNullOrWhiteSpace($TaskbarDirectory)) {
+            $applicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+            $TaskbarDirectory = Join-Path $applicationData 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+        }
+        $taskbarDirectory = Get-NormalizedFilePath $TaskbarDirectory
         $taskbarPrefix = $taskbarDirectory
         if (-not [string]::IsNullOrWhiteSpace($taskbarPrefix) -and -not $taskbarPrefix.EndsWith([IO.Path]::DirectorySeparatorChar)) {
             $taskbarPrefix += [IO.Path]::DirectorySeparatorChar
@@ -475,13 +499,52 @@ function Set-GoNaviShortcutBrandIcon {
             foreach ($shortcutFile in $shortcuts) {
                 try {
                     $shortcut = $shell.CreateShortcut($shortcutFile.FullName)
-                    if (-not (Test-SameFilePath $shortcut.TargetPath $normalizedTargetPath)) {
-                        continue
-                    }
+                    $matchesTarget = Test-SameFilePath $shortcut.TargetPath $normalizedTargetPath
                     $isTaskbarShortcut = -not [string]::IsNullOrWhiteSpace($taskbarPrefix) -and
                         $shortcutFile.FullName.StartsWith($taskbarPrefix, [StringComparison]::OrdinalIgnoreCase)
+                    $isGoNaviTaskbarShortcut = $false
+                    # A development/portable build can be running while the
+                    # pinned shortcut still targets the installed GoNavi.exe.
+                    # Recognize that same GoNavi taskbar identity, but keep its
+                    # original launch target below instead of redirecting it.
+                    if (-not $matchesTarget -and $isTaskbarShortcut) {
+                        $shortcutName = [IO.Path]::GetFileNameWithoutExtension($shortcutFile.Name)
+                        $targetName = [IO.Path]::GetFileName($shortcut.TargetPath)
+                        $looksLikeGoNaviPin =
+                            $shortcutName -match '^GoNavi(?:[-_.].*)?$' -and
+                            $targetName -match '^GoNavi(?:[-_.].*)?\.exe$'
+                        $isGoNaviTaskbarShortcut = $looksLikeGoNaviPin -or [string]::Equals(
+                            (Get-GoNaviShortcutAppUserModelID $shortcutFile.FullName),
+                            'Syngnat.GoNavi',
+                            [StringComparison]::OrdinalIgnoreCase)
+                    }
+                    if (-not $matchesTarget -and -not $isGoNaviTaskbarShortcut) {
+                        continue
+                    }
+                    $shortcutTargetPath = $normalizedTargetPath
+                    if (-not $matchesTarget) {
+                        $shortcutTargetPath = Get-NormalizedFilePath $shortcut.TargetPath
+                        if ([string]::IsNullOrWhiteSpace($shortcutTargetPath)) {
+                            continue
+                        }
+                    }
                     if ($isTaskbarShortcut) {
-                        if (Set-GoNaviShortcutRelaunchProperties -ShortcutPath $shortcutFile.FullName -TargetPath $normalizedTargetPath -IconPath $normalizedIconPath) {
+                        # Windows 11 may keep rendering a pinned shortcut's
+                        # standard IconLocation even after the AppUserModel
+                        # relaunch icon changed. Save both representations,
+                        # then write the AppUserModel properties last because
+                        # WScript.Shell.Save can discard custom properties.
+                        $shortcutUpdated = $false
+                        $wantedIconLocation = $normalizedIconPath + ',0'
+                        if (-not [string]::Equals([string]$shortcut.IconLocation, $wantedIconLocation, [StringComparison]::OrdinalIgnoreCase)) {
+                            $shortcut.IconLocation = $wantedIconLocation
+                            $shortcut.Save()
+                            $shortcutUpdated = $true
+                        }
+                        if (Set-GoNaviShortcutRelaunchProperties -ShortcutPath $shortcutFile.FullName -TargetPath $shortcutTargetPath -IconPath $normalizedIconPath) {
+                            $shortcutUpdated = $true
+                        }
+                        if ($shortcutUpdated) {
                             $updatedCount++
                         }
                         Send-ShellItemUpdatedNotification $shortcutFile.FullName

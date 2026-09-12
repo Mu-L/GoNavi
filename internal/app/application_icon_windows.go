@@ -55,7 +55,34 @@ var (
 		proc.Call(hwnd, uintptr(int64(index)), icon)
 	}
 	windowsApplicationIconSetTaskbarProperties = setWindowsTaskbarProperties
+	windowsApplicationIconLoad                 = loadWindowsApplicationIcon
+	windowsApplicationIconDestroyCall          = destroyWindowsApplicationIcon
+	windowsUpdateCurrentApplicationShortcuts   = updateCurrentWindowsApplicationShortcuts
 )
+
+// applyPersistedWindowsApplicationIcon binds the last selected ICO before
+// Wails shows the first window. The frontend state is hydrated too late to be
+// the first source of truth for the Windows taskbar button.
+func applyPersistedWindowsApplicationIcon(runtimeContext context.Context, configDir string) error {
+	iconPath, err := loadPersistedWindowsApplicationIcon(configDir)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(iconPath) == "" {
+		return clearPersistedWindowsApplicationIcon(configDir)
+	}
+	_, err = setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
+	if err != nil {
+		return err
+	}
+	// Persist the compatibility fallback too. This makes later failed
+	// selections transactional: the active pointer remains authoritative and
+	// an unactivated candidate cannot win the next startup scan.
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		return fmt.Errorf("persist active Windows application icon: %w", err)
+	}
+	return nil
+}
 
 func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext context.Context) error {
 	if len(pngBytes) == 0 {
@@ -68,9 +95,12 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	if err != nil {
 		return err
 	}
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		return err
+	}
 	// Migrate existing taskbar pins before assigning the explicit window AUMID.
 	// The update is synchronous so quitting cannot leave a half-written pin.
-	if err := updateCurrentWindowsApplicationShortcuts(iconPath); err != nil {
+	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
 		logger.Warnf("更新 Windows 应用快捷方式图标失败：%v", err)
 	}
 	_, err = setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
@@ -91,26 +121,33 @@ func prepareWindowsBrandIconRestartPNG(pngBytes []byte, configDir string) error 
 	if err != nil {
 		return err
 	}
-	// Update existing shortcuts in place. The next process launch lets
-	// Explorer rebuild the live taskbar group from this persisted ICO.
-	return updateCurrentWindowsApplicationShortcuts(iconPath)
+	// Update existing shortcuts in place. Only activate the pointer after the
+	// shortcut transaction succeeds, so a failed selection cannot change the
+	// icon used by the next process launch.
+	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
+		// Keep the content-addressed ICO because the shortcut script may have
+		// updated some entries before reporting an error. The active pointer is
+		// unchanged, so the next startup will continue using the previous icon.
+		return err
+	}
+	return activatePersistedWindowsApplicationIcon(iconPath, configDir)
 }
 
 func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath string) (uintptr, error) {
-	small, err := loadWindowsApplicationIcon(iconPath, windowsSmallIconPixels)
+	small, err := windowsApplicationIconLoad(iconPath, windowsSmallIconPixels)
 	if err != nil {
 		return 0, err
 	}
-	large, err := loadWindowsApplicationIcon(iconPath, windowsLargeIconPixels)
+	large, err := windowsApplicationIconLoad(iconPath, windowsLargeIconPixels)
 	if err != nil {
-		destroyWindowsApplicationIcon(small)
+		windowsApplicationIconDestroyCall(small)
 		return 0, err
 	}
 
 	mainWindow, err := resolveWailsMainWindowHandle(runtimeContext)
 	if err != nil {
-		destroyWindowsApplicationIcon(small)
-		destroyWindowsApplicationIcon(large)
+		windowsApplicationIconDestroyCall(small)
+		windowsApplicationIconDestroyCall(large)
 		return 0, fmt.Errorf("resolve Windows application window: %w", err)
 	}
 	applyErr := applyWindowsApplicationIcon(mainWindow, iconPath, small, large)
@@ -123,8 +160,8 @@ func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath s
 	windowsApplicationIconSmallHandle = small
 	windowsApplicationIconLargeHandle = large
 	windowsApplicationIconHandleMu.Unlock()
-	destroyWindowsApplicationIcon(previousSmall)
-	destroyWindowsApplicationIcon(previousLarge)
+	windowsApplicationIconDestroyCall(previousSmall)
+	windowsApplicationIconDestroyCall(previousLarge)
 	if applyErr != nil {
 		return mainWindow, applyErr
 	}

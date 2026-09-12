@@ -49,6 +49,7 @@ func TestWindowsShortcutRepairOnlyMigratesMissingMSIIconForCurrentTarget(t *test
 	harness := windowsShortcutRepairPowerShellScript + `
 $ErrorActionPreference = 'Stop'
 $shell = New-Object -ComObject WScript.Shell
+$shellApplication = New-Object -ComObject Shell.Application
 
 function New-TestShortcut {
     param(
@@ -92,6 +93,10 @@ New-TestShortcut (Join-Path $pins 'foreign-target.lnk') $foreignTarget ($missing
 New-TestShortcut (Join-Path $pins 'existing-icon.lnk') $target ($existingIcon + ',0')
 New-TestShortcut (Join-Path $pins 'blank-icon.lnk') $target ''
 New-TestShortcut (Join-Path $pins 'other-missing-icon.lnk') $target ((Join-Path $installer '{33333333-3333-3333-3333-333333333333}\OtherIcon') + ',0')
+$alternateGoNaviTarget = Join-Path $env:GONAVI_TEST_ROOT 'alternate-install\GoNavi.exe'
+New-TestShortcut (Join-Path $pins 'GoNavi.lnk') $alternateGoNaviTarget ''
+[void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath (Join-Path $pins 'GoNavi.lnk') -TargetPath $alternateGoNaviTarget -IconPath $missingIcon)
+$alternateTargetBefore = $shell.CreateShortcut((Join-Path $pins 'GoNavi.lnk')).TargetPath
 $blankIconBefore = $shell.CreateShortcut((Join-Path $pins 'blank-icon.lnk')).IconLocation
 $otherMissingIconBefore = $shell.CreateShortcut((Join-Path $pins 'other-missing-icon.lnk')).IconLocation
 
@@ -123,8 +128,8 @@ if (-not [string]::Equals($otherMissingIconShortcut.IconLocation, $otherMissingI
 
 $brandIcon = Join-Path $env:GONAVI_TEST_ROOT 'gonavi-brand-test.ico'
 [IO.File]::WriteAllBytes($brandIcon, [byte[]](0, 0, 1, 0, 0, 0))
-$brandUpdateCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($pins)
-if ($brandUpdateCount -ne 4) {
+$brandUpdateCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($pins) -TaskbarDirectory $pins
+if ($brandUpdateCount -ne 5) {
     throw ('unexpected brand icon shortcut update count: ' + $brandUpdateCount)
 }
 foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon.lnk', 'other-missing-icon.lnk')) {
@@ -135,6 +140,17 @@ foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon
 }
 if (-not (Test-ShortcutIconLocation $shell.CreateShortcut((Join-Path $pins 'foreign-target.lnk')).IconLocation $missingIcon)) {
     throw 'brand icon update modified a foreign target shortcut'
+}
+$alternateShortcut = $shell.CreateShortcut((Join-Path $pins 'GoNavi.lnk'))
+if (-not (Test-ShortcutIconLocation $alternateShortcut.IconLocation $brandIcon)) {
+    throw ('brand icon was not applied to the alternate GoNavi pin: ' + $alternateShortcut.IconLocation)
+}
+if (-not [string]::Equals($alternateShortcut.TargetPath, $alternateTargetBefore, [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('alternate GoNavi pin target was changed: ' + $alternateShortcut.TargetPath)
+}
+$alternateItem = $shellApplication.Namespace((Split-Path (Join-Path $pins 'GoNavi.lnk') -Parent)).ParseName('GoNavi.lnk')
+if ($null -ne $alternateItem -and -not (Test-SameFilePath ([string]$alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand')) $alternateTargetBefore)) {
+    throw ('alternate GoNavi relaunch target was changed: ' + $alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand'))
 }
 
 $desktopDirectories = @($desktop, $commonDesktop)

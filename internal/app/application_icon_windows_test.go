@@ -3,8 +3,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -168,4 +174,131 @@ func containsAll(value string, fragments ...string) bool {
 		}
 	}
 	return true
+}
+
+func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0x22, G: 0x66, B: 0xaa, A: 0xff})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	configDir := t.TempDir()
+	iconPath, err := persistWindowsApplicationIcon(encoded.Bytes(), configDir)
+	if err != nil {
+		t.Fatalf("persist active icon: %v", err)
+	}
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		t.Fatalf("activate active icon: %v", err)
+	}
+
+	const (
+		hwnd  = uintptr(0x1234)
+		small = uintptr(0x2001)
+		large = uintptr(0x2002)
+	)
+	ctx := context.WithValue(context.Background(), stringContextKey("frontend"), &fakeBrandIconFrontend{
+		chromium:   &fakeChromium{},
+		mainWindow: &fakeBrandIconWindow{hwnd: hwnd},
+	})
+	application := NewAppWithSecretStore(nil)
+	application.configDir = configDir
+
+	originalLoad := windowsApplicationIconLoad
+	originalDestroy := windowsApplicationIconDestroyCall
+	originalSend := windowsApplicationIconSendMessageCall
+	originalSetClass := windowsApplicationIconSetClassIcon
+	originalSetTaskbarProperties := windowsApplicationIconSetTaskbarProperties
+	windowsApplicationIconHandleMu.Lock()
+	originalSmallHandle := windowsApplicationIconSmallHandle
+	originalLargeHandle := windowsApplicationIconLargeHandle
+	windowsApplicationIconSmallHandle = 0
+	windowsApplicationIconLargeHandle = 0
+	windowsApplicationIconHandleMu.Unlock()
+	t.Cleanup(func() {
+		windowsApplicationIconLoad = originalLoad
+		windowsApplicationIconDestroyCall = originalDestroy
+		windowsApplicationIconSendMessageCall = originalSend
+		windowsApplicationIconSetClassIcon = originalSetClass
+		windowsApplicationIconSetTaskbarProperties = originalSetTaskbarProperties
+		windowsApplicationIconHandleMu.Lock()
+		windowsApplicationIconSmallHandle = originalSmallHandle
+		windowsApplicationIconLargeHandle = originalLargeHandle
+		windowsApplicationIconHandleMu.Unlock()
+	})
+
+	var loadedSizes []int
+	windowsApplicationIconLoad = func(actualPath string, size int) (uintptr, error) {
+		if actualPath != iconPath {
+			t.Fatalf("loaded icon path = %q, want %q", actualPath, iconPath)
+		}
+		loadedSizes = append(loadedSizes, size)
+		if size == windowsSmallIconPixels {
+			return small, nil
+		}
+		return large, nil
+	}
+	windowsApplicationIconDestroyCall = func(uintptr) {}
+	current := map[uintptr]uintptr{}
+	windowsApplicationIconSendMessageCall = func(actualHWND, message, iconType, icon uintptr) uintptr {
+		if actualHWND != hwnd {
+			t.Fatalf("icon message HWND = %#x, want %#x", actualHWND, hwnd)
+		}
+		switch message {
+		case windowsSetIconMessage:
+			current[iconType] = icon
+		case windowsGetIconMessage:
+			return current[iconType]
+		}
+		return 0
+	}
+	windowsApplicationIconSetClassIcon = func(uintptr, int32, uintptr) {}
+	var taskbarIconPath string
+	windowsApplicationIconSetTaskbarProperties = func(actualHWND uintptr, actualPath string) error {
+		if actualHWND != hwnd {
+			t.Fatalf("taskbar HWND = %#x, want %#x", actualHWND, hwnd)
+		}
+		taskbarIconPath = actualPath
+		return nil
+	}
+
+	if err := InitializePersistedNativeBrandIcon(application, ctx); err != nil {
+		t.Fatalf("initialize persisted native brand icon: %v", err)
+	}
+	if len(loadedSizes) != 2 || loadedSizes[0] != windowsSmallIconPixels || loadedSizes[1] != windowsLargeIconPixels {
+		t.Fatalf("loaded icon sizes = %v, want [%d %d]", loadedSizes, windowsSmallIconPixels, windowsLargeIconPixels)
+	}
+	if taskbarIconPath != iconPath {
+		t.Fatalf("taskbar icon path = %q, want %q", taskbarIconPath, iconPath)
+	}
+}
+
+func TestPrepareWindowsBrandIconRestartDoesNotActivateAfterShortcutFailure(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0x99, G: 0x33, B: 0x55, A: 0xff})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	configDir := t.TempDir()
+	if err := clearPersistedWindowsApplicationIcon(configDir); err != nil {
+		t.Fatalf("initialize empty active icon state: %v", err)
+	}
+	originalUpdate := windowsUpdateCurrentApplicationShortcuts
+	t.Cleanup(func() { windowsUpdateCurrentApplicationShortcuts = originalUpdate })
+	windowsUpdateCurrentApplicationShortcuts = func(string) error {
+		return errors.New("shortcut update failed")
+	}
+
+	if err := prepareWindowsBrandIconRestartPNG(encoded.Bytes(), configDir); err == nil {
+		t.Fatal("expected shortcut update failure")
+	}
+	activeStatePath := filepath.Join(configDir, windowsApplicationIconDirectoryName, windowsApplicationIconStateFileName)
+	if data, err := os.ReadFile(activeStatePath); err != nil || strings.TrimSpace(string(data)) != "" {
+		t.Fatalf("active icon state after failed prepare = %q, err=%v, want empty", string(data), err)
+	}
+	candidatePath := windowsApplicationIconCandidatePath(encoded.Bytes(), configDir)
+	if _, err := os.Stat(candidatePath); err != nil {
+		t.Fatalf("failed prepare should retain candidate ICO for partial shortcut updates: %v", err)
+	}
 }

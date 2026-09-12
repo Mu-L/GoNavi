@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestBuildWindowsApplicationIconContainsNativeFrames(t *testing.T) {
@@ -114,5 +115,90 @@ func TestPersistWindowsApplicationIconUsesContentAddressedPath(t *testing.T) {
 	}
 	if repairedInfo, err := os.Stat(repaired); err != nil || repairedInfo.Size() <= int64(len("corrupt")) {
 		t.Fatalf("corrupted icon was not replaced: info=%v err=%v", repairedInfo, err)
+	}
+}
+
+func TestPersistWindowsApplicationIconRecordsActiveIcon(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0x44, G: 0x88, B: 0xcc, A: 0xff})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	iconPath, err := persistWindowsApplicationIcon(encoded.Bytes(), root)
+	if err != nil {
+		t.Fatalf("persist icon: %v", err)
+	}
+	if err := activatePersistedWindowsApplicationIcon(iconPath, root); err != nil {
+		t.Fatalf("activate icon: %v", err)
+	}
+	activePath, err := loadPersistedWindowsApplicationIcon(root)
+	if err != nil {
+		t.Fatalf("load active icon: %v", err)
+	}
+	if activePath != iconPath {
+		t.Fatalf("active icon path = %q, want %q", activePath, iconPath)
+	}
+}
+
+func TestLoadPersistedWindowsApplicationIconFallsBackToNewestLegacyIcon(t *testing.T) {
+	makePNG := func(value uint8) []byte {
+		source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+		source.SetNRGBA(0, 0, color.NRGBA{R: value, G: 0x22, B: 0x77, A: 0xff})
+		var encoded bytes.Buffer
+		if err := png.Encode(&encoded, source); err != nil {
+			t.Fatal(err)
+		}
+		return encoded.Bytes()
+	}
+	root := t.TempDir()
+	older, err := persistWindowsApplicationIcon(makePNG(0x11), root)
+	if err != nil {
+		t.Fatalf("persist older icon: %v", err)
+	}
+	newer, err := persistWindowsApplicationIcon(makePNG(0xee), root)
+	if err != nil {
+		t.Fatalf("persist newer icon: %v", err)
+	}
+	olderTime := time.Now().Add(-2 * time.Minute)
+	newerTime := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(older, olderTime, olderTime); err != nil {
+		t.Fatalf("touch older icon: %v", err)
+	}
+	if err := os.Chtimes(newer, newerTime, newerTime); err != nil {
+		t.Fatalf("touch newer icon: %v", err)
+	}
+
+	got, err := loadPersistedWindowsApplicationIcon(root)
+	if err != nil {
+		t.Fatalf("load legacy icon: %v", err)
+	}
+	if got != newer {
+		t.Fatalf("legacy icon = %q, want newest %q", got, newer)
+	}
+}
+
+func TestEmptyWindowsApplicationIconStateSuppressesLegacyFallback(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	source.SetNRGBA(0, 0, color.NRGBA{R: 0xaa, G: 0x44, B: 0x22, A: 0xff})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, err := persistWindowsApplicationIcon(encoded.Bytes(), root); err != nil {
+		t.Fatalf("persist legacy icon: %v", err)
+	}
+	if err := clearPersistedWindowsApplicationIcon(root); err != nil {
+		t.Fatalf("clear active icon state: %v", err)
+	}
+
+	got, err := loadPersistedWindowsApplicationIcon(root)
+	if err != nil {
+		t.Fatalf("load empty active state: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("icon selected with empty active state = %q, want empty", got)
 	}
 }
