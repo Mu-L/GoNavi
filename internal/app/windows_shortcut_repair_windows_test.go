@@ -96,6 +96,11 @@ New-TestShortcut (Join-Path $pins 'other-missing-icon.lnk') $target ((Join-Path 
 $alternateGoNaviTarget = Join-Path $env:GONAVI_TEST_ROOT 'alternate-install\GoNavi.exe'
 New-TestShortcut (Join-Path $pins 'GoNavi.lnk') $alternateGoNaviTarget ''
 [void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath (Join-Path $pins 'GoNavi.lnk') -TargetPath $alternateGoNaviTarget -IconPath $missingIcon)
+# A pin left behind by a previous rotated brand identity only ties back to
+# GoNavi through its AppUserModel.ID, so the brand update must recognize every
+# identity in the Syngnat.GoNavi family without redirecting its launch target.
+New-TestShortcut (Join-Path $pins 'GoNavi-rotated.lnk') $alternateGoNaviTarget ''
+[void](Set-GoNaviShortcutRelaunchProperties -ShortcutPath (Join-Path $pins 'GoNavi-rotated.lnk') -TargetPath $alternateGoNaviTarget -IconPath $missingIcon -ApplicationUserModelID 'Syngnat.GoNavi.Icon.deadbeefdeadbeefdeadbeef')
 $alternateTargetBefore = $shell.CreateShortcut((Join-Path $pins 'GoNavi.lnk')).TargetPath
 $blankIconBefore = $shell.CreateShortcut((Join-Path $pins 'blank-icon.lnk')).IconLocation
 $otherMissingIconBefore = $shell.CreateShortcut((Join-Path $pins 'other-missing-icon.lnk')).IconLocation
@@ -129,7 +134,7 @@ if (-not [string]::Equals($otherMissingIconShortcut.IconLocation, $otherMissingI
 $brandIcon = Join-Path $env:GONAVI_TEST_ROOT 'gonavi-brand-test.ico'
 [IO.File]::WriteAllBytes($brandIcon, [byte[]](0, 0, 1, 0, 0, 0))
 $brandUpdateCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($pins) -TaskbarDirectory $pins
-if ($brandUpdateCount -ne 5) {
+if ($brandUpdateCount -ne 6) {
     throw ('unexpected brand icon shortcut update count: ' + $brandUpdateCount)
 }
 foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon.lnk', 'other-missing-icon.lnk')) {
@@ -151,6 +156,40 @@ if (-not [string]::Equals($alternateShortcut.TargetPath, $alternateTargetBefore,
 $alternateItem = $shellApplication.Namespace((Split-Path (Join-Path $pins 'GoNavi.lnk') -Parent)).ParseName('GoNavi.lnk')
 if ($null -ne $alternateItem -and -not (Test-SameFilePath ([string]$alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand')) $alternateTargetBefore)) {
     throw ('alternate GoNavi relaunch target was changed: ' + $alternateItem.ExtendedProperty('System.AppUserModel.RelaunchCommand'))
+}
+$rotatedShortcut = $shell.CreateShortcut((Join-Path $pins 'GoNavi-rotated.lnk'))
+if (-not (Test-ShortcutIconLocation $rotatedShortcut.IconLocation $brandIcon)) {
+    throw ('brand icon was not applied to the rotated-identity pin: ' + $rotatedShortcut.IconLocation)
+}
+if (-not [string]::Equals($rotatedShortcut.TargetPath, $alternateGoNaviTarget, [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('rotated-identity pin target was changed: ' + $rotatedShortcut.TargetPath)
+}
+$rotatedItemBefore = $shellApplication.Namespace($pins).ParseName('GoNavi-rotated.lnk')
+if ($null -ne $rotatedItemBefore -and -not [string]::Equals([string]$rotatedItemBefore.ExtendedProperty('System.AppUserModel.ID'), 'Syngnat.GoNavi', [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('rotated-identity pin was not moved to the base identity: ' + $rotatedItemBefore.ExtendedProperty('System.AppUserModel.ID'))
+}
+
+# A later selection rotates the identity again: the new value must reach the
+# property store of every recognized pin so the taskbar re-renders its icon.
+$rotatedIcon = Join-Path $env:GONAVI_TEST_ROOT 'gonavi-brand-0123456789abcdef01234567.ico'
+[IO.File]::WriteAllBytes($rotatedIcon, [byte[]](0, 0, 1, 0, 0, 0))
+$rotatedAumid = 'Syngnat.GoNavi.Icon.0123456789abcdef01234567'
+$rotatedBrandCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $rotatedIcon -ApplicationUserModelID $rotatedAumid -ShortcutDirectories @($pins) -TaskbarDirectory $pins
+if ($rotatedBrandCount -ne 6) {
+    throw ('unexpected rotated brand icon shortcut update count: ' + $rotatedBrandCount)
+}
+foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon.lnk', 'other-missing-icon.lnk', 'GoNavi.lnk', 'GoNavi-rotated.lnk')) {
+    $updatedShortcut = $shell.CreateShortcut((Join-Path $pins $shortcutName))
+    if (-not (Test-ShortcutIconLocation $updatedShortcut.IconLocation $rotatedIcon)) {
+        throw ('rotated brand icon was not applied to ' + $shortcutName + ': ' + $updatedShortcut.IconLocation)
+    }
+}
+if (-not (Test-ShortcutIconLocation $shell.CreateShortcut((Join-Path $pins 'foreign-target.lnk')).IconLocation $missingIcon)) {
+    throw 'rotated brand icon update modified a foreign target shortcut'
+}
+$rotatedItem = $shellApplication.Namespace($pins).ParseName('GoNavi-rotated.lnk')
+if ($null -ne $rotatedItem -and -not [string]::Equals([string]$rotatedItem.ExtendedProperty('System.AppUserModel.ID'), $rotatedAumid, [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('rotated identity was not written to the pin property store: ' + $rotatedItem.ExtendedProperty('System.AppUserModel.ID'))
 }
 
 $desktopDirectories = @($desktop, $commonDesktop)

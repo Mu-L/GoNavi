@@ -248,9 +248,13 @@ function Set-GoNaviShortcutRelaunchProperties {
     param(
         [string]$ShortcutPath,
         [string]$TargetPath,
-        [string]$IconPath
+        [string]$IconPath,
+        [string]$ApplicationUserModelID = 'Syngnat.GoNavi'
     )
 
+    if ([string]::IsNullOrWhiteSpace($ApplicationUserModelID)) {
+        $ApplicationUserModelID = 'Syngnat.GoNavi'
+    }
     try {
         if (-not ('GoNaviShortcutPropertyStore' -as [type])) {
             Add-Type -TypeDefinition @'
@@ -318,8 +322,12 @@ public static class GoNaviShortcutPropertyStore
         }
     }
 
-    public static bool SetRelaunchProperties(string shortcutPath, string targetPath, string iconPath)
+    public static bool SetRelaunchProperties(string shortcutPath, string targetPath, string iconPath, string applicationUserModelID)
     {
+        if (String.IsNullOrWhiteSpace(applicationUserModelID))
+        {
+            applicationUserModelID = "Syngnat.GoNavi";
+        }
         IPropertyStore store = null;
         Guid interfaceId = IID_IPropertyStore;
         int result = SHGetPropertyStoreFromParsingName(
@@ -336,7 +344,7 @@ public static class GoNaviShortcutPropertyStore
             SetString(store, new PROPERTYKEY(PKEY_AppUserModel, 2), targetPath);
             SetString(store, new PROPERTYKEY(PKEY_AppUserModel, 3), iconPath + ",0");
             SetString(store, new PROPERTYKEY(PKEY_AppUserModel, 4), "GoNavi");
-            SetString(store, new PROPERTYKEY(PKEY_AppUserModel, 5), "Syngnat.GoNavi");
+            SetString(store, new PROPERTYKEY(PKEY_AppUserModel, 5), applicationUserModelID);
             Marshal.ThrowExceptionForHR(store.Commit());
             return true;
         }
@@ -351,7 +359,7 @@ public static class GoNaviShortcutPropertyStore
 }
 '@
         }
-        return [GoNaviShortcutPropertyStore]::SetRelaunchProperties($ShortcutPath, $TargetPath, $IconPath)
+        return [GoNaviShortcutPropertyStore]::SetRelaunchProperties($ShortcutPath, $TargetPath, $IconPath, $ApplicationUserModelID)
     } catch {
         Write-ShortcutRepairLog ("shortcut relaunch property update failed for " + $ShortcutPath + ": " + $_.Exception.Message)
         return $false
@@ -449,10 +457,14 @@ function Set-GoNaviShortcutBrandIcon {
     param(
         [string]$TargetPath,
         [string]$IconPath,
+        [string]$ApplicationUserModelID = 'Syngnat.GoNavi',
         [string[]]$ShortcutDirectories,
         [string]$TaskbarDirectory
     )
 
+    if ([string]::IsNullOrWhiteSpace($ApplicationUserModelID)) {
+        $ApplicationUserModelID = 'Syngnat.GoNavi'
+    }
     $updatedCount = 0
     try {
         $normalizedTargetPath = Get-NormalizedFilePath $TargetPath
@@ -507,16 +519,17 @@ function Set-GoNaviShortcutBrandIcon {
                     # pinned shortcut still targets the installed GoNavi.exe.
                     # Recognize that same GoNavi taskbar identity, but keep its
                     # original launch target below instead of redirecting it.
+                    # Brand-icon selections rotate the identity inside the
+                    # Syngnat.GoNavi family so Explorer re-renders the cached
+                    # group icon; every family member must be recognized here.
                     if (-not $matchesTarget -and $isTaskbarShortcut) {
                         $shortcutName = [IO.Path]::GetFileNameWithoutExtension($shortcutFile.Name)
                         $targetName = [IO.Path]::GetFileName($shortcut.TargetPath)
                         $looksLikeGoNaviPin =
                             $shortcutName -match '^GoNavi(?:[-_.].*)?$' -and
                             $targetName -match '^GoNavi(?:[-_.].*)?\.exe$'
-                        $isGoNaviTaskbarShortcut = $looksLikeGoNaviPin -or [string]::Equals(
-                            (Get-GoNaviShortcutAppUserModelID $shortcutFile.FullName),
-                            'Syngnat.GoNavi',
-                            [StringComparison]::OrdinalIgnoreCase)
+                        $isGoNaviTaskbarShortcut = $looksLikeGoNaviPin -or
+                            ((Get-GoNaviShortcutAppUserModelID $shortcutFile.FullName) -match '^Syngnat\.GoNavi(?:\.Icon\.[0-9a-f]+)?$')
                     }
                     if (-not $matchesTarget -and -not $isGoNaviTaskbarShortcut) {
                         continue
@@ -541,7 +554,7 @@ function Set-GoNaviShortcutBrandIcon {
                             $shortcut.Save()
                             $shortcutUpdated = $true
                         }
-                        if (Set-GoNaviShortcutRelaunchProperties -ShortcutPath $shortcutFile.FullName -TargetPath $shortcutTargetPath -IconPath $normalizedIconPath) {
+                        if (Set-GoNaviShortcutRelaunchProperties -ShortcutPath $shortcutFile.FullName -TargetPath $shortcutTargetPath -IconPath $normalizedIconPath -ApplicationUserModelID $ApplicationUserModelID) {
                             $shortcutUpdated = $true
                         }
                         if ($shortcutUpdated) {

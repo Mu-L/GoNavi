@@ -17,7 +17,6 @@ import (
 const (
 	windowsRPCChangedMode                 = uintptr(0x80010106)
 	windowsVariantTypeUnicodeString       = uint16(31)
-	windowsApplicationUserModelID         = "Syngnat.GoNavi"
 	windowsApplicationDisplayName         = "GoNavi"
 	windowsRelaunchCommandPropertyID      = uint32(2)
 	windowsRelaunchIconPropertyID         = uint32(3)
@@ -137,7 +136,7 @@ func setWindowsTaskbarProperties(hwnd uintptr, iconPath string) error {
 		{key: windowsAppUserModelRelaunchCommandKey, value: relaunchCommand},
 		{key: windowsAppUserModelRelaunchDisplayNameKey, value: windowsApplicationDisplayName},
 		{key: windowsAppUserModelRelaunchIconKey, value: iconPath + ",0"},
-		{key: windowsAppUserModelIDKey, value: windowsApplicationUserModelID},
+		{key: windowsAppUserModelIDKey, value: windowsApplicationUserModelIDForIconPath(iconPath)},
 	}
 	for _, property := range properties {
 		if err := store.setString(property.key, property.value); err != nil {

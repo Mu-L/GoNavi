@@ -302,3 +302,40 @@ func TestPrepareWindowsBrandIconRestartDoesNotActivateAfterShortcutFailure(t *te
 		t.Fatalf("failed prepare should retain candidate ICO for partial shortcut updates: %v", err)
 	}
 }
+
+func TestRemoveStaleWindowsShortcutUpdateScriptsKeepsIconState(t *testing.T) {
+	configDir := t.TempDir()
+	iconDir := filepath.Join(configDir, windowsApplicationIconDirectoryName)
+	if err := os.MkdirAll(iconDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staleScripts := []string{".gonavi-brand-shortcuts-123.ps1", ".gonavi-brand-shortcuts-456.ps1"}
+	for _, name := range staleScripts {
+		if err := os.WriteFile(filepath.Join(iconDir, name), []byte("script"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keep := map[string]string{
+		"gonavi-brand-d89e4f026a938e22fe081e12.ico": "ico",
+		windowsApplicationIconStateFileName:         "gonavi-brand-d89e4f026a938e22fe081e12.ico\n",
+		".gonavi-brand-shortcuts.ps1":               "not matching the numbered temp pattern",
+	}
+	for name, content := range keep {
+		if err := os.WriteFile(filepath.Join(iconDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removeStaleWindowsShortcutUpdateScripts(configDir)
+
+	for _, name := range staleScripts {
+		if _, err := os.Stat(filepath.Join(iconDir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale shortcut script %s was not removed: %v", name, err)
+		}
+	}
+	for name := range keep {
+		if _, err := os.Stat(filepath.Join(iconDir, name)); err != nil {
+			t.Fatalf("cleanup removed %s: %v", name, err)
+		}
+	}
+}

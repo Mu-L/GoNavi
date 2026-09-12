@@ -51,14 +51,14 @@ func TestSetWindowsTaskbarPropertiesWritesIdentityLastAndCommits(t *testing.T) {
 		return `C:\Program Files\GoNavi\GoNavi.exe`, nil
 	}
 
-	if err := setWindowsTaskbarProperties(0x1234, `C:\Users\tester\gonavi-brand-a1.ico`); err != nil {
+	if err := setWindowsTaskbarProperties(0x1234, `C:\Users\tester\gonavi-brand-a1b2c3d4e5f6a7b8c9d0e1f2.ico`); err != nil {
 		t.Fatalf("set Windows taskbar properties: %v", err)
 	}
 	want := []windowsWindowProperty{
 		{key: windowsAppUserModelRelaunchCommandKey, value: `"C:\Program Files\GoNavi\GoNavi.exe"`},
 		{key: windowsAppUserModelRelaunchDisplayNameKey, value: windowsApplicationDisplayName},
-		{key: windowsAppUserModelRelaunchIconKey, value: `C:\Users\tester\gonavi-brand-a1.ico,0`},
-		{key: windowsAppUserModelIDKey, value: windowsApplicationUserModelID},
+		{key: windowsAppUserModelRelaunchIconKey, value: `C:\Users\tester\gonavi-brand-a1b2c3d4e5f6a7b8c9d0e1f2.ico,0`},
+		{key: windowsAppUserModelIDKey, value: "Syngnat.GoNavi.Icon.a1b2c3d4e5f6a7b8c9d0e1f2"},
 	}
 	if !reflect.DeepEqual(store.values, want) {
 		t.Fatalf("window properties = %#v, want %#v", store.values, want)

@@ -14,12 +14,14 @@ var windowsSetCurrentProcessExplicitAppUserModelID = windowsShell32.NewProc("Set
 
 // InitializeWindowsApplicationIdentity must run before Wails creates the main
 // window. Otherwise Explorer may create the taskbar button under the
-// executable's implicit identity and keep serving its embedded icon.
+// executable's implicit identity and keep serving its embedded icon. The
+// identity follows the persisted brand icon: rotating the ID on every icon
+// selection is what forces Explorer to drop its cached group icon.
 func InitializeWindowsApplicationIdentity() error {
 	if err := windowsSetCurrentProcessExplicitAppUserModelID.Find(); err != nil {
 		return fmt.Errorf("resolve SetCurrentProcessExplicitAppUserModelID: %w", err)
 	}
-	id, err := windows.UTF16PtrFromString(windowsApplicationUserModelID)
+	id, err := windows.UTF16PtrFromString(windowsApplicationUserModelIDForStartup(resolveAppConfigDir()))
 	if err != nil {
 		return fmt.Errorf("encode Windows application identity: %w", err)
 	}

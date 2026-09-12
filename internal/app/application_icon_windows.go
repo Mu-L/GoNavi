@@ -64,6 +64,7 @@ var (
 // Wails shows the first window. The frontend state is hydrated too late to be
 // the first source of truth for the Windows taskbar button.
 func applyPersistedWindowsApplicationIcon(runtimeContext context.Context, configDir string) error {
+	removeStaleWindowsShortcutUpdateScripts(configDir)
 	iconPath, err := loadPersistedWindowsApplicationIcon(configDir)
 	if err != nil {
 		return err
@@ -274,7 +275,7 @@ func updateCurrentWindowsApplicationShortcuts(iconPath string) error {
 	script := windowsShortcutRepairPowerShellScript + `
 
 $ErrorActionPreference = 'Stop'
-[void](Set-GoNaviShortcutBrandIcon -TargetPath $env:GONAVI_BRAND_TARGET -IconPath $env:GONAVI_BRAND_ICON)
+[void](Set-GoNaviShortcutBrandIcon -TargetPath $env:GONAVI_BRAND_TARGET -IconPath $env:GONAVI_BRAND_ICON -ApplicationUserModelID $env:GONAVI_BRAND_AUMID)
 `
 	if _, err := temporary.WriteString(strings.ReplaceAll(script, "\n", "\r\n")); err != nil {
 		_ = temporary.Close()
@@ -297,6 +298,7 @@ $ErrorActionPreference = 'Stop'
 	cmd.Env = append(cmd.Environ(),
 		"GONAVI_BRAND_TARGET="+executablePath,
 		"GONAVI_BRAND_ICON="+iconPath,
+		"GONAVI_BRAND_AUMID="+windowsApplicationUserModelIDForIconPath(iconPath),
 	)
 	configureWindowsUpdateCommand(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -307,4 +309,25 @@ $ErrorActionPreference = 'Stop'
 		return fmt.Errorf("update Windows application shortcuts: %w", err)
 	}
 	return nil
+}
+
+// removeStaleWindowsShortcutUpdateScripts deletes PowerShell payloads left in
+// the icon directory when a previous brand-icon selection was interrupted
+// before its deferred cleanup could run.
+func removeStaleWindowsShortcutUpdateScripts(configDir string) {
+	iconDir := filepath.Join(strings.TrimSpace(configDir), windowsApplicationIconDirectoryName)
+	entries, err := os.ReadDir(iconDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, ".gonavi-brand-shortcuts-") || !strings.HasSuffix(name, ".ps1") {
+			continue
+		}
+		_ = os.Remove(filepath.Join(iconDir, name))
+	}
 }
