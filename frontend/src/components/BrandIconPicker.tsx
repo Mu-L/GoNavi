@@ -1,5 +1,11 @@
 import React from 'react';
-import { BUNDLED_BRAND_ICON_ZOOM, BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
+import {
+  BUNDLED_BRAND_ICON_ZOOM,
+  BRAND_ICONS,
+  RIBBON_TILE_ART_FRACTION,
+  resolveBrandIconSrc,
+  type BrandIconId,
+} from '../brand/brandIcons';
 
 type BrandIconPickerProps = {
   value: string;
@@ -82,28 +88,58 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: usesBundledPreview ? '#fff' : 'transparent',
-                border: usesBundledPreview ? `1px solid ${border}` : 'none',
-                // Match the ribbon tiles' corner rounding and box size so the
-                // mascot background reads as the same tile shape and size.
+                overflow: 'visible',
+                background: 'transparent',
+                border: 'none',
                 borderRadius: 12,
-                overflow: 'hidden',
                 boxShadow: 'none',
               }}
             >
-              <img
-                src={resolveBrandIconSrc(item.id)}
-                alt={item.titleZh}
-                style={{
-                  maxWidth: usesBundledPreview ? 'none' : '100%',
-                  maxHeight: usesBundledPreview ? 'none' : '100%',
-                  width: usesBundledPreview ? `${BUNDLED_BRAND_ICON_ZOOM * 100}%` : '100%',
-                  height: usesBundledPreview ? `${BUNDLED_BRAND_ICON_ZOOM * 100}%` : '100%',
-                  objectFit: 'cover',
-                  display: 'block',
-                }}
-                draggable={false}
-              />
+              {usesBundledPreview ? (
+                // The ribbon SVGs frame their tile at ~80% of the canvas; size
+                // the mascot's white tile to the same fraction and crop the
+                // artwork's white margins so both read as the same tile size.
+                <div
+                  style={{
+                    width: `${RIBBON_TILE_ART_FRACTION * 100}%`,
+                    height: `${RIBBON_TILE_ART_FRACTION * 100}%`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#fff',
+                    borderRadius: 9,
+                    overflow: 'hidden',
+                    boxShadow: `0 0 0 1px ${border}`,
+                  }}
+                >
+                  <img
+                    src={resolveBrandIconSrc(item.id)}
+                    alt={item.titleZh}
+                    style={{
+                      maxWidth: 'none',
+                      maxHeight: 'none',
+                      width: `${BUNDLED_BRAND_ICON_ZOOM * 100}%`,
+                      height: `${BUNDLED_BRAND_ICON_ZOOM * 100}%`,
+                      objectFit: 'cover',
+                      display: 'block',
+                    }}
+                    draggable={false}
+                  />
+                </div>
+              ) : (
+                <img
+                  src={resolveBrandIconSrc(item.id)}
+                  alt={item.titleZh}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: 12,
+                    display: 'block',
+                  }}
+                  draggable={false}
+                />
+              )}
             </div>
             <div style={{ textAlign: 'left', minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 'var(--gn-font-size-sm, 12px)', fontWeight: 700, color: title }}>

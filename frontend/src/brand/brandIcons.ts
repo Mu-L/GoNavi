@@ -29,6 +29,11 @@ export type BrandIconDefinition = {
 };
 
 export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
+// The remote ribbon SVGs frame their tile at ~80% of the rendered canvas
+// (measured 0.797-0.805 across 01-06, designers keep a breathing margin).
+// Bundled mascot previews must size their white tile to the same fraction so
+// every option reads as the same tile size in the picker.
+export const RIBBON_TILE_ART_FRACTION = 0.8;
 // The bundled 0.9.7 mascot artworks leave 7–10% vertical and 11–24%
 // horizontal white margins inside their 512px tiles (smallest measured margin
 // is 34px). A 1.13× centre crop is the largest uniform zoom that never clips

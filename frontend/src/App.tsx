@@ -3519,8 +3519,11 @@ function App() {
           }
           // Windows fills the whole taskbar tile; the macOS Dock safe-area
           // inset would shrink the ICO mark relative to neighbouring apps.
+          // Bundled mascots ride a graphite backing card because their white
+          // tile disappears against the light Windows taskbar.
           const b64 = await composeWindowsNativeIconBase64(source, {
               zoom: resolveBrandIcon(id).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
+              backing: resolveBrandIcon(id).bundled ? 'graphite' : undefined,
           });
           const result = await PrepareWindowsBrandIconRestart(b64);
           if (!result || result.success === false) {

@@ -1,3 +1,5 @@
+import { RIBBON_TILE_ART_FRACTION } from './brandIcons';
+
 const DOCK_ICON_SIZE = 1024;
 // The PNG handed to NSApp is already a complete Dock tile.  Leaving a
 // 100px transparent border here makes GoNavi render visibly smaller than
@@ -8,6 +10,8 @@ const DOCK_ICON_INSET = 0;
 export const LEGACY_MASCOT_DOCK_ICON_INSET = 100;
 // Keep the same rounded-tile proportion used by the source artwork.
 const DOCK_ICON_CORNER_RADIUS_RATIO = 184 / 824;
+// The graphite base shared by the ribbon tile artwork (BRAND_ICON_FALLBACK_SRC).
+const WINDOWS_TASKBAR_BACKING_COLOUR = '#161c2a';
 
 export type DockIconRuntimeEnvironment = {
   platform?: unknown;
@@ -135,15 +139,16 @@ export function calculateWindowsNativeIconSourceCrop(
 }
 
 /**
- * Compose the Windows native tile: the artwork fills the whole canvas (no
- * macOS Dock safe-area inset) and bundled mascots are centre-cropped into
- * their white margins so the mark stays visible at taskbar sizes. Windows
- * scales the ICO down to 16-32px, where the mascot's own generous margins
- * would otherwise render it half the size of the neighbouring apps' marks.
+ * Compose the Windows native tile. The artwork fills the whole canvas (no
+ * macOS Dock safe-area inset). With the graphite backing, the mascot rides on
+ * a full-bleed ribbon-coloured tile as a white card — its own white tile is
+ * invisible on the light Windows taskbar, so without a backing the visible
+ * mark stays far smaller than neighbouring full-bleed icons no matter how far
+ * the artwork is cropped. Windows scales the ICO down to 16-32px.
  */
 export async function composeWindowsNativeIconBase64(
   src: string,
-  options: { zoom?: number } = {},
+  options: { zoom?: number; backing?: 'graphite' } = {},
 ): Promise<string> {
   const img = await loadImage(src);
   const size = DOCK_ICON_SIZE;
@@ -163,7 +168,12 @@ export async function composeWindowsNativeIconBase64(
   );
   clipMacOSDockImage(ctx, rect);
   const zoom = Math.max(1, Number(options.zoom) || 1);
-  if (zoom <= 1) {
+  const backing = options.backing === 'graphite';
+  if (backing) {
+    ctx.fillStyle = WINDOWS_TASKBAR_BACKING_COLOUR;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+  if (zoom <= 1 && !backing) {
     ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
     return canvasToBase64Png(canvas);
   }
@@ -171,16 +181,32 @@ export async function composeWindowsNativeIconBase64(
   const sourceHeight = img.naturalHeight || img.height;
   const widthCrop = calculateWindowsNativeIconSourceCrop(sourceWidth, zoom);
   const heightCrop = calculateWindowsNativeIconSourceCrop(sourceHeight, zoom);
+  let target = rect;
+  if (backing) {
+    // Frame the white mascot tile as a card over the graphite backing at the
+    // same fraction the ribbon SVGs reserve for their own tile.
+    const cardSize = Math.round(rect.width * RIBBON_TILE_ART_FRACTION);
+    const cardOffset = Math.floor((rect.width - cardSize) / 2);
+    target = {
+      x: rect.x + cardOffset,
+      y: rect.y + cardOffset,
+      width: cardSize,
+      height: cardSize,
+    };
+    clipMacOSDockImage(ctx, target);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(target.x, target.y, target.width, target.height);
+  }
   ctx.drawImage(
     img,
     widthCrop.offset,
     heightCrop.offset,
     widthCrop.size,
     heightCrop.size,
-    rect.x,
-    rect.y,
-    rect.width,
-    rect.height,
+    target.x,
+    target.y,
+    target.width,
+    target.height,
   );
   return canvasToBase64Png(canvas);
 }

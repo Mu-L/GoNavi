@@ -126,6 +126,7 @@ describe('composeWindowsNativeIconBase64', () => {
   function stubCanvasContext() {
     const drawImage = vi.fn();
     const arcTo = vi.fn();
+    const fillRect = vi.fn();
     const context = {
       beginPath: vi.fn(),
       moveTo: vi.fn(),
@@ -134,6 +135,8 @@ describe('composeWindowsNativeIconBase64', () => {
       closePath: vi.fn(),
       clip: vi.fn(),
       drawImage,
+      fillStyle: '',
+      fillRect,
       imageSmoothingEnabled: false,
       imageSmoothingQuality: 'low',
     } as unknown as CanvasRenderingContext2D;
@@ -144,7 +147,7 @@ describe('composeWindowsNativeIconBase64', () => {
       toDataURL: vi.fn(() => 'data:image/png;base64,encoded'),
     } as unknown as HTMLCanvasElement;
     vi.stubGlobal('document', { createElement: vi.fn(() => canvas) });
-    return { drawImage, arcTo };
+    return { drawImage, arcTo, fillRect };
   }
 
   function stubSquareImage(): void {
@@ -167,7 +170,7 @@ describe('composeWindowsNativeIconBase64', () => {
     stubSquareImage();
     const { drawImage, arcTo } = stubCanvasContext();
 
-    await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp')).resolves.toBe('encoded');
+    await expect(composeWindowsNativeIconBase64('/brand-icons/03-ribbon-graphite-glow.svg')).resolves.toBe('encoded');
     expect(drawImage.mock.calls[0]).toEqual([
       expect.anything(),
       0,
@@ -194,6 +197,28 @@ describe('composeWindowsNativeIconBase64', () => {
       0,
       1024,
       1024,
+    ]);
+  });
+
+  it('backs the mascot with a graphite tile and an 80% white card', async () => {
+    stubSquareImage();
+    const { drawImage, fillRect } = stubCanvasContext();
+
+    await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp', {
+      zoom: 1.13,
+      backing: 'graphite',
+    })).resolves.toBe('encoded');
+    expect(fillRect.mock.calls[0]).toEqual([0, 0, 1024, 1024]);
+    expect(drawImage.mock.calls[0]).toEqual([
+      expect.anything(),
+      29,
+      29,
+      454,
+      454,
+      102,
+      102,
+      819,
+      819,
     ]);
   });
 });
