@@ -136,7 +136,14 @@ export function calculateWindowsNativeIconSourceCrop(
 
 // How much of the Windows tile the cut-out mascot mark should span. The mark
 // is the whole icon (no tile), so it fills as much of the cell as possible.
-const WINDOWS_NATIVE_MARK_TARGET_FRACTION = 0.94;
+const WINDOWS_NATIVE_MARK_TARGET_FRACTION = 0.97;
+// Soft dark shadow behind the transparent mark: white fur has almost no
+// contrast of its own on the light Windows taskbar, and a blurred silhouette
+// gives the shape separation without adding a background colour.
+const WINDOWS_MARK_SHADOW_COLOUR = '#0f172a';
+const WINDOWS_MARK_SHADOW_BLUR = 40;
+const WINDOWS_MARK_SHADOW_ALPHA = 0.35;
+const WINDOWS_MARK_SHADOW_OFFSET_Y = 30;
 // Pixels within this distance of pure white count as tile background when the
 // flood fill walks in from the canvas borders. The mascot artworks are drawn
 // on a solid #fff tile, so only the connected tile region can ever match.
@@ -378,6 +385,40 @@ export async function composeWindowsNativeIconBase64(
     if (markBox) {
       workCtx.putImageData(imageData, 0, 0);
       const draw = calculateFittedMarkDrawRect(markBox, size);
+      // Soft shadow silhouette behind the mark for separation on light
+      // taskbars: the blurred dark shape reads as depth, not as a background.
+      const shadow = document.createElement('canvas');
+      shadow.width = size;
+      shadow.height = size;
+      const shadowCtx = shadow.getContext('2d');
+      if (!shadowCtx) {
+        throw new Error('2d context unavailable');
+      }
+      shadowCtx.drawImage(
+        work,
+        markBox.x,
+        markBox.y,
+        markBox.width,
+        markBox.height,
+        draw.x,
+        draw.y,
+        draw.width,
+        draw.height,
+      );
+      shadowCtx.globalCompositeOperation = 'source-in';
+      shadowCtx.fillStyle = WINDOWS_MARK_SHADOW_COLOUR;
+      shadowCtx.fillRect(0, 0, size, size);
+      ctx.save();
+      ctx.filter = `blur(${WINDOWS_MARK_SHADOW_BLUR}px)`;
+      ctx.globalAlpha = WINDOWS_MARK_SHADOW_ALPHA;
+      ctx.drawImage(
+        shadow,
+        draw.x,
+        draw.y + WINDOWS_MARK_SHADOW_OFFSET_Y,
+        draw.width,
+        draw.height,
+      );
+      ctx.restore();
       ctx.drawImage(
         work,
         markBox.x,

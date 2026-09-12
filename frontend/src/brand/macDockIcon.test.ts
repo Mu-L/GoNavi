@@ -228,14 +228,14 @@ describe('composeWindowsNativeIconBase64', () => {
     expect(data[(2 * 8 + 2) * 4 + 3]).toBe(255);
 
     expect(calculateFittedMarkDrawRect(markBox as MarkBoundingBox, 1024)).toEqual({
-      x: 31,
-      y: 31,
-      width: 963,
-      height: 963,
+      x: 16,
+      y: 16,
+      width: 993,
+      height: 993,
     });
   });
 
-  it('composes transparent marks from the cleaned source canvas without a tile', async () => {
+  it('composes transparent marks with a soft shadow silhouette and no tile', async () => {
     // 8x8 white image with a red 2x2 mark; the fake image context shares this
     // buffer so the cut-out can run on it.
     const source = new Uint8ClampedArray(8 * 8 * 4).fill(255);
@@ -248,6 +248,7 @@ describe('composeWindowsNativeIconBase64', () => {
     }
     const drawImage = vi.fn();
     const putImageData = vi.fn();
+    const fillRect = vi.fn();
     const sharedContext = {
       beginPath: vi.fn(),
       moveTo: vi.fn(),
@@ -257,9 +258,14 @@ describe('composeWindowsNativeIconBase64', () => {
       clip: vi.fn(),
       drawImage,
       fillStyle: '',
-      fillRect: vi.fn(),
+      fillRect,
       putImageData,
       getImageData: vi.fn(() => ({ data: source })),
+      filter: '',
+      globalAlpha: 1,
+      globalCompositeOperation: 'source-over',
+      save: vi.fn(),
+      restore: vi.fn(),
       imageSmoothingEnabled: false,
       imageSmoothingQuality: 'low',
     } as unknown as CanvasRenderingContext2D;
@@ -288,8 +294,9 @@ describe('composeWindowsNativeIconBase64', () => {
     await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp', {
       transparentMark: true,
     })).resolves.toBe('encoded');
-    // The mark is drawn from the cleaned work canvas (2x2 source rect) into
-    // the fitted centred rect, and no tile fill happens.
+    // Pipeline: rasterise the source, silhouette shadow at the fitted rect
+    // (slightly offset downwards), blurred dark shadow, then the crisp mark.
+    // No tile fill beyond the shadow silhouette itself.
     expect(drawImage.mock.calls[0]).toEqual([expect.anything(), 0, 0]);
     expect(drawImage.mock.calls[1]).toEqual([
       expect.anything(),
@@ -297,11 +304,31 @@ describe('composeWindowsNativeIconBase64', () => {
       2,
       2,
       2,
-      31,
-      31,
-      963,
-      963,
+      16,
+      16,
+      993,
+      993,
     ]);
-    expect(sharedContext.fillRect).not.toHaveBeenCalled();
+    expect(drawImage.mock.calls[2]).toEqual([
+      expect.anything(),
+      16,
+      46,
+      993,
+      993,
+    ]);
+    expect(drawImage.mock.calls[3]).toEqual([
+      expect.anything(),
+      2,
+      2,
+      2,
+      2,
+      16,
+      16,
+      993,
+      993,
+    ]);
+    expect(fillRect).toHaveBeenCalledTimes(1);
+    expect(fillRect.mock.calls[0]).toEqual([0, 0, 1024, 1024]);
+    expect(sharedContext.fillStyle).toBe('#0f172a');
   });
 });
