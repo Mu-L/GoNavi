@@ -144,6 +144,6 @@ Searchers for **TablePlus alternative** usually want **fewer walls and fewer app
 
 ---
 
-*Related next:* lightweight native clients (installer vs RSS vs UI stack) · AI SQL vs GUI (validation culture).
+*Related next:* [Lightweight Native Database Client in 2026](./lightweight-native-database-client-2026.md) · [After AI Can Write SQL, Do You Still Need a Database GUI?](./ai-sql-still-need-gui-2026.md)
 
 *Source notes:* product facts from GoNavi README / v0.9.8 releases; community framing from recent Reddit / HN / product-safety discussions synthesized for decision-making — not presented as Search Console metrics.
