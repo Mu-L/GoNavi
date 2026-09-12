@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  calculateFittedMarkDrawRect,
   calculateMacOSDockCornerRadius,
   calculateMacOSDockImageRect,
   calculateWindowsNativeIconSourceCrop,
   composeMacOSDockIconBase64,
   composeWindowsNativeIconBase64,
+  keepLargestOpaqueComponent,
+  removeConnectedNearWhiteBackground,
   shouldSyncApplicationBrandIcon,
+  type MarkBoundingBox,
 } from './macDockIcon';
 
 describe('shouldSyncApplicationBrandIcon', () => {
@@ -195,5 +199,109 @@ describe('composeWindowsNativeIconBase64', () => {
       1024,
       1024,
     ]);
+  });
+
+  it('cut-out marks keep only the mascot at the fitted size with no background', async () => {
+    // 8x8 source: white tile, one red 2x2 mark, one detached green speck.
+    const data = new Uint8ClampedArray(8 * 8 * 4);
+    for (let i = 0; i < 64; i++) {
+      data[i * 4] = 255;
+      data[i * 4 + 1] = 255;
+      data[i * 4 + 2] = 255;
+      data[i * 4 + 3] = 255;
+    }
+    for (let y = 2; y < 4; y++) {
+      for (let x = 2; x < 4; x++) {
+        const i = (y * 8 + x) * 4;
+        data[i] = 200; data[i + 1] = 40; data[i + 2] = 40;
+      }
+    }
+    data[(6 * 8 + 6) * 4] = 40;
+    data[(6 * 8 + 6) * 4 + 1] = 160;
+    data[(6 * 8 + 6) * 4 + 2] = 60;
+
+    const backgroundBox = removeConnectedNearWhiteBackground(data, 8, 8);
+    expect(backgroundBox).toEqual({ x: 2, y: 2, width: 5, height: 5 });
+    const markBox = keepLargestOpaqueComponent(data, 8, 8);
+    expect(markBox).toEqual({ x: 2, y: 2, width: 2, height: 2 });
+    expect(data[(6 * 8 + 6) * 4 + 3]).toBe(0);
+    expect(data[(2 * 8 + 2) * 4 + 3]).toBe(255);
+
+    expect(calculateFittedMarkDrawRect(markBox as MarkBoundingBox, 1024)).toEqual({
+      x: 31,
+      y: 31,
+      width: 963,
+      height: 963,
+    });
+  });
+
+  it('composes transparent marks from the cleaned source canvas without a tile', async () => {
+    // 8x8 white image with a red 2x2 mark; the fake image context shares this
+    // buffer so the cut-out can run on it.
+    const source = new Uint8ClampedArray(8 * 8 * 4).fill(255);
+    for (let y = 2; y < 4; y++) {
+      for (let x = 2; x < 4; x++) {
+        source[(y * 8 + x) * 4] = 200;
+        source[(y * 8 + x) * 4 + 1] = 40;
+        source[(y * 8 + x) * 4 + 2] = 40;
+      }
+    }
+    const drawImage = vi.fn();
+    const putImageData = vi.fn();
+    const sharedContext = {
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arcTo: vi.fn(),
+      closePath: vi.fn(),
+      clip: vi.fn(),
+      drawImage,
+      fillStyle: '',
+      fillRect: vi.fn(),
+      putImageData,
+      getImageData: vi.fn(() => ({ data: source })),
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: 'low',
+    } as unknown as CanvasRenderingContext2D;
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => sharedContext),
+      toDataURL: vi.fn(() => 'data:image/png;base64,encoded'),
+    } as unknown as HTMLCanvasElement;
+    vi.stubGlobal('document', { createElement: vi.fn(() => canvas) });
+
+    class SmallImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 8;
+      naturalHeight = 8;
+      width = 8;
+      height = 8;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', SmallImage);
+
+    await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp', {
+      transparentMark: true,
+    })).resolves.toBe('encoded');
+    // The mark is drawn from the cleaned work canvas (2x2 source rect) into
+    // the fitted centred rect, and no tile fill happens.
+    expect(drawImage.mock.calls[0]).toEqual([expect.anything(), 0, 0]);
+    expect(drawImage.mock.calls[1]).toEqual([
+      expect.anything(),
+      2,
+      2,
+      2,
+      2,
+      31,
+      31,
+      963,
+      963,
+    ]);
+    expect(sharedContext.fillRect).not.toHaveBeenCalled();
   });
 });

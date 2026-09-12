@@ -53,7 +53,6 @@ import {
   resolveBrandIconSrc,
   resolveBrandIcon,
   setLoadedBrandIconSources,
-  BUNDLED_BRAND_ICON_ZOOM,
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
@@ -1085,7 +1084,7 @@ function App() {
               if (!dockHref) return;
               const b64 = runtimePlatform === 'windows'
                   ? await composeWindowsNativeIconBase64(dockHref, {
-                      zoom: resolveBrandIcon(brandIconId).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
+                      transparentMark: resolveBrandIcon(brandIconId).bundled ? true : undefined,
                   })
                   : await composeMacOSDockIconBase64(dockHref, {
                       inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
@@ -3529,10 +3528,10 @@ function App() {
           }
           // Windows fills the whole taskbar tile; the macOS Dock safe-area
           // inset would shrink the ICO mark relative to neighbouring apps.
-          // The mascot keeps its white tile: at taskbar sizes a contrasting
-          // backing tile only renders as a thin unintended border.
+          // Bundled mascots drop the white tile and the GoNavi word mark —
+          // the cut-out dog itself becomes the whole icon, no background.
           const b64 = await composeWindowsNativeIconBase64(source, {
-              zoom: resolveBrandIcon(id).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
+              transparentMark: resolveBrandIcon(id).bundled ? true : undefined,
           });
           const result = await SetApplicationBrandIcon(b64);
           if (!result || result.success === false) {
