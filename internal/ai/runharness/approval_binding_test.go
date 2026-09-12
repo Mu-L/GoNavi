@@ -297,10 +297,14 @@ func TestRecoveryControlRetryWithSameRequestIDIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Advance the live projection after the command has committed. A transport
-	// retry with the same idempotency key must return the immutable receipt from
-	// the first command, rather than observing this later worker transition.
-	advanced, err := ledger.TransitionRun(ctx, run.ID, first.State, RunStateAwaitingWorkspace, first.Revision, "")
+	// ControlRun starts a worker after recovery. Acquiring its lease may advance
+	// the live revision before this test can force a later projection, so read
+	// the current run instead of reusing first.Revision.
+	live, err := ledger.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := ledger.TransitionRun(ctx, run.ID, live.State, RunStateAwaitingWorkspace, live.Revision, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -267,6 +267,10 @@ export function ExecuteElasticsearchConsole(arg1:connection.ConnectionConfig,arg
 
 export function ExecuteSQLFile(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
+export function ExportConnectionsExcel(arg1:app.ConnectionExportOptions):Promise<connection.QueryResult>;
+
+export function ExportConnectionsExcelPayload(arg1:app.ConnectionExportOptions):Promise<connection.QueryResult>;
+
 export function ExportConnectionsPackage(arg1:app.ConnectionExportOptions):Promise<connection.QueryResult>;
 
 export function ExportConnectionsPayload(arg1:app.ConnectionExportOptions):Promise<connection.QueryResult>;
@@ -364,6 +368,8 @@ export function GetUpdateChannel():Promise<connection.QueryResult>;
 export function GetUpdateDownloadTask():Promise<connection.QueryResult>;
 
 export function ImportConfigFile():Promise<connection.QueryResult>;
+
+export function ImportConnectionsExcelFileBase64(arg1:string):Promise<connection.QueryResult>;
 
 export function ImportConnectionsPayload(arg1:string,arg2:string):Promise<app.ConnectionPackageImportResult>;
 

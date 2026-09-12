@@ -10,7 +10,7 @@
 
 <p align="center">
   基于 <a href="https://wails.io">Wails</a>（Go）+ <a href="https://react.dev">React</a> 的跨平台数据库工作台。
-  桌面优先，MCP 原生，二进制约 <b>30MB</b> 量级。
+  桌面优先，MCP 原生，安装包约 <b>20–26MB</b> 量级。
 </p>
 
 <p align="center">
@@ -56,16 +56,24 @@
 
 ## 为什么是 GoNavi？
 
-市面上大量数据库 GUI 仍是 Electron 壳：体积大、启动慢、内存高。GoNavi 换了一条路：
+市面上大量数据库 GUI 仍是 Electron 壳：体积大、启动慢、内存高。GoNavi 换了一条路——谈「轻量」先把三个数字拆开：
+
+| 数字 | 含义 | GoNavi（v0.9.8） |
+|---|---|---|
+| **安装包体积** | 你下载的是什么 | **约 20–26 MB** 量级（Win / macOS / Linux 发布产物） |
+| **稳态 RSS** | 跑起来占多少内存 | Linux WebKit 构建、空工作台闲置：主进程约 **429 MB**；含 WebKit 子进程约 **765 MB**（方法见下） |
+| **UI 栈** | 有没有 Chromium 税 | **Go + 系统 WebView（Wails）**，不是 Electron |
 
 | | 常见 Electron 客户端 | **GoNavi** |
 |---|---|---|
 | 运行时 | Chromium + Node | **Go + 系统 WebView** |
-| 体积 | 动辄数百 MB | **约 30MB 量级** |
+| 安装包 | 动辄数百 MB | **约 20–26 MB 量级** |
 | 启动 | 偏重 | **更快** |
-| 内存 | 基线高 | **更轻** |
-| AI / Agent | 外挂或缺失 | **MCP + 多模型一等公民** |
+| 内存口径 | 常和安装包混谈 | **RSS 单独测**（见注） |
+| AI / Agent | 外挂或缺失 | **MCP + 多模型一等公民**（AI 起草 SQL；GUI 仍管 schema / 改行 / EXPLAIN） |
 | 数据源 | 以 RDBMS 为主 | **SQL · 缓存 · 向量 · 消息 · 搜索 · 时序 · 国产库** |
+
+> **安装包 MB ≠ 运行内存。** 上表 RSS 来自一次云电脑 Linux 实测：v0.9.8 WebKit41 包、空工作台、无数据库连接、远程显示、约 30–40 s 稳态。不要拿它和安装包比，也不要和未经核实的「原生 ~80 MB」宣传混比。Windows / macOS 本机结果可能不同——这是带方法学的样本，不是排行榜分数。
 
 > **MySQL、Postgres、Redis、Kafka、Milvus、OceanBase、ClickHouse… 一个工作台打通。**  
 > 查询、编辑、审计、同步；把结构化上下文交给编码 Agent，密码仍留在本机。

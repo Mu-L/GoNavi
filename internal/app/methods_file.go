@@ -3790,6 +3790,10 @@ func (a *App) ImportConfigFile() connection.QueryResult {
 				DisplayName: "Navicat Connections (*.ncx)",
 				Pattern:     "*.ncx",
 			},
+			{
+				DisplayName: a.appText("app.connection_package.excel.filter", nil),
+				Pattern:     "*.xlsx",
+			},
 		},
 	})
 
@@ -3799,6 +3803,23 @@ func (a *App) ImportConfigFile() connection.QueryResult {
 
 	if selection == "" {
 		return connection.QueryResult{Success: false, Message: "已取消"}
+	}
+
+	// Excel 是二进制格式，无法走文本导入通道：此处直接完成导入并以显式
+	// 信封返回结果，由前端按信封标记分流到 Excel 落位逻辑。
+	if strings.EqualFold(filepath.Ext(selection), ".xlsx") {
+		if err := validateConnectionsExcelFileSize(selection); err != nil {
+			return connection.QueryResult{Success: false, Message: localizedConnectionPackageMessage(a.appText, err)}
+		}
+		result, err := a.importConnectionsExcelFile(selection)
+		if err != nil {
+			return connection.QueryResult{Success: false, Message: localizedExcelImportError(a.appText, err)}
+		}
+		envelope, err := json.Marshal(connectionsExcelImportEnvelope{GonaviExcelImport: true, Result: result})
+		if err != nil {
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
+		return connection.QueryResult{Success: true, Data: string(envelope)}
 	}
 
 	content, err := readImportedConnectionConfigFile(selection)
@@ -3818,10 +3839,17 @@ func (a *App) ExportConnectionsPackage(options ConnectionExportOptions) connecti
 				DisplayName: a.appText("file.backend.filter.connection_package", nil),
 				Pattern:     "*.gonavi-conn",
 			},
+			{
+				DisplayName: a.appText("app.connection_package.excel.filter", nil),
+				Pattern:     "*.xlsx",
+			},
 		},
 	})
 	if err != nil || strings.TrimSpace(filename) == "" {
 		return connection.QueryResult{Success: false, Message: "已取消"}
+	}
+	if strings.EqualFold(filepath.Ext(filename), ".xlsx") {
+		return a.exportConnectionsExcelToPath(filename, options)
 	}
 	filename = normalizeConnectionPackageExportFilename(filename)
 

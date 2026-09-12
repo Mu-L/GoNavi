@@ -135,10 +135,16 @@ import { createGlobalProxyDraft, toSaveGlobalProxyInput } from './utils/globalPr
 import {
   detectConnectionImportKind,
   isConnectionPackagePasswordRequiredError,
+  parseConnectionsExcelImportEnvelope,
   resolveConnectionPackageExportResult,
   normalizeConnectionPackagePassword,
 } from './utils/connectionExport';
 import { downloadBrowserTextFile } from './utils/browserFileTransfer';
+import {
+  planExcelGroupAssignments,
+  type ExcelGroupAssignment,
+  type ExcelGroupPlanContext,
+} from './utils/connectionExcelGroups';
 import { buildDataSyncWorkbenchTab, resolveExistingDataSyncWorkbenchTabId } from './utils/dataSyncTab';
 import {
   buildDriverManagerWorkbenchTab,
@@ -603,6 +609,7 @@ const mergeSavedConnections = (current: SavedConnection[], imported: SavedConnec
 type ConnectionPackageImportPayload = {
   connections: SavedConnection[];
   redisDbAliases: RedisDbAliasMap;
+  excelGroups?: ExcelGroupAssignment[];
 };
 
 /** Normalize ImportConnectionsPayload results: object (new) or bare array (legacy/mock). */
@@ -616,13 +623,17 @@ const normalizeConnectionPackageImportPayload = (value: unknown): ConnectionPack
   if (!value || typeof value !== 'object') {
     return null;
   }
-  const record = value as { connections?: unknown; redisDbAliases?: unknown };
+  const record = value as { connections?: unknown; redisDbAliases?: unknown; excelGroups?: unknown };
   if (!Array.isArray(record.connections)) {
     return null;
   }
+  const excelGroups = Array.isArray(record.excelGroups)
+    ? (record.excelGroups as ExcelGroupAssignment[])
+    : [];
   return {
     connections: record.connections as SavedConnection[],
     redisDbAliases: sanitizeRedisDbAliases(record.redisDbAliases),
+    excelGroups,
   };
 };
 
@@ -3679,6 +3690,13 @@ function App() {
   }, [connectionImportTargetTagId, moveConnectionsToTag, refreshConnectionsAfterImport, setConnectionDisplaySortMode, t]);
 
   const importConnectionPayloadFromFile = async (raw: string, sourceGroup?: ToolCenterGroupKey) => {
+      // Excel 由后端在统一入口直接完成导入，返回信封结果而非文本载荷。
+      const excelResult = parseConnectionsExcelImportEnvelope(raw);
+      if (excelResult) {
+          await finishExcelImport({ data: excelResult }, sourceGroup);
+          return;
+      }
+
       const importKind = detectConnectionImportKind(raw);
 
       if (importKind === 'invalid') {
@@ -3760,6 +3778,26 @@ function App() {
       }
 
       try {
+          // Excel 为二进制格式：转 base64 走专用导入通道，其余格式按文本解析。
+          if (/\.xlsx$/i.test(file.name)) {
+              const backendApp = (window as any).go?.app?.App;
+              if (typeof backendApp?.ImportConnectionsExcelFileBase64 !== 'function') {
+                  throw new Error(t('app.connection_package.error.import_capability_unavailable'));
+              }
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result || ''));
+                  reader.onerror = () => reject(reader.error || new Error(t('app.connection_package.message.import_failed')));
+                  reader.readAsDataURL(file);
+              });
+              const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+              const res = await backendApp.ImportConnectionsExcelFileBase64(base64);
+              if (!res?.success) {
+                  throw new Error(String(res?.message || ''));
+              }
+              await finishExcelImport(res, sourceGroup);
+              return;
+          }
           await importConnectionPayloadFromFile(await file.text(), sourceGroup);
       } catch (error) {
           const detail = error instanceof Error ? error.message : String(error ?? '').trim();
@@ -3832,6 +3870,91 @@ function App() {
           confirmLoading: false,
           selectedConnectionIds: connections.map((item) => item.id),
       });
+  };
+
+  // === Excel 批量导入（issue #1226）：统一入口按格式分流 ===
+  // Excel 导入结果里分组按连接名声明；导入完成后按名字→ID 映射把连接挂入
+  // 既有或新建的分组（"父分组/子分组" 逐级查/建），并沿用导入面板的目标分组兜底。
+  const applyExcelGroupAssignments = async (excelGroups: ExcelGroupAssignment[], importedConnections: SavedConnection[]) => {
+      if (!Array.isArray(excelGroups) || excelGroups.length === 0) return 0;
+      await connectionSidebarLayoutCoordinatorRef.current?.bootstrap();
+      const tags = useStore.getState().connectionTags;
+      const resolveTagId = (name: string, parentTagId: string | undefined) => {
+          const found = tags.find((tag) => (
+              tag.parentTagId === (parentTagId || undefined)
+              && String(tag.name || '').localeCompare(name, undefined, { sensitivity: 'accent' }) === 0
+          ));
+          return found?.id;
+      };
+      let nextTagSeq = 0;
+      const context: ExcelGroupPlanContext = {
+          resolveTagId,
+          nextTagId: () => `${Date.now()}-${nextTagSeq++}`,
+      };
+      const plan = planExcelGroupAssignments(excelGroups, context);
+      if (plan.tagsToCreate.length > 0) {
+          plan.tagsToCreate.forEach((tag) => {
+              useStore.getState().addConnectionTag({
+                  id: tag.id,
+                  name: tag.name,
+                  parentTagId: tag.parentTagId,
+                  connectionIds: [],
+              });
+          });
+      }
+      const nameToId = new Map(importedConnections.map((conn) => [conn.name, conn.id]));
+      let movedCount = 0;
+      Object.entries(plan.movesByLeafTagId).forEach(([leafTagId, connectionNames]) => {
+          const ids = connectionNames
+              .map((name) => nameToId.get(name))
+              .filter((id): id is string => Boolean(id));
+          if (ids.length === 0) return;
+          useStore.getState().moveConnectionsToTag(ids, leafTagId);
+          movedCount += ids.length;
+      });
+      if (movedCount > 0 || plan.tagsToCreate.length > 0) {
+          try {
+              await connectionSidebarLayoutCoordinatorRef.current?.flush();
+          } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error ?? '').trim();
+              throw new Error(t('app.connection_package.import.group_save_failed', { detail }));
+          }
+      }
+      return movedCount;
+  };
+
+  const finishExcelImport = async (result: any, sourceGroup?: ToolCenterGroupKey) => {
+      const imported = normalizeConnectionPackageImportPayload(result?.data);
+      if (!imported || imported.connections.length === 0) {
+          throw new Error(t('app.connection_package.error.import_no_connections'));
+      }
+      const targetTagId = String(connectionImportTargetTagId || '').trim();
+      const placement = resolveConnectionImportPlacement(
+          imported.connections.map((connection) => connection.id),
+          targetTagId,
+          useStore.getState().connectionTags,
+      );
+      placement.manualOrderTargetGroupIds.forEach((groupID) => {
+          setConnectionDisplaySortMode(groupID, 'manual');
+      });
+      await refreshConnectionsAfterImport(imported.connections);
+      if (placement.groupAssignment) {
+          moveConnectionsToTag(
+              placement.groupAssignment.connectionIds,
+              placement.groupAssignment.targetGroupId,
+          );
+      }
+      const movedByExcel = await applyExcelGroupAssignments(imported.excelGroups || [], imported.connections);
+      if (sourceGroup) {
+          setToolCenterBackGroupKey(sourceGroup);
+          setActiveSettingsCenterGroupKey(sourceGroup);
+          setActiveSettingsCenterPane({ key: 'import', group: sourceGroup });
+      }
+      const summary = movedByExcel > 0
+          ? t('app.connection_package.excel.groups_applied', { count: imported.connections.length, groupCount: movedByExcel })
+          : t('app.connection_package.message.imported_connections', { count: imported.connections.length });
+      setConnectionImportNotice({ type: 'success', message: summary });
+      void message.success(summary);
   };
 
   const handleConfirmConnectionPackageDialog = async () => {
@@ -8212,7 +8335,7 @@ function App() {
           <input
             ref={browserConnectionImportInputRef}
             type="file"
-            accept=".gonavi-conn,.json,.xml,.ncx"
+            accept=".gonavi-conn,.json,.xml,.ncx,.xlsx"
             style={{ display: 'none' }}
             onChange={(event) => { void handleBrowserConnectionImportFileChange(event); }}
           />
