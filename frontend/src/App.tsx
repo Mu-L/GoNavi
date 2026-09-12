@@ -323,7 +323,6 @@ import {
   OpenDataRootDirectory,
   OpenLogDirectory,
   OpenSavedQueryDirectory,
-  PrepareWindowsBrandIconRestart,
   RestartApplication,
   SelectDataRootDirectory,
   SelectLogDirectory,
@@ -872,7 +871,10 @@ function App() {
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const [connectionHealthTargetIds, setConnectionHealthTargetIds] = useState<string[]>([]);
   const pendingConnectionTagIdRef = useRef<string | null>(null);
-  const windowsBrandIconRestartSelectionRef = useRef<BrandIconId | null>(null);
+  // Suppresses the brand-icon sync effect while the explicit selection flow is
+  // applying the same icon through the native bridge, so the shortcut update
+  // and window identity rotation run exactly once.
+  const windowsBrandIconApplyingRef = useRef<BrandIconId | null>(null);
   const connectionModalWarmupDoneRef = useRef(false);
   const windowState = useStore(state => state.windowState);
   const themeMode = useStore(state => state.theme);
@@ -1063,10 +1065,10 @@ function App() {
       link.type = /\.webp(?:[?#]|$)/i.test(href) ? 'image/webp' : 'image/svg+xml';
       link.href = href;
 
-      // Windows Explorer keeps the live taskbar group cached. A user-driven
-      // Windows selection is persisted and applied to existing shortcuts by
-      // the restart-only path below; do not race it with a live window update.
-      if (runtimePlatform === 'windows' && windowsBrandIconRestartSelectionRef.current === brandIconId) {
+      // The selection flow below rotates the live window identity itself;
+      // skip this sync while that apply is in flight so the shortcut update
+      // and window re-grouping run exactly once.
+      if (runtimePlatform === 'windows' && windowsBrandIconApplyingRef.current === brandIconId) {
           return;
       }
 
@@ -1081,9 +1083,14 @@ function App() {
               // The compact fallback is suitable for UI placeholders, but it
               // must never become the cached Windows taskbar or macOS Dock icon.
               if (!dockHref) return;
-              const b64 = await composeMacOSDockIconBase64(dockHref, {
-                  inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
-              });
+              const b64 = runtimePlatform === 'windows'
+                  ? await composeWindowsNativeIconBase64(dockHref, {
+                      zoom: resolveBrandIcon(brandIconId).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
+                      backing: resolveBrandIcon(brandIconId).bundled ? 'graphite' : undefined,
+                  })
+                  : await composeMacOSDockIconBase64(dockHref, {
+                      inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
+                  });
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);
               if (!result.success && !cancelled) {
@@ -3508,9 +3515,13 @@ function App() {
           return;
       }
 
-      // Windows applies the new ICO to existing shortcuts in place. The
-      // running taskbar group is intentionally left alone until restart.
-      windowsBrandIconRestartSelectionRef.current = id;
+      // Windows applies the new ICO to existing shortcuts and rotates the live
+      // window's AppUserModel identity in a single native call, so Explorer
+      // re-renders the taskbar group immediately — no restart required now
+      // that the identity follows the icon. Detached native windows spawned
+      // before the next full app restart keep the previous identity until
+      // then, which is the only leftover of skipping the restart.
+      windowsBrandIconApplyingRef.current = id;
       setBrandIconId(id);
       try {
           const source = resolveBrandDockSrc(id) || resolveBrandIconSrc(id);
@@ -3525,30 +3536,21 @@ function App() {
               zoom: resolveBrandIcon(id).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
               backing: resolveBrandIcon(id).bundled ? 'graphite' : undefined,
           });
-          const result = await PrepareWindowsBrandIconRestart(b64);
+          const result = await SetApplicationBrandIcon(b64);
           if (!result || result.success === false) {
-              throw new Error(result?.message || 'Windows shortcut icon update failed');
+              throw new Error(result?.message || 'Windows brand icon update failed');
           }
           message.success(t('app.settings.entry.brand_icon.applied'));
-          Modal.confirm({
-              title: t('app.settings.entry.brand_icon.windows_restart.title'),
-              content: t('app.settings.entry.brand_icon.windows_restart.description'),
-              okText: t('app.settings.entry.brand_icon.windows_restart.now'),
-              cancelText: t('app.settings.entry.brand_icon.windows_restart.later'),
-              centered: true,
-              maskClosable: false,
-              zIndex: applicationQuitModalZIndex,
-              onOk: () => { void handleApplicationQuitRequest(restartApplication); },
-          });
       } catch (error) {
-          if (windowsBrandIconRestartSelectionRef.current === id) {
-              windowsBrandIconRestartSelectionRef.current = null;
-          }
           setBrandIconId(previousId);
-          console.warn('Failed to prepare Windows brand icon restart:', error);
+          console.warn('Failed to apply the Windows brand icon:', error);
           message.error(t('app.settings.entry.brand_icon.native_sync_failed'));
+      } finally {
+          if (windowsBrandIconApplyingRef.current === id) {
+              windowsBrandIconApplyingRef.current = null;
+          }
       }
-  }, [applicationQuitModalZIndex, brandIconId, handleApplicationQuitRequest, restartApplication, runtimePlatform, setBrandIconId, t]);
+  }, [brandIconId, runtimePlatform, setBrandIconId, t]);
 
   const handleInstallUpdateRequest = useCallback(async () => {
       let pendingCloseInstanceCount: number | null = null;
