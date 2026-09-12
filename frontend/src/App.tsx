@@ -53,11 +53,13 @@ import {
   resolveBrandIconSrc,
   resolveBrandIcon,
   setLoadedBrandIconSources,
+  BUNDLED_BRAND_ICON_ZOOM,
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
 import {
   composeMacOSDockIconBase64,
+  composeWindowsNativeIconBase64,
   LEGACY_MASCOT_DOCK_ICON_INSET,
   shouldSyncApplicationBrandIcon,
 } from './brand/macDockIcon';
@@ -3515,8 +3517,10 @@ function App() {
           if (!source) {
               throw new Error('selected brand icon source is unavailable');
           }
-          const b64 = await composeMacOSDockIconBase64(source, {
-              inset: resolveBrandIcon(id).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
+          // Windows fills the whole taskbar tile; the macOS Dock safe-area
+          // inset would shrink the ICO mark relative to neighbouring apps.
+          const b64 = await composeWindowsNativeIconBase64(source, {
+              zoom: resolveBrandIcon(id).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
           });
           const result = await PrepareWindowsBrandIconRestart(b64);
           if (!result || result.success === false) {

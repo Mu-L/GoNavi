@@ -1,5 +1,5 @@
 import React from 'react';
-import { BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
+import { BUNDLED_BRAND_ICON_ZOOM, BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
 
 type BrandIconPickerProps = {
   value: string;
@@ -84,7 +84,9 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 justifyContent: 'center',
                 background: usesBundledPreview ? '#fff' : 'transparent',
                 border: usesBundledPreview ? `1px solid ${border}` : 'none',
-                borderRadius: usesBundledPreview ? 6 : 12,
+                // Match the ribbon tiles' corner rounding and box size so the
+                // mascot background reads as the same tile shape and size.
+                borderRadius: 12,
                 overflow: 'hidden',
                 boxShadow: 'none',
               }}
@@ -93,11 +95,11 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 src={resolveBrandIconSrc(item.id)}
                 alt={item.titleZh}
                 style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  width: usesBundledPreview ? 'auto' : '100%',
-                  height: usesBundledPreview ? 'auto' : '100%',
-                  objectFit: usesBundledPreview ? 'contain' : 'cover',
+                  maxWidth: usesBundledPreview ? 'none' : '100%',
+                  maxHeight: usesBundledPreview ? 'none' : '100%',
+                  width: usesBundledPreview ? `${BUNDLED_BRAND_ICON_ZOOM * 100}%` : '100%',
+                  height: usesBundledPreview ? `${BUNDLED_BRAND_ICON_ZOOM * 100}%` : '100%',
+                  objectFit: 'cover',
                   display: 'block',
                 }}
                 draggable={false}

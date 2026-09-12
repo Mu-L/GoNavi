@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateMacOSDockCornerRadius,
   calculateMacOSDockImageRect,
+  calculateWindowsNativeIconSourceCrop,
   composeMacOSDockIconBase64,
+  composeWindowsNativeIconBase64,
   shouldSyncApplicationBrandIcon,
 } from './macDockIcon';
 
@@ -96,5 +98,102 @@ describe('shouldSyncApplicationBrandIcon', () => {
     expect(arcTo.mock.calls.map((args) => args[4])).toEqual([229, 229, 229, 229]);
     expect(calls.indexOf('clip')).toBeGreaterThan(calls.indexOf('beginPath'));
     expect(calls.indexOf('drawImage')).toBeGreaterThan(calls.indexOf('clip'));
+  });
+});
+
+describe('calculateWindowsNativeIconSourceCrop', () => {
+  it('keeps the full source when no zoom is requested', () => {
+    expect(calculateWindowsNativeIconSourceCrop(512)).toEqual({ offset: 0, size: 512 });
+    expect(calculateWindowsNativeIconSourceCrop(512, 1)).toEqual({ offset: 0, size: 512 });
+  });
+
+  it('crops the 1.13 mascot zoom symmetrically without touching the artwork', () => {
+    expect(calculateWindowsNativeIconSourceCrop(512, 1.13)).toEqual({ offset: 29, size: 454 });
+  });
+
+  it('degrades degenerate sources and clamps runaway zoom values', () => {
+    expect(calculateWindowsNativeIconSourceCrop(0, 1.13)).toEqual({ offset: 0, size: 1 });
+    expect(calculateWindowsNativeIconSourceCrop(512, Number.NaN)).toEqual({ offset: 0, size: 512 });
+    expect(calculateWindowsNativeIconSourceCrop(512, 9)).toEqual({ offset: 128, size: 256 });
+  });
+});
+
+describe('composeWindowsNativeIconBase64', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubCanvasContext() {
+    const drawImage = vi.fn();
+    const arcTo = vi.fn();
+    const context = {
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arcTo,
+      closePath: vi.fn(),
+      clip: vi.fn(),
+      drawImage,
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: 'low',
+    } as unknown as CanvasRenderingContext2D;
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => context),
+      toDataURL: vi.fn(() => 'data:image/png;base64,encoded'),
+    } as unknown as HTMLCanvasElement;
+    vi.stubGlobal('document', { createElement: vi.fn(() => canvas) });
+    return { drawImage, arcTo };
+  }
+
+  function stubSquareImage(): void {
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 512;
+      naturalHeight = 512;
+      width = 512;
+      height = 512;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', FakeImage);
+  }
+
+  it('fills the whole Windows tile without the macOS Dock safe-area inset', async () => {
+    stubSquareImage();
+    const { drawImage, arcTo } = stubCanvasContext();
+
+    await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp')).resolves.toBe('encoded');
+    expect(drawImage.mock.calls[0]).toEqual([
+      expect.anything(),
+      0,
+      0,
+      1024,
+      1024,
+    ]);
+    expect(arcTo.mock.calls.map((args) => args[4])).toEqual([229, 229, 229, 229]);
+  });
+
+  it('centre-crops the mascot zoom across the full rounded tile', async () => {
+    stubSquareImage();
+    const { drawImage } = stubCanvasContext();
+
+    await expect(composeWindowsNativeIconBase64('/brand-icons/07-database-hug.webp', { zoom: 1.13 }))
+      .resolves.toBe('encoded');
+    expect(drawImage.mock.calls[0]).toEqual([
+      expect.anything(),
+      29,
+      29,
+      454,
+      454,
+      0,
+      0,
+      1024,
+      1024,
+    ]);
   });
 });

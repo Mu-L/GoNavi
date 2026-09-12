@@ -120,3 +120,67 @@ export async function composeMacOSDockIconBase64(
   ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
   return canvasToBase64Png(canvas);
 }
+
+/**
+ * Largest uniform centre crop that never clips the mascot artwork's content.
+ */
+export function calculateWindowsNativeIconSourceCrop(
+  sourceSize: number,
+  zoom = 1,
+): { offset: number; size: number } {
+  const safeSize = Math.max(1, Math.floor(Number(sourceSize) || 0));
+  const safeZoom = Math.max(1, Math.min(2, Number(zoom) || 1));
+  const crop = Math.floor((safeSize * (1 - 1 / safeZoom)) / 2);
+  return { offset: crop, size: safeSize - crop * 2 };
+}
+
+/**
+ * Compose the Windows native tile: the artwork fills the whole canvas (no
+ * macOS Dock safe-area inset) and bundled mascots are centre-cropped into
+ * their white margins so the mark stays visible at taskbar sizes. Windows
+ * scales the ICO down to 16-32px, where the mascot's own generous margins
+ * would otherwise render it half the size of the neighbouring apps' marks.
+ */
+export async function composeWindowsNativeIconBase64(
+  src: string,
+  options: { zoom?: number } = {},
+): Promise<string> {
+  const img = await loadImage(src);
+  const size = DOCK_ICON_SIZE;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('2d context unavailable');
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const rect = calculateMacOSDockImageRect(
+    img.naturalWidth || img.width,
+    img.naturalHeight || img.height,
+    0,
+  );
+  clipMacOSDockImage(ctx, rect);
+  const zoom = Math.max(1, Number(options.zoom) || 1);
+  if (zoom <= 1) {
+    ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
+    return canvasToBase64Png(canvas);
+  }
+  const sourceWidth = img.naturalWidth || img.width;
+  const sourceHeight = img.naturalHeight || img.height;
+  const widthCrop = calculateWindowsNativeIconSourceCrop(sourceWidth, zoom);
+  const heightCrop = calculateWindowsNativeIconSourceCrop(sourceHeight, zoom);
+  ctx.drawImage(
+    img,
+    widthCrop.offset,
+    heightCrop.offset,
+    widthCrop.size,
+    heightCrop.size,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+  );
+  return canvasToBase64Png(canvas);
+}

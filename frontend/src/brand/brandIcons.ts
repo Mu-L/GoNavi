@@ -29,6 +29,12 @@ export type BrandIconDefinition = {
 };
 
 export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
+// The bundled 0.9.7 mascot artworks leave 7–10% vertical and 11–24%
+// horizontal white margins inside their 512px tiles (smallest measured margin
+// is 34px). A 1.13× centre crop is the largest uniform zoom that never clips
+// the artwork and keeps the mascot mark comparable to the ribbon marks at
+// small sizes, so previews and native taskbar icons share the same framing.
+export const BUNDLED_BRAND_ICON_ZOOM = 1.13;
 export const BRAND_ICON_REMOTE_BASE_URL = 'https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1';
 export const BRAND_ICON_FALLBACK_SRC = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjMTYxYzJhIi8+PHBhdGggZD0iTTI0IDM0aDgwYzAgMjAtMTIgMjktMjkgMjktMTcgMC0yOS05LTI5LTI5bDI5IDBjMTcgMCAyOS05IDI5LTI5em0wIDYwYzE3IDAgMjktOSAyOS0yOWgyMmMwIDIwLTEyIDI5LTI5IDI5LTE3IDAtMjktOS0yOS0yOWgyMmMwIDIwIDEyIDI5IDI5IDI5eiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==';
 
