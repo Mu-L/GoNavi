@@ -1086,7 +1086,6 @@ function App() {
               const b64 = runtimePlatform === 'windows'
                   ? await composeWindowsNativeIconBase64(dockHref, {
                       zoom: resolveBrandIcon(brandIconId).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
-                      backing: resolveBrandIcon(brandIconId).bundled ? 'graphite' : undefined,
                   })
                   : await composeMacOSDockIconBase64(dockHref, {
                       inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
@@ -3530,11 +3529,10 @@ function App() {
           }
           // Windows fills the whole taskbar tile; the macOS Dock safe-area
           // inset would shrink the ICO mark relative to neighbouring apps.
-          // Bundled mascots ride a graphite backing card because their white
-          // tile disappears against the light Windows taskbar.
+          // The mascot keeps its white tile: at taskbar sizes a contrasting
+          // backing tile only renders as a thin unintended border.
           const b64 = await composeWindowsNativeIconBase64(source, {
               zoom: resolveBrandIcon(id).bundled ? BUNDLED_BRAND_ICON_ZOOM : undefined,
-              backing: resolveBrandIcon(id).bundled ? 'graphite' : undefined,
           });
           const result = await SetApplicationBrandIcon(b64);
           if (!result || result.success === false) {
