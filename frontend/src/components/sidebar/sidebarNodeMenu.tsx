@@ -50,6 +50,8 @@ import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { supportsTableTruncateAction } from '../tableDataDangerActions';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import { confirmProductionMutation } from '../../utils/productionRiskConfirm';
+import { supportsOracleObjectCompilation } from './oracleObjectCompilation';
+import { buildSidebarCopyObjectNameMenuItem } from './sidebarCopyObjectNameMenu';
 import {
   buildNacosServicesTabData,
   resolveNacosNamespaceDiscoveryModeFromTreeNode,
@@ -371,6 +373,7 @@ export const buildSidebarNodeMenuItems = (
     openExportDialog,
     openBatchTableWorkbench,
     openBatchDatabaseWorkbench,
+    openBatchConnectionWorkbench,
     isSavedQueryUnmatched,
     connections,
     handleRebindSavedQuery,
@@ -696,6 +699,12 @@ export const buildSidebarNodeMenuItems = (
                     onClick: () => void disconnectConnectionNode(node)
                 },
                 {
+                    key: 'batch-connections',
+                    label: t('sidebar.action.batch_connections'),
+                    icon: <AppstoreOutlined />,
+                    onClick: () => openBatchConnectionWorkbench?.(node),
+                },
+                {
                     key: 'delete',
                     label: t('connection.sidebar.menu.delete'),
                     icon: <DeleteOutlined />,
@@ -766,6 +775,12 @@ export const buildSidebarNodeMenuItems = (
                     label: t('connection.sidebar.menu.disconnect'),
                     icon: <DisconnectOutlined />,
                     onClick: () => void disconnectConnectionNode(node),
+                },
+                {
+                    key: 'batch-connections',
+                    label: t('sidebar.action.batch_connections'),
+                    icon: <AppstoreOutlined />,
+                    onClick: () => openBatchConnectionWorkbench?.(node),
                 },
                 {
                     key: 'delete',
@@ -914,6 +929,12 @@ export const buildSidebarNodeMenuItems = (
                  label: t('connection.sidebar.menu.disconnect'),
                  icon: <DisconnectOutlined />,
                  onClick: () => void disconnectConnectionNode(node)
+             },
+             {
+                 key: 'batch-connections',
+                 label: t('sidebar.action.batch_connections'),
+                 icon: <AppstoreOutlined />,
+                 onClick: () => openBatchConnectionWorkbench?.(node),
              },
              {
                  key: 'delete',
@@ -1432,7 +1453,9 @@ export const buildSidebarNodeMenuItems = (
     } else if (node.type === 'routine') {
         const routineType = node.dataRef?.routineType || 'FUNCTION';
         const typeLabel = t(routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function');
-        const supportsOracleCompilation = getMetadataDialect(node.dataRef as SavedConnection) === 'oracle';
+        const supportsOracleCompilation = supportsOracleObjectCompilation(
+            getMetadataDialect(node.dataRef as SavedConnection),
+        );
         return [
             {
                 key: 'view-routine-def',
@@ -1469,7 +1492,9 @@ export const buildSidebarNodeMenuItems = (
             },
         ];
     } else if (node.type === 'db-trigger') {
-        const supportsOracleCompilation = getMetadataDialect(node.dataRef as SavedConnection) === 'oracle';
+        const supportsOracleCompilation = supportsOracleObjectCompilation(
+            getMetadataDialect(node.dataRef as SavedConnection),
+        );
         return [
             {
                 key: 'view-trigger-definition',
@@ -1492,12 +1517,7 @@ export const buildSidebarNodeMenuItems = (
                 icon: <CodeOutlined />,
                 onClick: () => openSequenceDefinition(node)
             },
-            {
-                key: 'copy-sequence-name',
-                label: t('sidebar.menu.copy_object_name'),
-                icon: <CopyOutlined />,
-                onClick: () => handleCopyTableName(node)
-            },
+            buildSidebarCopyObjectNameMenuItem(node, handleCopyTableName, 'copy-sequence-name'),
         ];
     } else if (node.type === 'package') {
         return [
@@ -1507,12 +1527,17 @@ export const buildSidebarNodeMenuItems = (
                 icon: <CodeOutlined />,
                 onClick: () => openPackageDefinition(node)
             },
+            buildSidebarCopyObjectNameMenuItem(node, handleCopyTableName, 'copy-package-name'),
+        ];
+    } else if (node.type === 'database-link') {
+        return [
             {
-                key: 'copy-package-name',
-                label: t('sidebar.menu.copy_object_name'),
-                icon: <CopyOutlined />,
-                onClick: () => handleCopyTableName(node)
+                key: 'view-database-link-def',
+                label: t('sidebar.menu.view_object_definition'),
+                icon: <CodeOutlined />,
+                onClick: () => onDoubleClick(null, node),
             },
+            buildSidebarCopyObjectNameMenuItem(node, handleCopyTableName, 'copy-database-link-name'),
         ];
     } else if (node.type === 'db-event') {
         return [

@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Segmented, Tag, Tabs, Tooltip, message, type MenuProps } from 'antd';
-import { ArrowLeftOutlined, ArrowRightOutlined, BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DiffOutlined, ExportOutlined, EyeInvisibleOutlined, PushpinOutlined, RobotOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DiffOutlined, ExportOutlined, EyeInvisibleOutlined, PushpinOutlined } from '@ant-design/icons';
 
 import { useStore } from '../store';
 import type { EditRowLocator } from '../utils/rowLocator';
 import type { GridSortInfoItem } from '../utils/dataGridSort';
+import type { ColumnMeta } from './dataGridColumnMeta';
 import type { QueryResultPaginationState } from '../utils/queryResultPagination';
 import { filterColumnNamesByGlobalHiddenColumns, useGlobalHiddenColumns } from '../utils/globalHiddenColumns';
 import { buildQueryResultColumnPinScope } from '../utils/queryResultColumnPinScope';
 import { t as defaultTranslate } from '../i18n';
+import { QUERY_EDITOR_PARAMS_PANEL_KEY, type QueryParamBindingInput } from './queryEditor/params/queryEditorParamsModel';
 import { useOptionalI18n } from '../i18n/provider';
 import {
   resolveNativeDetachPreferredBounds,
@@ -21,8 +23,19 @@ import DetachDragPreview, {
   type DetachDragPreviewState,
 } from './DetachDragPreview';
 import DataGrid from './DataGrid';
+import QueryEditorResultTabContent, {
+  isAffectedRowsResult,
+  resolveVisibleQueryResultColumns,
+  type QueryEditorResultTabActions,
+} from './QueryEditorResultTabContent';
 import LogPanel from './LogPanel';
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
+import { QueryEditorExecutionStatus } from './queryEditor/QueryEditorExecutionStatus';
+import { QueryEditorExecutionErrorCard } from './queryEditor/QueryEditorExecutionErrorCard';
+import {
+    resolveVisibleQueryEditorExecutionLifecycle,
+    type QueryEditorExecutionLifecycleState,
+} from './queryEditor/queryEditorExecutionLifecycle';
 
 export type OpenResultInWindowPreferred = Partial<Pick<DetachedWindowBounds, 'x' | 'y' | 'width' | 'height'>>;
 
@@ -55,7 +68,11 @@ export type QueryEditorResultSet = {
     executionConnectionParams?: string;
     executionConnectionId?: string;
     executionDbName?: string;
+    /** 参数化执行时的绑定值快照：分页/总计数/刷新等远端重跑路径必须原样携带 */
+    executionBindings?: QueryParamBindingInput[];
     pkColumns: string[];
+    columnMetaMap?: Record<string, ColumnMeta>;
+    uniqueKeyGroups?: string[][];
     editLocator?: EditRowLocator;
     readOnly: boolean;
     showRowNumberColumn?: boolean;
@@ -70,6 +87,7 @@ export const resolveEffectiveActiveResultKey = (
     resultSets: Pick<QueryEditorResultSet, 'key'>[],
     activeResultKey: string,
     showSqlLogTab: boolean,
+    showParamsTab = false,
 ): string => {
     if (resultSets.some((result) => result.key === activeResultKey)) {
         return activeResultKey;
@@ -77,11 +95,15 @@ export const resolveEffectiveActiveResultKey = (
     if (showSqlLogTab && activeResultKey === QUERY_EDITOR_SQL_LOG_TAB_KEY) {
         return QUERY_EDITOR_SQL_LOG_TAB_KEY;
     }
+    if (showParamsTab && activeResultKey === QUERY_EDITOR_PARAMS_PANEL_KEY) {
+        return QUERY_EDITOR_PARAMS_PANEL_KEY;
+    }
     return resultSets[0]?.key || (showSqlLogTab ? QUERY_EDITOR_SQL_LOG_TAB_KEY : '');
 };
 
 interface QueryEditorResultsPanelProps {
     workbenchTabId?: string;
+    paramsPanel?: React.ReactNode;
     resultSets: QueryEditorResultSet[];
     activeResultKey: string;
     isActive: boolean;
@@ -94,6 +116,7 @@ interface QueryEditorResultsPanelProps {
     maxRows?: number;
     dataPreviewRequest?: { resultKey: string; requestId: string } | null;
     toggleShortcutLabel: string;
+    diagnoseShortcutLabel?: string;
     onActiveResultKeyChange: (key: string) => void;
     onHide: () => void;
     onCloseResult: (key: string) => void;
@@ -103,22 +126,25 @@ interface QueryEditorResultsPanelProps {
     onCloseAllResultTabs: () => void;
     onResultPinnedChange: (key: string, pinned: boolean) => void;
     onOpenResultInWindow?: (key: string, preferred?: OpenResultInWindowPreferred) => void;
-    onReloadResult: (key: string, sql: string) => void | Promise<void>;
+    onReloadResult: (
+        key: string,
+        sql: string,
+        executionContext?: {
+            executionConnectionId?: string;
+            executionDbName?: string;
+            executionConnectionParams?: string;
+            statementResultIndex?: number;
+        },
+    ) => void | Promise<void>;
     onResultPageChange: (key: string, page: number, pageSize: number) => void | Promise<void>;
     onResultSort: (key: string, field: string, order: string) => void;
     onRequestResultTotalCount?: (key: string) => void;
     onCancelResultTotalCount?: (key: string) => void;
     onDiagnoseExecutionError: () => void;
+    onLocateExecutionError?: () => void;
     onCompareResult?: (resultKey: string) => void;
+    executionLifecycle?: QueryEditorExecutionLifecycleState | null;
 }
-
-const isAffectedRowsResult = (result: QueryEditorResultSet): boolean =>
-    result.columns.length === 1 && result.columns[0] === 'affectedRows';
-
-const resolveVisibleQueryResultColumns = (columns: string[], globalHiddenColumns: string[]): string[] => {
-    const visibleColumns = filterColumnNamesByGlobalHiddenColumns(columns, globalHiddenColumns);
-    return visibleColumns.length > 0 || columns.length === 0 ? visibleColumns : columns;
-};
 
 const RESULT_TAB_DETACH_INTERACTIVE_SELECTOR = [
     '.query-result-tab-close',
@@ -145,6 +171,7 @@ export const shouldActivateResultTabDetachPointer = (event: {
 };
 
 const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
+    paramsPanel,
     workbenchTabId,
     resultSets,
     activeResultKey,
@@ -158,6 +185,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     maxRows,
     dataPreviewRequest,
     toggleShortcutLabel,
+    diagnoseShortcutLabel,
     onActiveResultKeyChange,
     onHide,
     onCloseResult,
@@ -173,7 +201,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     onRequestResultTotalCount,
     onCancelResultTotalCount,
     onDiagnoseExecutionError,
+    onLocateExecutionError,
     onCompareResult,
+    executionLifecycle = null,
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? defaultTranslate;
@@ -387,7 +417,31 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         resultSets,
         activeResultKey,
         true,
+        Boolean(paramsPanel),
     );
+
+    // The per-result content reads actions through a ref so its props stay
+    // identity-stable; that is what lets a result switch skip untouched grids.
+    const resultTabActionsRef = useRef<QueryEditorResultTabActions>({
+        onHide,
+        onResultPageChange,
+        onResultSort,
+        onReloadResult,
+        onRequestResultTotalCount,
+        onCancelResultTotalCount,
+    });
+    resultTabActionsRef.current = {
+        onHide,
+        onResultPageChange,
+        onResultSort,
+        onReloadResult,
+        onRequestResultTotalCount,
+        onCancelResultTotalCount,
+    };
+
+    const handleElasticsearchViewModeChange = useCallback((key: string, mode: 'table' | 'raw') => {
+        setElasticsearchViewModes((current) => ({ ...current, [key]: mode }));
+    }, []);
 
     const handleMessageTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
@@ -596,172 +650,22 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 </div>
             </Dropdown>
         ),
-        children: (() => {
-            if (rs.resultType === 'message') {
-                return (
-                    <div className="gn-v2-query-success" style={{
-                        flex: 1, minHeight: 0, display: 'flex', justifyContent: 'flex-start', flexDirection: 'column', gap: 12,
-                        padding: 24, color: '#666', userSelect: 'text', alignItems: 'stretch', overflow: 'hidden',
-                    }}>
-                        {renderMessageBlock({
-                            text: (rs.messages || []).join('\n'),
-                            title: t('query_editor.results_panel.message.title'),
-                            fontSize: 'var(--gn-font-size-mono, 13px)',
-                            fillHeight: true,
-                            color: darkMode ? '#d4d4d4' : '#333',
-                        })}
-                    </div>
-                );
-            }
-            if (rs.resultType === 'elasticsearch') {
-                const hasTable = Array.isArray(rs.rows) && rs.rows.length > 0 && rs.columns.length > 0;
-                const viewMode = hasTable ? (elasticsearchViewModes[rs.key] || 'table') : 'raw';
-                const status = Number(rs.httpStatus || 0);
-                const statusColor = status >= 200 && status < 300
-                    ? (rs.partialFailure ? 'orange' : 'green')
-                    : 'red';
-                return (
-                    <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
-                            borderBottom: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
-                        }}>
-                            <span style={{ fontFamily: 'var(--gn-font-mono)', fontWeight: 600 }}>{rs.requestLabel || rs.sql}</span>
-                            {status > 0 ? <Tag color={statusColor}>HTTP {status}</Tag> : null}
-                            {rs.partialFailure ? <Tag color="orange">{t('query_editor.elasticsearch.partial')}</Tag> : null}
-                            {rs.outcomeUnknown ? <Tag color="red">{t('query_editor.elasticsearch.outcome_unknown')}</Tag> : null}
-                            <span style={{ flex: 1 }} />
-                            {hasTable ? (
-                                <Segmented
-                                    size="small"
-                                    value={viewMode}
-                                    options={[
-                                        { label: t('query_editor.elasticsearch.table'), value: 'table' },
-                                        { label: t('query_editor.elasticsearch.raw'), value: 'raw' },
-                                    ]}
-                                    onChange={(value) => setElasticsearchViewModes((current) => ({
-                                        ...current,
-                                        [rs.key]: value as 'table' | 'raw',
-                                    }))}
-                                />
-                            ) : null}
-                            {toolbarHideButton}
-                        </div>
-                        {viewMode === 'raw' ? (
-                            <div style={{ flex: 1, minHeight: 0, padding: 12, overflow: 'hidden' }}>
-                                {renderMessageBlock({
-                                    text: String(rs.rawResponse || ''),
-                                    title: t('query_editor.elasticsearch.raw_response'),
-                                    fontSize: 'var(--gn-font-size-mono, 13px)',
-                                    fillHeight: true,
-                                    color: darkMode ? '#d4d4d4' : '#333',
-                                })}
-                            </div>
-                        ) : (
-                            <DataGrid
-                                workbenchTabId={workbenchTabId}
-                                data={rs.rows}
-                                columnNames={resolveVisibleQueryResultColumns(rs.columns, globalHiddenColumns)}
-                                isActive={isActive && resolvedActiveResultKey === rs.key}
-                                loading={loading}
-                                columnPinScope={buildQueryResultColumnPinScope({ sql: rs.sql })}
-                                exportScope="queryResult"
-                                resultSql={rs.sql}
-                                dbName={currentDb}
-                                connectionId={currentConnectionId}
-                                pkColumns={[]}
-                                readOnly
-                            />
-                        )}
-                    </div>
-                );
-            }
-            if (isAffectedRowsResult(rs)) {
-                const affected = Number(rs.rows[0]?.affectedRows ?? 0);
-                const messageText = Array.isArray(rs.messages) ? rs.messages.join('\n') : '';
-                return (
-                    <div className="gn-v2-query-success" style={{
-                        flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8,
-                        color: '#666', userSelect: 'text',
-                    }}>
-                        <span style={{ fontSize: 36, color: '#52c41a' }}>✓</span>
-                        <span style={{ fontSize: 14, fontWeight: 500 }}>{t('query_editor.result.execution_success')}</span>
-                        <span style={{ fontSize: 13, color: '#999' }}>{t('query_editor.result.affected_rows', { count: affected })}</span>
-                        {messageText
-                            ? renderMessageBlock({ text: messageText, fontSize: 'var(--gn-font-size-mono, 12px)', compact: true, maxWidth: 720, color: darkMode ? '#d4d4d4' : '#666', marginTop: 8 })
-                            : null}
-                    </div>
-                );
-            }
-            const visibleColumns = resolveVisibleQueryResultColumns(rs.columns, globalHiddenColumns);
-            const resultTableName = rs.tableName;
-            return (
-                <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    {Array.isArray(rs.messages) && rs.messages.length > 0 ? (
-                        <div style={{ flex: '0 0 auto', margin: '8px 8px 0' }}>
-                            {renderMessageBlock({
-                                text: rs.messages.join('\n'),
-                                fontSize: 'var(--gn-font-size-mono, 12px)',
-                                compact: true,
-                                color: darkMode ? '#d4d4d4' : '#666',
-                            })}
-                        </div>
-                    ) : null}
-                    <DataGrid
-                        workbenchTabId={workbenchTabId}
-                        data={rs.rows}
-                        columnNames={visibleColumns}
-                        isActive={isActive && resolvedActiveResultKey === rs.key}
-                        loading={loading || rs.page?.loading === true}
-                        tableName={resultTableName}
-                        columnPinScope={resultTableName ? undefined : buildQueryResultColumnPinScope({
-                            sql: rs.exportSql || rs.sql,
-                            sourceStatementIndex: rs.sourceStatementIndex,
-                            statementResultIndex: rs.statementResultIndex,
-                        })}
-                        exportScope="queryResult"
-                        resultSql={rs.exportSql || rs.sql}
-                        resultExportAllSql={rs.page?.exportAllSql}
-                        dbName={rs.metadataDbName ?? rs.executionDbName ?? currentDb}
-                        ddlDbName={rs.ddlDbName}
-                        ddlTableName={rs.ddlTableName}
-                        connectionId={rs.executionConnectionId || currentConnectionId}
-                        connectionParamsOverride={rs.executionConnectionParams}
-                        queryMaxRows={rs.page ? maxRows : undefined}
-                        initialViewMode={dataPreviewRequest?.resultKey === rs.key ? 'table' : undefined}
-                        initialViewModeRequestId={dataPreviewRequest?.resultKey === rs.key ? dataPreviewRequest.requestId : undefined}
-                        initialViewModeScope={dataPreviewRequest?.resultKey === rs.key ? 'local' : undefined}
-                        pkColumns={rs.pkColumns}
-                        editLocator={rs.editLocator}
-                        onReload={() => {
-                            if (rs.page) {
-                                return onResultPageChange(rs.key, rs.page.current, rs.page.pageSize);
-                            }
-                            return onReloadResult(rs.key, rs.sql);
-                        }}
-                        pagination={rs.page ? {
-                            current: rs.page.current,
-                            pageSize: rs.page.pageSize,
-                            total: rs.page.total,
-                            totalKnown: rs.page.totalKnown,
-                            totalCountLoading: rs.page.totalCountLoading,
-                            totalCountCancelled: rs.page.totalCountCancelled,
-                        } : undefined}
-                        onPageChange={rs.page ? ((page, size) => onResultPageChange(rs.key, page, size)) : undefined}
-                        onSort={(field, order) => onResultSort(rs.key, field, order)}
-                        sortInfoExternal={rs.sortInfo || []}
-                        onRequestTotalCount={rs.page && onRequestResultTotalCount
-                            ? (() => onRequestResultTotalCount(rs.key))
-                            : undefined}
-                        onCancelTotalCount={rs.page && onCancelResultTotalCount
-                            ? (() => onCancelResultTotalCount(rs.key))
-                            : undefined}
-                        readOnly={rs.readOnly}
-                        toolbarExtraActions={resolvedActiveResultKey === rs.key ? toolbarHideButton : null}
-                    />
-                </div>
-            );
-        })(),
+        children: (
+            <QueryEditorResultTabContent
+                rs={rs}
+                workbenchTabId={workbenchTabId}
+                isResultActive={isActive && resolvedActiveResultKey === rs.key}
+                darkMode={darkMode}
+                currentDb={currentDb}
+                currentConnectionId={currentConnectionId}
+                maxRows={maxRows}
+                globalHiddenColumns={globalHiddenColumns}
+                dataPreviewRequest={dataPreviewRequest}
+                elasticsearchViewMode={elasticsearchViewModes[rs.key]}
+                onElasticsearchViewModeChange={handleElasticsearchViewModeChange}
+                actionsRef={resultTabActionsRef}
+            />
+        ),
     }));
 
     const logTabItem = {
@@ -780,10 +684,23 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     variant="embedded"
                     executionError={executionError}
                     onDiagnoseExecutionError={executionError ? onDiagnoseExecutionError : undefined}
+                    diagnoseShortcutLabel={executionError ? diagnoseShortcutLabel : undefined}
+                    onLocateExecutionError={executionError ? onLocateExecutionError : undefined}
                 />
             ),
         };
-    const tabItems = [logTabItem, ...resultTabItems];
+    const paramsTabItem = paramsPanel ? {
+            key: QUERY_EDITOR_PARAMS_PANEL_KEY,
+            label: (
+                <Tooltip title={t('query_editor.params.panel_title')}>
+                    <div className="query-result-tab-label">
+                        <span className="query-result-tab-text">{t('query_editor.params.panel_title')}</span>
+                    </div>
+                </Tooltip>
+            ),
+            children: paramsPanel,
+        } : null;
+    const tabItems = [logTabItem, ...(paramsTabItem ? [paramsTabItem] : []), ...resultTabItems];
     const activeResultSet = resultSets.find((rs) => rs.key === resolvedActiveResultKey) || null;
     const activeResultUsesDataGrid = Boolean(activeResultSet && activeResultSet.resultType !== 'message' && !isAffectedRowsResult(activeResultSet));
 
@@ -816,6 +733,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
             ),
         }
         : undefined;
+    const visibleExecutionLifecycle = resolveVisibleQueryEditorExecutionLifecycle(loading, executionLifecycle);
 
     return (
         <>
@@ -862,19 +780,14 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                             <span className="query-result-panel-header-title">{t('query_editor.results_panel.panel.title')}</span>
                             {hideButton}
                         </div>
-                        <div className="gn-v2-query-error" style={{ flex: 1, minHeight: 0, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, background: darkMode ? '#1e1e1e' : '#fafafa', overflow: 'auto' }}>
-                            <div style={{ color: '#ff4d4f', fontWeight: 'bold', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <CloseOutlined />
-                                <span>{t('query_editor.result.execution_failed')}</span>
-                            </div>
-                            <div className="custom-scrollbar" style={{ padding: 16, background: darkMode ? '#2d1a1a' : '#fff2f0', border: `1px solid ${darkMode ? '#5c2020' : '#ffccc7'}`, borderRadius: 6, color: darkMode ? '#ffa39e' : '#cf1322', fontFamily: 'var(--gn-font-mono)', fontSize: 'var(--gn-font-size-mono, 13px)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '40vh', overflow: 'auto' }}>
-                                {executionError}
-                            </div>
-                            <div style={{ marginTop: 8 }}>
-                                <Button type="primary" icon={<RobotOutlined />} style={{ background: '#818cf8', borderColor: '#818cf8', boxShadow: '0 2px 0 rgba(129, 140, 248, 0.2)' }} onClick={onDiagnoseExecutionError}>
-                                    {t('query_editor.result.ai_diagnose')}
-                                </Button>
-                            </div>
+                        <div className="gn-v2-query-error" style={{ flex: 1, minHeight: 0, padding: 24, display: 'flex', flexDirection: 'column', background: darkMode ? '#1e1e1e' : '#fafafa', overflow: 'auto' }}>
+                            <QueryEditorExecutionErrorCard
+                                darkMode={darkMode}
+                                error={executionError}
+                                onDiagnose={onDiagnoseExecutionError}
+                                diagnoseShortcutLabel={diagnoseShortcutLabel}
+                                onLocate={onLocateExecutionError}
+                            />
                         </div>
                     </>
                 ) : (
@@ -883,12 +796,16 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                             <span className="query-result-panel-header-title">{t('query_editor.results_panel.panel.title')}</span>
                             {hideButton}
                         </div>
-                        <div className="gn-v2-query-empty" style={{ flex: 1, minHeight: 0 }}>
-                            <div>
+                        {visibleExecutionLifecycle ? (
+                            <QueryEditorExecutionStatus lifecycle={visibleExecutionLifecycle} />
+                        ) : (
+                            <div className="gn-v2-query-empty" style={{ flex: 1, minHeight: 0 }}>
+                                <div>
                                     <strong>{t('query_editor.empty_state.title')}</strong>
                                     <span>{t('query_editor.empty_state.description')}</span>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </>
                 )}
             </div>

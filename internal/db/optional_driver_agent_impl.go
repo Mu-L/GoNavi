@@ -2,7 +2,6 @@ package db
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,31 +22,34 @@ import (
 )
 
 const (
-	optionalAgentMethodConnect              = "connect"
-	optionalAgentMethodClose                = "close"
-	optionalAgentMethodMetadata             = "metadata"
-	optionalAgentMethodPing                 = "ping"
-	optionalAgentMethodOpenSession          = "openSession"
-	optionalAgentMethodCloseSession         = "closeSession"
-	optionalAgentMethodOpenTransaction      = "openTransaction"
-	optionalAgentMethodCommitTransaction    = "commitTransaction"
-	optionalAgentMethodRollbackTransaction  = "rollbackTransaction"
-	optionalAgentMethodQuery                = "query"
-	optionalAgentMethodQueryMulti           = "queryMulti"
-	optionalAgentMethodStreamQuery          = "streamQuery"
-	optionalAgentMethodExec                 = "exec"
-	optionalAgentMethodElasticsearchConsole = "executeElasticsearchConsoleRequest"
-	optionalAgentMethodGetDatabases         = "getDatabases"
-	optionalAgentMethodGetTables            = "getTables"
-	optionalAgentMethodTableExists          = "tableExists"
-	optionalAgentMethodGetCreateStmt        = "getCreateStatement"
-	optionalAgentMethodGetColumns           = "getColumns"
-	optionalAgentMethodGetAllColumns        = "getAllColumns"
-	optionalAgentMethodGetIndexes           = "getIndexes"
-	optionalAgentMethodGetForeignKeys       = "getForeignKeys"
-	optionalAgentMethodGetTriggers          = "getTriggers"
-	optionalAgentMethodApplyChanges         = "applyChanges"
-	optionalAgentDefaultScannerMaxBytes     = 8 << 20
+	optionalAgentMethodConnect                 = "connect"
+	optionalAgentMethodClose                   = "close"
+	optionalAgentMethodMetadata                = "metadata"
+	optionalAgentMethodPing                    = "ping"
+	optionalAgentMethodOpenSession             = "openSession"
+	optionalAgentMethodCloseSession            = "closeSession"
+	optionalAgentMethodOpenTransaction         = "openTransaction"
+	optionalAgentMethodCommitTransaction       = "commitTransaction"
+	optionalAgentMethodRollbackTransaction     = "rollbackTransaction"
+	optionalAgentMethodQuery                   = "query"
+	optionalAgentMethodQueryMulti              = "queryMulti"
+	optionalAgentMethodStreamQuery             = "streamQuery"
+	optionalAgentMethodExec                    = "exec"
+	optionalAgentMethodElasticsearchConsole    = "executeElasticsearchConsoleRequest"
+	optionalAgentMethodGetDatabases            = "getDatabases"
+	optionalAgentMethodGetTables               = "getTables"
+	optionalAgentMethodTableExists             = "tableExists"
+	optionalAgentMethodGetCreateStmt           = "getCreateStatement"
+	optionalAgentMethodGetColumns              = "getColumns"
+	optionalAgentMethodGetAllColumns           = "getAllColumns"
+	optionalAgentMethodGetIndexes              = "getIndexes"
+	optionalAgentMethodGetForeignKeys          = "getForeignKeys"
+	optionalAgentMethodGetTriggers             = "getTriggers"
+	optionalAgentMethodApplyChanges            = "applyChanges"
+	optionalAgentMethodAttachExternalDatabase  = "attachExternalDatabase"
+	optionalAgentMethodDetachExternalDatabase  = "detachExternalDatabase"
+	optionalAgentMethodListExternalAttachments = "listExternalAttachments"
+	optionalAgentDefaultScannerMaxBytes        = 8 << 20
 	// Freshly downloaded agents may start slowly while OS security scanning completes.
 	optionalAgentMetadataProbeTimeout = 30 * time.Second
 	// A Windows security scanner can hold the first process start long enough to
@@ -57,19 +59,6 @@ const (
 	optionalAgentMetadataProbeRetryDelay   = 100 * time.Millisecond
 	optionalAgentControlCallTimeout        = 30 * time.Second
 	optionalAgentShutdownCallTimeout       = 2 * time.Second
-	// callStreamQueryGCInterval 控制 callStreamQuery 每接收多少行 driver-agent 数据触发一次 runtime.GC。
-	//
-	// 该路径不走 sql.Rows（scan_rows.go 的周期 GC 覆盖不到），但每个 chunk 解码
-	// [][]interface{} + normalizeQueryValue 转换会产生大量临时字符串，需要主动回收。
-	// 取 50000 与 scan_rows.go 的 streamRowsPeriodicGCInterval 保持一致，
-	// 让两端在相近节奏下分别 GC，避免内存峰值叠加。
-	callStreamQueryGCInterval = 50000
-)
-
-const (
-	optionalAgentChunkColumns = "columns"
-	optionalAgentChunkRows    = "rows"
-	optionalAgentChunkDone    = "done"
 )
 
 var errOptionalAgentTransportStopped = errors.New("驱动代理传输已关闭")
@@ -85,10 +74,15 @@ type optionalAgentRequest struct {
 	// a supporting client opts in.
 	StreamSSHProgress    bool                         `json:"streamSSHProgress,omitempty"`
 	Query                string                       `json:"query,omitempty"`
+	// Args 是按占位符顺序排列的位置绑定参数，仅在 json-lines-v2 及以上协议
+	// 中发送（omitempty 保证旧协议报文不携带该字段）。
+	Args                 []any                        `json:"args,omitempty"`
 	TimeoutMs            int64                        `json:"timeoutMs,omitempty"`
 	DBName               string                       `json:"dbName,omitempty"`
 	TableName            string                       `json:"tableName,omitempty"`
 	Changes              *connection.ChangeSet        `json:"changes,omitempty"`
+	AttachSpec           *ExternalAttachSpec          `json:"attachSpec,omitempty"`
+	Alias                string                       `json:"alias,omitempty"`
 	ElasticsearchRequest *ElasticsearchConsoleRequest `json:"elasticsearchRequest,omitempty"`
 	// sshProgressReporter remains in the main process and is never serialized
 	// into the driver-agent request.
@@ -96,27 +90,24 @@ type optionalAgentRequest struct {
 }
 
 type optionalAgentResponse struct {
-	ID              int64                         `json:"id"`
-	Success         bool                          `json:"success"`
-	Error           string                        `json:"error,omitempty"`
-	OutcomeUnknown  bool                          `json:"outcomeUnknown,omitempty"`
-	SSHHostKeyTrust *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
-	SSHProgress     *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
-	Data            json.RawMessage               `json:"data,omitempty"`
-	Fields          []string                      `json:"fields,omitempty"`
-	Messages        []string                      `json:"messages,omitempty"`
-	ChunkType       string                        `json:"chunkType,omitempty"`
-	RowsAffected    int64                         `json:"rowsAffected,omitempty"`
+	ID                        int64                         `json:"id"`
+	Success                   bool                          `json:"success"`
+	Error                     string                        `json:"error,omitempty"`
+	OutcomeUnknown            bool                          `json:"outcomeUnknown,omitempty"`
+	ExternalAttachNotAttached bool                          `json:"externalAttachNotAttached,omitempty"`
+	SSHHostKeyTrust           *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
+	SSHProgress               *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
+	Data                      json.RawMessage               `json:"data,omitempty"`
+	Fields                    []string                      `json:"fields,omitempty"`
+	Messages                  []string                      `json:"messages,omitempty"`
+	ChunkType                 string                        `json:"chunkType,omitempty"`
+	RowsAffected              int64                         `json:"rowsAffected,omitempty"`
 }
 
 type OptionalDriverAgentMetadata struct {
 	DriverType     string `json:"driverType,omitempty"`
 	AgentRevision  string `json:"agentRevision,omitempty"`
 	ProtocolSchema string `json:"protocolSchema,omitempty"`
-}
-
-type optionalAgentConnectionInfo struct {
-	ElasticsearchServerMajor int `json:"elasticsearchServerMajor,omitempty"`
 }
 
 type optionalDriverAgentClient struct {
@@ -134,57 +125,23 @@ type optionalDriverAgentClient struct {
 	stderr          boundedDiagnosticTail
 	driver          string
 	shutdownTimeout time.Duration
+	// protocolSchema 来自 connect 响应；旧版 agent 不回显（空串）。
+	protocolSchema string
 }
 
-func ProbeOptionalDriverAgentMetadata(driverType string, executablePath string) (OptionalDriverAgentMetadata, error) {
-	metadata, err := probeOptionalDriverAgentMetadataWithRetry(func(timeout time.Duration) (OptionalDriverAgentMetadata, error) {
-		client, clientErr := newOptionalDriverAgentClient(driverType, executablePath)
-		if clientErr != nil {
-			return OptionalDriverAgentMetadata{}, clientErr
-		}
-		defer func() {
-			_ = client.close()
-		}()
-
-		var result OptionalDriverAgentMetadata
-		if callErr := client.callWithTimeout(optionalAgentRequest{Method: optionalAgentMethodMetadata}, &result, nil, nil, nil, timeout); callErr != nil {
-			return OptionalDriverAgentMetadata{}, callErr
-		}
-		return result, nil
-	}, runtime.GOOS == "windows", optionalAgentMetadataProbeRetryDelay)
-	if err != nil {
-		return OptionalDriverAgentMetadata{}, err
-	}
-	metadata.DriverType = normalizeRuntimeDriverType(metadata.DriverType)
-	metadata.AgentRevision = strings.TrimSpace(metadata.AgentRevision)
-	metadata.ProtocolSchema = strings.TrimSpace(metadata.ProtocolSchema)
-	return metadata, nil
+// schema 返回 connect 响应回显的协议版本，供参数绑定等能力门控读取。
+func (c *optionalDriverAgentClient) schema() string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.protocolSchema
 }
 
-func probeOptionalDriverAgentMetadataWithRetry(
-	probe func(time.Duration) (OptionalDriverAgentMetadata, error),
-	retryOnTimeout bool,
-	delay time.Duration,
-) (OptionalDriverAgentMetadata, error) {
-	if probe == nil {
-		return OptionalDriverAgentMetadata{}, errors.New("driver-agent metadata probe is nil")
+func (c *optionalDriverAgentClient) setSchema(schema string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.protocolSchema == "" {
+		c.protocolSchema = schema
 	}
-
-	metadata, firstErr := probe(optionalAgentMetadataProbeTimeout)
-	if firstErr == nil || !retryOnTimeout || !errors.Is(firstErr, context.DeadlineExceeded) {
-		return metadata, firstErr
-	}
-	if delay > 0 {
-		time.Sleep(delay)
-	}
-
-	metadata, retryErr := probe(optionalAgentMetadataProbeRetryTimeout)
-	if retryErr == nil {
-		return metadata, nil
-	}
-	// Preserve the 30s primary timeout as the causal error while retaining the
-	// second attempt's detail for logs and localized error rendering.
-	return OptionalDriverAgentMetadata{}, fmt.Errorf("首次 metadata 探测失败：%w；冷启动重试失败：%v", firstErr, retryErr)
 }
 
 func newOptionalDriverAgentClient(driverType string, executablePath string) (*optionalDriverAgentClient, error) {
@@ -354,6 +311,9 @@ func (c *optionalDriverAgentClient) callLocked(req optionalAgentRequest, out int
 			if resp.SSHHostKeyTrust != nil {
 				return fmt.Errorf("%s: %w", errText, &sshbridge.HostKeyTrustRequiredError{Status: *resp.SSHHostKeyTrust})
 			}
+			if resp.ExternalAttachNotAttached {
+				return fmt.Errorf("%s: %w", errText, ErrExternalAttachNotAttached)
+			}
 			err := errors.New(errText)
 			if resp.OutcomeUnknown {
 				return MarkWriteOutcomeUnknown(err)
@@ -488,149 +448,6 @@ func (c *optionalDriverAgentClient) callWithContext(ctx context.Context, req opt
 		return fmt.Errorf("%s 驱动代理 metadata 探测超时（%s），请确认导入的是正确的 driver-agent 可执行文件：%w", driverDisplayName(c.driver), timeout, err)
 	}
 	return err
-}
-
-func (c *optionalDriverAgentClient) callStreamQuery(req optionalAgentRequest, consumer QueryStreamConsumer) error {
-	return c.runWithContext(context.Background(), req.Method, func() error {
-		return c.callStreamQueryLocked(req, consumer)
-	})
-}
-
-func (c *optionalDriverAgentClient) callStreamQueryLocked(req optionalAgentRequest, consumer QueryStreamConsumer) error {
-	if consumer == nil {
-		return fmt.Errorf("query stream consumer required")
-	}
-
-	if err := c.stoppedError(); err != nil {
-		return fmt.Errorf("%s 驱动代理传输不可用：%w", driverDisplayName(c.driver), err)
-	}
-
-	c.nextID++
-	req.ID = c.nextID
-
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-	payload = append(payload, '\n')
-	if len(payload) > OptionalDriverAgentMaxJSONLineBytes {
-		_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
-		return fmt.Errorf("发送 %s 驱动代理请求失败：%w", driverDisplayName(c.driver), ErrOptionalDriverAgentJSONLineTooLarge)
-	}
-	if _, err := c.stdin.Write(payload); err != nil {
-		stderrText := c.stderrText()
-		if stderrText == "" {
-			return fmt.Errorf("调用 %s 驱动代理失败：%w", driverDisplayName(c.driver), err)
-		}
-		return fmt.Errorf("调用 %s 驱动代理失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText)
-	}
-
-	var columns []string
-	valueConsumer, useValueConsumer := consumer.(QueryStreamValueConsumer)
-
-	// processedRows 用于周期性触发 GC。
-	// 该路径不走 sql.Rows，scan_rows.go 的周期 GC 覆盖不到。
-	// 每个 chunk 解码会分配 [][]interface{} + normalizeQueryValue 转换副本，
-	// 88W 行场景下不主动 GC 会让主进程 RSS 单调爬升。
-	var processedRows int64
-
-	for {
-		line, err := ReadOptionalDriverAgentJSONLine(c.reader)
-		if err != nil {
-			if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-				_ = c.forceTerminate(err)
-			}
-			stderrText := c.stderrText()
-			if stderrText == "" {
-				return fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err)
-			}
-			return fmt.Errorf("读取 %s 驱动代理响应失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText)
-		}
-
-		var resp optionalAgentResponse
-		if err := json.Unmarshal(line, &resp); err != nil {
-			return fmt.Errorf("解析 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err)
-		}
-		if !resp.Success {
-			errText := strings.TrimSpace(resp.Error)
-			if errText == "" {
-				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
-			}
-			if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
-				_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
-				return ErrOptionalDriverAgentJSONLineTooLarge
-			}
-			return errors.New(errText)
-		}
-
-		switch resp.ChunkType {
-		case optionalAgentChunkColumns:
-			columns = append(columns[:0], resp.Fields...)
-			if err := consumer.SetColumns(columns); err != nil {
-				return err
-			}
-		case optionalAgentChunkRows:
-			if len(columns) == 0 {
-				return fmt.Errorf("%s 驱动代理流式响应缺少列信息", driverDisplayName(c.driver))
-			}
-			rows, err := decodeOptionalAgentRowValueBatch(resp.Data)
-			if err != nil {
-				return fmt.Errorf("解析 %s 驱动代理流式数据失败：%w", driverDisplayName(c.driver), err)
-			}
-			for _, row := range rows {
-				if useValueConsumer {
-					if err := valueConsumer.ConsumeRowValues(row); err != nil {
-						return err
-					}
-					continue
-				}
-				entry := make(map[string]interface{}, len(columns))
-				for i, column := range columns {
-					if i < len(row) {
-						entry[column] = row[i]
-					} else {
-						entry[column] = nil
-					}
-				}
-				if err := consumer.ConsumeRow(entry); err != nil {
-					return err
-				}
-			}
-			processedRows += int64(len(rows))
-			if processedRows >= callStreamQueryGCInterval {
-				runtime.GC()
-				processedRows = 0
-			}
-		case optionalAgentChunkDone:
-			return nil
-		default:
-			return fmt.Errorf("%s 驱动代理返回未知流式分片类型：%s", driverDisplayName(c.driver), strings.TrimSpace(resp.ChunkType))
-		}
-	}
-}
-
-func decodeOptionalAgentRowValueBatch(data []byte) ([][]interface{}, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var rows [][]interface{}
-	if err := decoder.Decode(&rows); err != nil {
-		return nil, err
-	}
-	for rowIdx := range rows {
-		for colIdx := range rows[rowIdx] {
-			rows[rowIdx][colIdx] = normalizeQueryValue(rows[rowIdx][colIdx])
-		}
-	}
-	return rows, nil
-}
-
-func (c *optionalDriverAgentClient) callStreamQueryContext(ctx context.Context, req optionalAgentRequest, consumer QueryStreamConsumer) error {
-	return c.runWithContext(ctx, req.Method, func() error {
-		return c.callStreamQueryLocked(req, consumer)
-	})
 }
 
 func (c *optionalDriverAgentClient) stoppedError() error {
@@ -790,20 +607,9 @@ func (d *OptionalDriverAgentDB) Connect(config connection.ConnectionConfig) erro
 	d.client = client
 	d.pingTimeout = connectTimeout
 	d.serverMajor = connectionInfo.ElasticsearchServerMajor
+	client.setSchema(strings.TrimSpace(connectionInfo.ProtocolSchema))
 	d.ensureKingbaseSearchPath(config)
 	return nil
-}
-
-func newOptionalAgentConnectRequest(config connection.ConnectionConfig) optionalAgentRequest {
-	request := optionalAgentRequest{
-		Method:            optionalAgentMethodConnect,
-		Config:            &config,
-		StreamSSHProgress: config.UseSSH,
-	}
-	if config.UseSSH {
-		request.SSHRuntime = config.SSH.RuntimeSnapshot()
-	}
-	return request
 }
 
 func (d *OptionalDriverAgentDB) Close() error {
@@ -846,6 +652,72 @@ func (d *OptionalDriverAgentDB) QueryContext(ctx context.Context, query string) 
 	data, fields, _, err := d.QueryContextWithMessages(ctx, query)
 	return data, fields, err
 }
+
+// AttachExternalDatabase 通过驱动代理转发外部数据源附加（issue #1270）；
+// 附加状态保存在代理进程内，随连接关闭消失。
+func (d *OptionalDriverAgentDB) AttachExternalDatabase(ctx context.Context, spec ExternalAttachSpec) error {
+	client, err := d.requireClient()
+	if err != nil {
+		return err
+	}
+	if err := client.callContext(ctx, optionalAgentRequest{
+		Method:     optionalAgentMethodAttachExternalDatabase,
+		TimeoutMs:  timeoutMsFromContext(ctx),
+		AttachSpec: &spec,
+	}, nil, nil, nil, nil); err != nil {
+		return wrapOptionalAgentExternalAttachError(err)
+	}
+	return nil
+}
+
+// DetachExternalDatabase 通过驱动代理转发卸载；代理进程内未附加时返回
+// ErrExternalAttachNotAttached，保持与进程内驱动一致的幂等语义。
+func (d *OptionalDriverAgentDB) DetachExternalDatabase(ctx context.Context, alias string) error {
+	client, err := d.requireClient()
+	if err != nil {
+		return err
+	}
+	if err := client.callContext(ctx, optionalAgentRequest{
+		TimeoutMs: timeoutMsFromContext(ctx),
+		Method:    optionalAgentMethodDetachExternalDatabase,
+		Alias:     alias,
+	}, nil, nil, nil, nil); err != nil {
+		return wrapOptionalAgentExternalAttachError(err)
+	}
+	return nil
+}
+
+// ListExternalAttachments 通过驱动代理查询当前会话的附加关系列表。
+func (d *OptionalDriverAgentDB) ListExternalAttachments(ctx context.Context) ([]ExternalAttachmentInfo, error) {
+	client, err := d.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var attachments []ExternalAttachmentInfo
+	if err := client.callContext(ctx, optionalAgentRequest{
+		TimeoutMs: timeoutMsFromContext(ctx),
+		Method:    optionalAgentMethodListExternalAttachments,
+	}, &attachments, nil, nil, nil); err != nil {
+		return nil, err
+	}
+	return attachments, nil
+}
+
+// wrapOptionalAgentExternalAttachError 还原代理侧的“别名未附加”哨兵，
+// 使 App 层的 errors.Is 幂等判定在代理形态下同样成立。
+func wrapOptionalAgentExternalAttachError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), ErrExternalAttachNotAttached.Error()) {
+		return fmt.Errorf("%w", ErrExternalAttachNotAttached)
+	}
+	return err
+}
+
+// 编译期守卫：代理实现可选附加接口。
+var _ ExternalDatabaseAttacher = (*OptionalDriverAgentDB)(nil)
+var _ ExternalAttachmentLister = (*OptionalDriverAgentDB)(nil)
 
 func (d *OptionalDriverAgentDB) ExecuteElasticsearchConsoleRequest(ctx context.Context, request ElasticsearchConsoleRequest) (ElasticsearchConsoleResponse, error) {
 	if normalizeRuntimeDriverType(d.driverType) != "elasticsearch" {
@@ -1233,30 +1105,6 @@ func (s *optionalDriverAgentSession) ensureOpen() error {
 		return fmt.Errorf("%s 事务会话已关闭", driverDisplayName(s.driver))
 	}
 	return nil
-}
-
-func isOptionalAgentStreamUnsupportedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.TrimSpace(err.Error())
-	if text == "" {
-		return false
-	}
-	return strings.Contains(text, "不支持的方法") || strings.Contains(text, "不支持流式查询")
-}
-
-func isOptionalAgentMultiResultUnsupportedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.TrimSpace(err.Error())
-	if text == "" {
-		return false
-	}
-	return strings.Contains(text, "不支持的方法") ||
-		strings.Contains(text, "不支持原生多结果集查询") ||
-		strings.Contains(text, "不支持多结果集查询")
 }
 
 func (d *OptionalDriverAgentDB) GetDatabases() ([]string, error) {

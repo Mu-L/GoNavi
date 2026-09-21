@@ -10,6 +10,9 @@ const closeTab = vi.fn();
 const requestCloseWorkbenchTabs = vi.hoisted(() => vi.fn());
 const storeState = {
   closeTab,
+  addTab: vi.fn(),
+  setAIPanelVisible: vi.fn(),
+  aiPanelVisible: false,
   connections: [] as Array<Record<string, unknown>>,
   connectionTags: [] as Array<Record<string, unknown>>,
   sidebarRootOrder: [] as string[],
@@ -17,10 +20,13 @@ const storeState = {
 
 vi.mock('../store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../store')>();
+  const useStore = Object.assign(
+    (selector: (state: typeof storeState) => unknown) => selector(storeState),
+    { getState: () => storeState },
+  );
   return {
     ...actual,
-    useStore: (selector: (state: typeof storeState) => unknown) =>
-      selector(storeState),
+    useStore,
   };
 });
 
@@ -31,15 +37,18 @@ vi.mock('../utils/workbenchTabCloseProtection', () => ({
 vi.mock('./data-sync', () => ({
   createDataSyncTaskDraft: (input: Record<string, unknown>) => input,
   createWailsDataSyncWorkbenchGateway: () => ({ kind: 'test-gateway' }),
-  DataSyncWorkbenchShell: ({ initialTasks, connectionTree, locale, onClose }: {
+  DataSyncWorkbenchShell: ({ initialTasks, connectionTree, locale, onClose, workbenchFamily }: {
     initialTasks: Array<Record<string, unknown>>;
     connectionTree?: Array<Record<string, unknown>>;
     locale?: string;
     onClose: () => void;
+    workbenchFamily?: string;
   }) => (
     <button
       type="button"
       data-data-sync-shell="true"
+      data-workbench-family={String(workbenchFamily || '')}
+      data-initial-task-count={String((initialTasks || []).length)}
       data-kind={String(initialTasks[0]?.kind || '')}
       data-compare-mode={String(initialTasks[0]?.compareMode || '')}
       data-content={String(initialTasks[0]?.content || '')}
@@ -68,16 +77,15 @@ describe('DataSyncWorkbench', () => {
     storeState.sidebarRootOrder = [];
   });
 
-  it('maps schema compare mode without setting migration content and closes its tab', () => {
+  it('maps schema compare mode onto the unified compare workbench and closes its tab', () => {
     const markup = renderToStaticMarkup(<DataSyncWorkbench tab={tab} />);
     expect(markup).toContain('data-data-sync-workbench="true"');
     expect(markup).toContain('data-data-sync-shell="true"');
-    expect(markup).toContain('data-kind="compare"');
-    expect(markup).toContain('data-compare-mode="schema"');
+    expect(markup).toContain('data-workbench-family="compare"');
+    expect(markup).toContain('data-initial-task-count="0"');
+    expect(markup).toContain('data-kind=""');
+    expect(markup).toContain('data-compare-mode=""');
     expect(markup).toContain('data-content=""');
-    expect(markup).toContain(
-      'data-task-id="data-sync-local-data-sync-workbench-schema-compare"',
-    );
 
     const renderer = TestRenderer.create(<DataSyncWorkbench tab={tab} />);
     act(() => {
@@ -92,7 +100,7 @@ describe('DataSyncWorkbench', () => {
     expect(renderer.root.findByProps({ 'data-data-sync-shell': 'true' }).props.onClose).toBeUndefined();
   });
 
-  it('maps data compare mode without setting migration content', () => {
+  it('maps data compare mode onto the unified compare workbench', () => {
     const dataCompareTab: TabData = {
       ...tab,
       id: 'data-sync-workbench-data-compare',
@@ -102,9 +110,26 @@ describe('DataSyncWorkbench', () => {
 
     const markup = renderToStaticMarkup(<DataSyncWorkbench tab={dataCompareTab} />);
 
-    expect(markup).toContain('data-kind="compare"');
-    expect(markup).toContain('data-compare-mode="data"');
+    expect(markup).toContain('data-workbench-family="compare"');
+    expect(markup).toContain('data-initial-task-count="0"');
+    expect(markup).toContain('data-kind=""');
+    expect(markup).toContain('data-compare-mode=""');
     expect(markup).toContain('data-content=""');
+  });
+
+  it('opens the sync workbench with a writable sync draft', () => {
+    const syncTab: TabData = {
+      ...tab,
+      id: 'data-sync-workbench-sync',
+      title: '数据同步',
+      dataSyncEntryMode: 'sync',
+    };
+
+    const markup = renderToStaticMarkup(<DataSyncWorkbench tab={syncTab} />);
+
+    expect(markup).toContain('data-workbench-family="sync"');
+    expect(markup).toContain('data-initial-task-count="1"');
+    expect(markup).toContain('data-kind="reconcile"');
   });
 
   it('projects sidebar groups without exposing saved connection config', () => {

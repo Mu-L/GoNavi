@@ -6,7 +6,16 @@ import { resolveDataSyncEntryModePresentation } from './dataSyncEntryMode';
 const en = (key: string) => translate(key, undefined, 'en-US');
 
 describe('resolveDataSyncEntryModePresentation', () => {
-  it('marks schema compare as a read-only independent entry', () => {
+  it('marks the unified compare workbench as a read-only independent entry', () => {
+    const presentation = resolveDataSyncEntryModePresentation('compare', en);
+
+    expect(presentation.title).toBe('Data Compare');
+    expect(presentation.analyzeButtonText).toBe('Start Comparison');
+    expect(presentation.badgeText).toBe('Data Compare');
+    expect(presentation.readOnly).toBe(true);
+  });
+
+  it('keeps legacy schema compare aliases as a read-only independent entry', () => {
     const presentation = resolveDataSyncEntryModePresentation('schemaCompare', en);
 
     expect(presentation.title).toBe('Schema Compare');
@@ -15,7 +24,7 @@ describe('resolveDataSyncEntryModePresentation', () => {
     expect(presentation.readOnly).toBe(true);
   });
 
-  it('marks data compare as a read-only independent entry', () => {
+  it('keeps legacy data compare aliases as a read-only independent entry', () => {
     const presentation = resolveDataSyncEntryModePresentation('dataCompare', en);
 
     expect(presentation.title).toBe('Data Compare');

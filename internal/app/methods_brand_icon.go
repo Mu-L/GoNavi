@@ -18,6 +18,7 @@ import (
 const applicationBrandIconMaxPNGBytes = 4 * 1024 * 1024
 
 var applicationBrandIconMu sync.Mutex
+var prepareWindowsBrandIconRestartPlatform = prepareWindowsBrandIconRestartPNG
 
 var (
 	errApplicationBrandIconPayloadEmpty   = errors.New("empty icon payload")
@@ -63,6 +64,52 @@ func (a *App) SetApplicationBrandIcon(imageBase64 string) (result connection.Que
 		})}
 	}
 	return connection.QueryResult{Success: true, Message: a.appText("app.backend.message.brand_icon_updated", nil)}
+}
+
+// PrepareWindowsBrandIconRestart persists the selected ICO and updates any
+// existing GoNavi desktop, Start-menu, or taskbar shortcuts in place. Windows
+// Explorer can keep the currently running taskbar group cached, so the
+// frontend asks the user to restart instead of relying on a live window icon
+// mutation. No shortcut is removed or recreated by this method.
+func (a *App) PrepareWindowsBrandIconRestart(imageBase64 string) (result connection.QueryResult) {
+	applicationBrandIconMu.Lock()
+	defer applicationBrandIconMu.Unlock()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.Errorf("准备 Windows 应用图标重启失败：%v", recovered)
+			result = connection.QueryResult{
+				Success: false,
+				Message: a.appText("app.backend.error.set_brand_icon_failed", map[string]any{
+					"detail": fmt.Sprint(recovered),
+				}),
+			}
+		}
+	}()
+
+	png, err := decodeApplicationBrandIconPayload(imageBase64)
+	if err != nil {
+		key := "app.backend.error.set_brand_icon_invalid"
+		if errors.Is(err, errApplicationBrandIconPayloadEmpty) {
+			key = "app.backend.error.set_brand_icon_empty"
+		}
+		return connection.QueryResult{Success: false, Message: a.appText(key, map[string]any{
+			"detail": err.Error(),
+		})}
+	}
+	configDir := ""
+	if a != nil {
+		configDir = a.configDir
+	}
+	if err := prepareWindowsBrandIconRestartPlatform(png, configDir); err != nil {
+		return connection.QueryResult{Success: false, Message: a.appText("app.backend.error.set_brand_icon_failed", map[string]any{
+			"detail": err.Error(),
+		})}
+	}
+	return connection.QueryResult{
+		Success: true,
+		Message: a.appText("app.backend.message.brand_icon_updated", nil),
+		Data:    map[string]any{"restartRequired": true},
+	}
 }
 
 func decodeApplicationBrandIconPayload(imageBase64 string) ([]byte, error) {

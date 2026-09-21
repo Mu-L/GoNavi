@@ -16,7 +16,6 @@ import {
   SearchOutlined,
   SaveOutlined,
   SettingOutlined,
-  StopOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 
@@ -33,6 +32,8 @@ import QueryEditorTransactionSettings, {
   type SqlEditorCommitMode,
 } from "./QueryEditorTransactionSettings";
 import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
+import { QueryEditorToolbarRunAction } from './queryEditor/QueryEditorToolbarRunAction';
+import QueryEditorToolbarMaxRowsSelect from './queryEditor/QueryEditorToolbarMaxRowsSelect';
 
 export type QueryEditorMode = "sql" | "elasticsearch";
 
@@ -114,6 +115,17 @@ export const formatQueryExecutionElapsed = (elapsedMs: number): string => {
     : `${minutesText}:${secondsText}.${tenths}`;
 };
 
+export const resolveReportedQueryDurationMs = (
+  result: { durationMs?: unknown } | null | undefined,
+  fallbackMs: number,
+): number => {
+  const reported = result?.durationMs;
+  if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) {
+    return Math.round(reported);
+  }
+  return Math.max(0, Math.round(Number(fallbackMs) || 0));
+};
+
 export const resolveQueryExecutionSpeedIcon = (elapsedMs: number): "⚡" | "🐇" | "🐢" => {
   const normalizedElapsedMs = Math.max(0, Number(elapsedMs) || 0);
   if (normalizedElapsedMs < 1_000) return "⚡";
@@ -121,16 +133,34 @@ export const resolveQueryExecutionSpeedIcon = (elapsedMs: number): "⚡" | "🐇
   return "🐢";
 };
 
-export const useQueryExecutionElapsed = (loading: boolean, executionRunToken = 0): number => {
+export const useQueryExecutionElapsed = (
+  timingActive: boolean,
+  executionRunToken = 0,
+  completedElapsedMs: number | null = null,
+): number => {
   const [elapsedMs, setElapsedMs] = React.useState(0);
   const startedAtRef = React.useRef<number | null>(null);
+  const lastTokenRef = React.useRef(executionRunToken);
 
   React.useEffect(() => {
-    if (!loading) {
+    const tokenChanged = lastTokenRef.current !== executionRunToken;
+    lastTokenRef.current = executionRunToken;
+
+    if (tokenChanged && !timingActive) {
+      startedAtRef.current = null;
+      setElapsedMs(0);
+      return;
+    }
+
+    if (!timingActive) {
       const startedAt = startedAtRef.current;
+      startedAtRef.current = null;
+      if (typeof completedElapsedMs === "number" && Number.isFinite(completedElapsedMs) && completedElapsedMs >= 0) {
+        setElapsedMs(Math.round(completedElapsedMs));
+        return;
+      }
       if (startedAt !== null) {
         setElapsedMs(Date.now() - startedAt);
-        startedAtRef.current = null;
       }
       return;
     }
@@ -142,7 +172,7 @@ export const useQueryExecutionElapsed = (loading: boolean, executionRunToken = 0
     updateElapsed();
     const timer = globalThis.setInterval(updateElapsed, QUERY_EXECUTION_TIMER_INTERVAL_MS);
     return () => globalThis.clearInterval(timer);
-  }, [executionRunToken, loading]);
+  }, [completedElapsedMs, executionRunToken, timingActive]);
 
   return elapsedMs;
 };
@@ -526,21 +556,10 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
       )}
       {!isElasticsearchMode && (
         <>
-          <Tooltip title={t("query_editor.max_rows.tooltip")}>
-            <Select
-              className="gn-v2-query-toolbar-select gn-v2-query-toolbar-max-rows-select"
-              value={maxRows}
-              onChange={(val) => onMaxRowsChange(Number(val))}
-              options={[
-                { label: '100', value: 100 },
-                { label: t("query_editor.max_rows.option_500"), value: 500 },
-                { label: t("query_editor.max_rows.option_1000"), value: 1000 },
-                { label: t("query_editor.max_rows.option_5000"), value: 5000 },
-                { label: t("query_editor.max_rows.option_20000"), value: 20000 },
-                { label: t("query_editor.max_rows.option_unlimited"), value: 0 },
-              ]}
-            />
-          </Tooltip>
+          <QueryEditorToolbarMaxRowsSelect
+            maxRows={maxRows}
+            onMaxRowsChange={onMaxRowsChange}
+          />
           <QueryEditorTransactionSettings
             commitMode={sqlEditorCommitMode}
             autoCommitDelayMs={sqlEditorAutoCommitDelayMs}
@@ -566,7 +585,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         className="gn-v2-query-toolbar-action-group"
         style={{ display: "flex", gap: "8px", alignItems: "center" }}
       >
-        <Tooltip
+        <QueryEditorToolbarRunAction
           title={
             isElasticsearchMode
               ? t("query_editor.elasticsearch.action.run_current")
@@ -579,20 +598,16 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 })
               : t("query_editor.action.run")
           }
-        >
-          <Button
-            aria-label={t(isElasticsearchMode
-              ? "query_editor.elasticsearch.action.run_current"
-              : "query_editor.action.run")}
-            className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-run-action"
-            type="primary"
-            icon={<PlayCircleOutlined />}
-            onMouseDown={onCaptureEditorCursorPosition}
-            onClick={onRun}
-            loading={loading}
-            disabled={runDisabled}
-          />
-        </Tooltip>
+          ariaLabel={t(isElasticsearchMode
+            ? "query_editor.elasticsearch.action.run_current"
+            : "query_editor.action.run")}
+          stopTitle={t("query_editor.action.stop")}
+          loading={loading}
+          disabled={runDisabled}
+          onCaptureEditorCursorPosition={onCaptureEditorCursorPosition}
+          onRun={onRun}
+          onCancel={onCancel}
+        />
         {isElasticsearchMode && onRunAll && (
           <Tooltip title={t("query_editor.elasticsearch.action.run_all")}>
             <Button
@@ -613,18 +628,6 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
               icon={<DiffOutlined />}
               disabled={loading}
               onClick={onViewDataVerify}
-            />
-          </Tooltip>
-        )}
-        {loading && (
-          <Tooltip title={t("query_editor.action.stop")}>
-            <Button
-              aria-label={t("query_editor.action.stop")}
-              className="gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-stop-action"
-              type="primary"
-              danger
-              icon={<StopOutlined />}
-              onClick={onCancel}
             />
           </Tooltip>
         )}

@@ -3,12 +3,15 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestBuildWindowsLaunchCommandHidesConsoleWindow(t *testing.T) {
@@ -44,6 +47,161 @@ func TestFindOtherWindowsUpdateInstancesMatchesExecutablePath(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected current executable process %d to be detected, got %#v", os.Getpid(), instances)
+}
+
+func startWindowsUpdateHelperProcess(t *testing.T) *exec.Cmd {
+	t.Helper()
+	helperPath := filepath.Join(t.TempDir(), "GoNavi.exe")
+	build := exec.Command("go", "build", "-ldflags=-H=windowsgui", "-o", helperPath, "./testdata/windows_update_helper")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build update helper: %v\n%s", err, output)
+	}
+	command := exec.Command(helperPath)
+	if err := command.Start(); err != nil {
+		t.Fatalf("start update helper: %v", err)
+	}
+	t.Cleanup(func() {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+			_, _ = command.Process.Wait()
+		}
+	})
+	time.Sleep(150 * time.Millisecond)
+	return command
+}
+
+func TestFindOtherWindowsUpdateInstancesRetriesTransientInspectFailure(t *testing.T) {
+	command := startWindowsUpdateHelperProcess(t)
+
+	originalQuery := windowsUpdateQueryProcessExecutable
+	originalDelay := windowsUpdateInspectRetryDelay
+	t.Cleanup(func() {
+		windowsUpdateQueryProcessExecutable = originalQuery
+		windowsUpdateInspectRetryDelay = originalDelay
+	})
+	windowsUpdateInspectRetryDelay = 0
+	queries := 0
+	windowsUpdateQueryProcessExecutable = func(pid uint32) (string, error) {
+		if pid == uint32(command.Process.Pid) {
+			queries++
+			if queries <= 2 {
+				// A candidate mid-teardown reports ERROR_GEN_FAILURE from the
+				// image-name query before the PID disappears entirely.
+				return "", windows.ERROR_GEN_FAILURE
+			}
+		}
+		return queryWindowsProcessExecutable(pid)
+	}
+
+	instances, err := findOtherWindowsUpdateInstances([]string{command.Path}, -1)
+	if err != nil {
+		t.Fatalf("transient inspect failure must not fail discovery: %v", err)
+	}
+	if queries != 3 {
+		t.Fatalf("helper query count = %d, want 2 transient failures before success", queries)
+	}
+	found := false
+	for _, instance := range instances {
+		if instance.PID == uint32(command.Process.Pid) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("helper recovered from transient failure was not detected: %#v", instances)
+	}
+}
+
+func TestFindOtherWindowsUpdateInstancesSkipsCandidateThatNeverInspects(t *testing.T) {
+	command := startWindowsUpdateHelperProcess(t)
+
+	originalQuery := windowsUpdateQueryProcessExecutable
+	originalDelay := windowsUpdateInspectRetryDelay
+	t.Cleanup(func() {
+		windowsUpdateQueryProcessExecutable = originalQuery
+		windowsUpdateInspectRetryDelay = originalDelay
+	})
+	windowsUpdateInspectRetryDelay = 0
+	windowsUpdateQueryProcessExecutable = func(pid uint32) (string, error) {
+		if pid == uint32(command.Process.Pid) {
+			return "", windows.ERROR_GEN_FAILURE
+		}
+		return queryWindowsProcessExecutable(pid)
+	}
+
+	instances, err := findOtherWindowsUpdateInstances([]string{command.Path}, -1)
+	if err != nil {
+		t.Fatalf("uninspectable candidate must not fail discovery: %v", err)
+	}
+	if len(instances) != 0 {
+		t.Fatalf("uninspectable candidate must be skipped, got %#v", instances)
+	}
+
+	windowsUpdateQueryProcessExecutable = originalQuery
+	instances, err = findOtherWindowsUpdateInstances([]string{command.Path}, -1)
+	if err != nil {
+		t.Fatalf("re-discovery after skip returned error: %v", err)
+	}
+	if len(instances) != 1 || instances[0].PID != uint32(command.Process.Pid) {
+		t.Fatalf("skipping must not terminate the candidate, instances = %#v", instances)
+	}
+}
+
+func TestFindOtherWindowsUpdateInstancesRejectsAccessDeniedCandidate(t *testing.T) {
+	command := startWindowsUpdateHelperProcess(t)
+
+	originalQuery := windowsUpdateQueryProcessExecutable
+	originalDelay := windowsUpdateInspectRetryDelay
+	t.Cleanup(func() {
+		windowsUpdateQueryProcessExecutable = originalQuery
+		windowsUpdateInspectRetryDelay = originalDelay
+	})
+	windowsUpdateInspectRetryDelay = 0
+	windowsUpdateQueryProcessExecutable = func(pid uint32) (string, error) {
+		if pid == uint32(command.Process.Pid) {
+			return "", windows.ERROR_ACCESS_DENIED
+		}
+		return queryWindowsProcessExecutable(pid)
+	}
+
+	_, err := findOtherWindowsUpdateInstances([]string{command.Path}, -1)
+	if err == nil || !containsUpdateInspectFailure(err.Error()) {
+		t.Fatalf("access denied candidate error = %v, want inspect possible GoNavi process", err)
+	}
+}
+
+func containsUpdateInspectFailure(message string) bool {
+	return strings.Contains(message, "inspect possible GoNavi process") && strings.Contains(message, "Access is denied")
+}
+
+func TestConvertWindowsDevicePathToDrivePath(t *testing.T) {
+	targets := map[string]string{
+		"C:": `\Device\HarddiskVolume3`,
+		"D:": `\Device\HarddiskVolume7`,
+	}
+	lookup := func(drive string) (string, error) {
+		if target, ok := targets[drive]; ok {
+			return target, nil
+		}
+		return "", errors.New("no mapping")
+	}
+
+	got, ok := convertWindowsDevicePathToDrivePath(`\Device\HarddiskVolume3\Tools\GoNavi.exe`, lookup)
+	if !ok || got != `C:\Tools\GoNavi.exe` {
+		t.Fatalf("device path conversion = (%q, %v), want C drive path", got, ok)
+	}
+	got, ok = convertWindowsDevicePathToDrivePath(`\Device\HarddiskVolume7\Data\GoNavi\GoNavi.exe`, lookup)
+	if !ok || got != `D:\Data\GoNavi\GoNavi.exe` {
+		t.Fatalf("second drive conversion = (%q, %v), want D drive path", got, ok)
+	}
+	if _, ok = convertWindowsDevicePathToDrivePath(`\Device\HarddiskVolume30\App\GoNavi.exe`, lookup); ok {
+		t.Fatal("volume number prefix collision must not map")
+	}
+	if _, ok = convertWindowsDevicePathToDrivePath(`C:\Tools\GoNavi.exe`, lookup); ok {
+		t.Fatal("non-device path must not map")
+	}
+	if _, ok = convertWindowsDevicePathToDrivePath(`\Device\HarddiskVolume99\App\GoNavi.exe`, lookup); ok {
+		t.Fatal("unmapped volume must not map")
+	}
 }
 
 func TestCloseWindowsUpdateInstancesTerminatesProcessesWithoutWindows(t *testing.T) {

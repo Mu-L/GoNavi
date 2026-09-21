@@ -39,11 +39,19 @@ const REQUIRED_KEYS = [
   'ai_settings.form.model_catalog.upstream',
   'ai_settings.form.inline_completion_model',
   'ai_settings.models.sync_upstream',
+  'ai_settings.models.sync_cli',
+  'ai_settings.models.sync_cli_success',
+  'ai_settings.models.sync_cli_failed',
+  'ai_settings.models.sync_cli_empty',
   'ai_settings.models.sync_success',
   'ai_settings.models.sync_failed',
   'ai_settings.models.sync_empty',
   'ai_settings.provider.save_changes',
   'ai_settings.action.test',
+  'ai_settings.test.error.details',
+  'ai_settings.test.error.hide',
+  'ai_settings.test.error.copy',
+  'ai_settings.test.error.copied',
   'common.edit',
   'common.cancel',
 ] as const;
@@ -118,12 +126,23 @@ describe('AISettingsProvidersSection', () => {
     expect(providerStyles).toContain('.gonavi-ai-provider-model-sync');
     expect(providerStyles).toContain('.gonavi-ai-provider-cli-path-field { width: min(100%, 680px); }');
     expect(providerStyles).toContain('.gonavi-ai-provider-cli-path-mode.is-auto');
+    expect(providerStyles).toContain('.gonavi-ai-provider-footer { flex-shrink: 0; display: flex; flex-direction: column; min-width: 0; }');
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-actions \{[^}]*flex-wrap: nowrap;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-summary \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-disclosure \{[^}]*justify-content: flex-end;[^}]*min-width: 0;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-result-toggle,[^{]*\{[^}]*max-width: 100%;[^}]*text-overflow: ellipsis;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-test-error-body \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/);
   });
 
   it('lets enlarged model actions define the form label row height without clipping', () => {
     expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label \{[^}]*overflow: visible;/);
-    expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label > label \{[^}]*height: auto;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label \{[^}]*width: 100%;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label \{[^}]*align-self: stretch;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label > label \{[^}]*display: flex;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-editor \.ant-form-item-label > label \{[^}]*height: auto/);
     expect(providerStyles).toContain('.gonavi-ai-provider-basic-fields > .ant-form-item .ant-form-item-label > label { min-height: 32px; }');
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-model-label \{[^}]*width: 100%;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-model-meta \{[^}]*margin-left: auto;/);
   });
 
   it('centers provider rows and partner badges independently of custom UI font metrics', () => {
@@ -147,6 +166,7 @@ describe('AISettingsProvidersSection', () => {
     expect(markup).toContain('Provider catalog');
     expect(markup).toContain('gonavi-ai-provider-chips');
     expect(markup).toContain('gonavi-ai-provider-row gonavi-ai-provider-chip is-active');
+    expect(markup).toContain('is-draggable');
     expect(markup).toContain('gonavi-ai-provider-add-preset-select');
     expect(markup).toContain('Default');
     expect(markup).not.toContain('gonavi-ai-provider-config-card');
@@ -159,11 +179,61 @@ describe('AISettingsProvidersSection', () => {
     expect(markup).not.toContain('gonavi-ai-provider-config-empty');
   });
 
-  it('renders the connected tree node as the compact configured-provider list', () => {
+  it('renders the connected tree node as a full-width configured-provider list', () => {
     const markup = wrap({ treeHostedView: 'connected' });
-    expect(markup).toContain('gonavi-ai-provider-chips');
+    expect(markup).toContain('is-connected-only');
+    expect(markup).toContain('data-connected-list="true"');
+    expect(markup).toContain('gonavi-ai-provider-connected-title');
+    expect(markup).toContain('gonavi-ai-provider-connected-hint');
+    expect(markup).toContain('gpt-4o');
+    expect(markup).toContain('/icons/ai/openai.svg');
+    expect(markup).toContain('Search name, provider or model');
+    expect(markup).not.toContain('gonavi-ai-provider-density');
     expect(markup).not.toContain('gonavi-ai-provider-config-card');
     expect(markup).not.toContain('Provider catalog');
+    expect(markup).toContain('is-draggable');
+  });
+
+  it('shows the selected vendor brand logo on each connected provider row', () => {
+    const markup = wrap({
+      treeHostedView: 'connected',
+      providers: [
+        { ...provider, id: 'openai-1', name: 'codex', type: 'custom', apiFormat: 'codex-cli', model: 'gpt-5.6-sol' },
+        { ...provider, id: 'grok-1', name: 'Grok', type: 'custom', apiFormat: 'grok-cli', model: 'grok-4.6' },
+        { ...provider, id: 'cursor-1', name: 'Cursor Ultra', type: 'custom', apiFormat: 'cursor-cli', model: 'cursor-grok-4.6-high' },
+      ],
+      activeProviderId: 'cursor-1',
+      resolveProviderPreset: (item) => {
+        if (item.apiFormat === 'grok-cli') return { key: 'grok', label: 'Grok', icon: <span>G</span> };
+        if (item.apiFormat === 'cursor-cli') return { key: 'cursor', label: 'Cursor', icon: <span>C</span> };
+        return { key: 'openai', label: 'OpenAI', icon: <span>O</span> };
+      },
+    });
+    expect(markup).toContain('/icons/ai/openai.svg');
+    expect(markup).toContain('/icons/ai/grok.svg');
+    expect(markup).toContain('/icons/ai/cursor.svg');
+  });
+
+  it('lays the connected provider page out as a scrolling full-width list', () => {
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only {');
+    expect(providerStyles).toContain('flex-direction: column');
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only .gonavi-ai-provider-chips');
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only .gonavi-ai-provider-chip {');
+    expect(providerStyles).toContain('width: 100%');
+    expect(providerStyles).toContain('.gonavi-ai-provider-connected-title');
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only .gonavi-ai-provider-icon {');
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only .gonavi-ai-provider-icon .gonavi-ai-provider-logo');
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-management\.is-connected-only \.gonavi-ai-provider-icon \{[^}]*background: transparent;/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-management\.is-connected-only \.gonavi-ai-provider-name \{[^}]*font-size: var\(--gn-settings-font-body, var\(--gn-font-size, 14px\)\);/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-management\.is-connected-only \.gonavi-ai-provider-chip-model \{[^}]*font-size: var\(--gn-settings-font-body, var\(--gn-font-size, 14px\)\);/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-management\.is-connected-only \.gonavi-ai-provider-current \{[^}]*font-size: var\(--gn-settings-font-body, var\(--gn-font-size, 14px\)\);/);
+    expect(providerStyles).toMatch(/\.gonavi-ai-provider-management\.is-connected-only \.gonavi-ai-provider-chip-remove \{[^}]*width: var\(--gn-control-height, 32px\);/);
+    expect(providerStyles).toContain('.gonavi-ai-provider-chip.is-draggable');
+    expect(providerStyles).toContain('.gonavi-ai-provider-chip.is-drag-placeholder');
+    expect(providerStyles).toContain('.gonavi-ai-provider-management.is-connected-only .gonavi-ai-provider-toolbar-end');
+    expect(providerStyles).toContain('min-width: min(20rem, 100%)');
+    expect(providerStyles).toContain('max-width: 32rem');
+    expect(providerStyles).toContain('@container connected-providers');
   });
 
   it('renders the restored vertical editor while retaining the provider dropdown', () => {
@@ -198,6 +268,29 @@ describe('AISettingsProvidersSection', () => {
     expect(markup).toContain('gonavi-ai-provider-kv-add');
     expect(markup).not.toContain('gonavi-ai-provider-connection-fields is-inline');
     expect(markup).not.toContain('Connection field layout');
+  });
+
+  it('keeps a long test error in the alert and exposes a details entry without dropping Test or Save', () => {
+    const trailingReason = 'TLS handshake failed: certificate has expired';
+    const message = `${'upstream rejected the request at https://api.example.invalid/v1/chat/completions. '.repeat(3)}${trailingReason}`;
+    const markup = wrap({
+      isEditing: true,
+      editingProvider: provider,
+      watchedPresetKey: 'openai',
+      watchedApiFormat: 'openai',
+      testStatus: 'error',
+      testResult: { success: false, checkKind: 'none', modelVerified: false, message },
+    });
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('data-error="true"');
+    expect(markup).toContain(trailingReason);
+    expect(markup).toContain('View full error');
+    expect(markup).toContain('aria-controls="gonavi-ai-provider-test-error-details"');
+    expect(markup).toContain('gonavi-ai-provider-test-result-toggle');
+    expect(markup).toContain('Test connection');
+    expect(markup).toContain('Save changes');
+    expect(markup).toContain('gonavi-ai-provider-footer');
+    expect(markup).not.toContain('class="gonavi-ai-provider-test-error-details"');
   });
 
   it('keeps a single API format as a read-only input', () => {

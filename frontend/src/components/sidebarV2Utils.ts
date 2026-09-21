@@ -9,13 +9,15 @@ import {
   resolveSidebarRootOrderTokens,
 } from '../store';
 import type { ConnectionDisplaySortMode, ConnectionTag, SavedConnection, TabData } from '../types';
-import type { SidebarTableMetadataField } from '../utils/sidebarTableMetadata';
+import type { SidebarTreeNodeType } from './sidebar/sidebarTreeNodeTypes';
+export type { SidebarTreeNodeType } from './sidebar/sidebarTreeNodeTypes';
 import { readTableAccessCount } from '../utils/tableAccessCount';
+import type { SidebarTableSortPreference } from '../utils/sidebarTreeOrder';
 import { t } from '../i18n';
 import { t as catalogTranslate } from '../i18n/catalog';
 import {
-  buildSidebarTableMetadataDisplayItems,
-  buildSidebarTableMetadataSnapshot,
+  matchesSidebarSearchText,
+  normalizeSidebarSearchText,
 } from './sidebar/sidebarHelpers';
 
 type SidebarV2Translate = (key: string) => string;
@@ -24,49 +26,6 @@ const translateSidebarV2Current: SidebarV2Translate = (key) => t(key);
 const translateSidebarV2ZhCN: SidebarV2Translate = (key) => catalogTranslate('zh-CN', key);
 
 export type SidebarConnectionState = 'loading' | 'success' | 'error';
-
-export type SidebarTreeNodeType =
-  | 'connection'
-  | 'database'
-  | 'message-namespace'
-  | 'message-object'
-  | 'message-object-group'
-  | 'table'
-  | 'view'
-  | 'materialized-view'
-  | 'db-trigger'
-  | 'db-event'
-  | 'routine'
-  | 'sequence'
-  | 'package'
-  | 'object-group'
-  | 'v2-database-section'
-  | 'v2-table-section'
-  | 'queries-folder'
-  | 'saved-query'
-  | 'all-saved-queries'
-  | 'saved-query-group'
-  | 'saved-query-manual-group'
-  | 'unmatched-saved-queries'
-  | 'external-sql-root'
-  | 'external-sql-directory'
-  | 'external-sql-folder'
-  | 'external-sql-file'
-  | 'folder-columns'
-  | 'folder-indexes'
-  | 'folder-fks'
-  | 'folder-triggers'
-  | 'redis-db'
-  | 'nacos-namespace'
-  | 'nacos-config-entry'
-  | 'nacos-config-group'
-  | 'nacos-services-entry'
-  | 'nacos-service-group'
-  | 'tag'
-  | 'jvm-mode'
-  | 'jvm-resource'
-  | 'jvm-diagnostic'
-  | 'jvm-monitoring';
 
 export interface SidebarTreeNode {
   title: string;
@@ -264,7 +223,7 @@ export const replaceSidebarTreeNodeChildren = (
 };
 
 // Keep these values aligned with the V2 explorer tree layout in v2-theme.css.
-const V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX = 32;
+const V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX = 0;
 const V2_TREE_CONTENT_TOP_PADDING_PX = 4;
 
 export const resolveSidebarTreeVirtualHeight = (
@@ -396,8 +355,6 @@ export const resolveSidebarTableNameForCopy = (
     || '',
   ).trim();
 };
-
-type SidebarTableSortPreference = 'name' | 'frequency';
 
 type SidebarTableEntryForSort = {
   tableName: string;
@@ -958,151 +915,19 @@ export const getV2RailConnectionGroupBadgeText = (name: unknown, fallback = t('c
   return trimmed.slice(0, 2);
 };
 
-export type V2ExplorerFilter = 'all' | 'tables' | 'views' | 'sequences' | 'routines' | 'packages' | 'events';
+// The filter dimension, its button ordering and the tree-narrowing rules now live
+// in `./sidebar/sidebarExplorerFilter`, which this file is too large to keep
+// hosting (AGENTS.md §1.1). Re-exported here so existing importers are untouched.
+export type { V2ExplorerFilter } from './sidebar/sidebarExplorerFilter';
+export {
+  buildV2ExplorerFilterOptions,
+  V2_EXPLORER_FILTER_OPTIONS,
+  V2_EXPLORER_FILTER_LABEL_KEYS,
+  filterV2ExplorerTreeByKind,
+} from './sidebar/sidebarExplorerFilter';
 
-export const buildV2ExplorerFilterOptions = (
-  translate: SidebarV2Translate = translateSidebarV2Current,
-): Array<{ key: V2ExplorerFilter; label: string }> => [
-  { key: 'all', label: translate('sidebar.command_search.object_kind.all') },
-  { key: 'tables', label: translate('sidebar.command_search.object_kind.tables') },
-  { key: 'views', label: translate('sidebar.command_search.object_kind.views') },
-  { key: 'sequences', label: translate('sidebar.command_search.object_kind.sequences') },
-  { key: 'routines', label: translate('sidebar.command_search.object_kind.routines') },
-  { key: 'packages', label: translate('sidebar.command_search.object_kind.packages') },
-  { key: 'events', label: translate('sidebar.command_search.object_kind.events') },
-];
+export const V2_TREE_HORIZONTAL_SCROLL_BOTTOM_RESERVE = 0;
 
-export const V2_EXPLORER_FILTER_OPTIONS: Array<{ key: V2ExplorerFilter; label: string }> = buildV2ExplorerFilterOptions(translateSidebarV2ZhCN);
-
-const V2_EXPLORER_FILTER_GROUP_KEYS: Record<Exclude<V2ExplorerFilter, 'all'>, string[]> = {
-  tables: ['tables'],
-  views: ['views', 'materializedViews'],
-  sequences: ['sequences'],
-  routines: ['routines'],
-  packages: ['packages'],
-  events: ['events'],
-};
-
-const V2_TREE_HORIZONTAL_SCROLL_MAX_WIDTH = 2600;
-const V2_TREE_HORIZONTAL_SCROLL_BASE_WIDTH = 88;
-const V2_TREE_HORIZONTAL_SCROLL_INDENT_WIDTH = 24;
-const V2_TREE_HORIZONTAL_SCROLL_AVG_CHAR_WIDTH = 8;
-const V2_TREE_HORIZONTAL_SCROLL_ITEM_GAP_WIDTH = 5;
-const V2_TREE_HORIZONTAL_SCROLL_COMMENT_MAX_CHARS = 32;
-const V2_TREE_HORIZONTAL_SCROLL_VIEWPORT_BUFFER = 48;
-export const V2_TREE_HORIZONTAL_SCROLL_BOTTOM_RESERVE = 32;
-
-/**
- * 层层（可见层）估算横滚宽度：
- * - 只统计当前展开路径上可见的节点（含超长连接名/分组名）
- * - 不统计折叠子树里的长表名
- */
-export const estimateV2TreeHorizontalScrollWidth = (
-  nodes: SidebarTreeNode[],
-  viewportWidth: number,
-  sidebarTableMetadataFields: SidebarTableMetadataField[] = [],
-  expandedKeys: ReadonlyArray<Key> = [],
-): number | undefined => {
-  const safeViewportWidth = Math.max(0, Math.ceil(viewportWidth || 0));
-  let estimatedContentWidth = safeViewportWidth;
-  const expandedKeySet = new Set(expandedKeys.map((key) => String(key)));
-
-  const visit = (items: SidebarTreeNode[], depth: number) => {
-    items.forEach((node) => {
-      const title = String(node?.title || '');
-      const tableMetadataItems = node?.type === 'table'
-        ? buildSidebarTableMetadataDisplayItems(
-            sidebarTableMetadataFields,
-            buildSidebarTableMetadataSnapshot(node?.dataRef),
-          )
-        : [];
-      const metaText = tableMetadataItems.length > 0
-        ? tableMetadataItems
-          .map((item) => item.key === 'comment'
-            ? item.text.slice(0, V2_TREE_HORIZONTAL_SCROLL_COMMENT_MAX_CHARS)
-            : item.text)
-          .join('')
-        : node?.dataRef?.groupKey === 'tables' && Array.isArray(node.children)
-          ? String(node.children.length)
-          : '';
-      const metaItemCount = tableMetadataItems.length > 0
-        ? tableMetadataItems.length
-        : metaText
-          ? 1
-          : 0;
-      const nodeWidth = V2_TREE_HORIZONTAL_SCROLL_BASE_WIDTH
-        + (depth * V2_TREE_HORIZONTAL_SCROLL_INDENT_WIDTH)
-        + ((title.length + metaText.length) * V2_TREE_HORIZONTAL_SCROLL_AVG_CHAR_WIDTH)
-        + (metaItemCount * V2_TREE_HORIZONTAL_SCROLL_ITEM_GAP_WIDTH);
-      estimatedContentWidth = Math.max(estimatedContentWidth, nodeWidth);
-      // 仅进入已展开节点的子层
-      if (node.children?.length && expandedKeySet.has(String(node.key))) {
-        visit(node.children, depth + 1);
-      }
-    });
-  };
-  visit(nodes, 0);
-
-  if (estimatedContentWidth <= safeViewportWidth + 8) {
-    return undefined;
-  }
-  // 只按内容宽度给 scrollWidth，避免 viewport+buffer 造出“假空白”可滚区间
-  const scrollWidth = Math.min(
-    V2_TREE_HORIZONTAL_SCROLL_MAX_WIDTH,
-    Math.ceil(estimatedContentWidth),
-  );
-  return scrollWidth;
-};
-
-export const filterV2ExplorerTreeByKind = (
-  nodes: SidebarTreeNode[],
-  filter: V2ExplorerFilter,
-): SidebarTreeNode[] => {
-  if (filter === 'all') return nodes;
-  const allowedGroupKeys = new Set(V2_EXPLORER_FILTER_GROUP_KEYS[filter]);
-  const objectTypeMatches = (node: SidebarTreeNode): boolean => {
-    if (filter === 'tables') return node.type === 'table';
-    if (filter === 'views') return node.type === 'view' || node.type === 'materialized-view';
-    if (filter === 'sequences') return node.type === 'sequence';
-    if (filter === 'routines') return node.type === 'routine';
-    if (filter === 'packages') return node.type === 'package';
-    if (filter === 'events') return node.type === 'db-event';
-    return false;
-  };
-
-  const visit = (node: SidebarTreeNode): SidebarTreeNode | null => {
-    if (node.type === 'external-sql-root') {
-      return null;
-    }
-    // Relational filters have no semantic equivalent for a broker. Keep the
-    // complete MQ namespace visible instead of making the explorer look empty
-    // when the user switches from a database connection with a filter active.
-    if (node.type === 'message-namespace') {
-      return node;
-    }
-    const groupKey = String(node?.dataRef?.groupKey || '');
-    if (node.type === 'object-group') {
-      if (allowedGroupKeys.has(groupKey)) {
-        return node;
-      }
-      if (groupKey === 'schema') {
-        const schemaChildren = (node.children || []).map(visit).filter(Boolean) as SidebarTreeNode[];
-        return schemaChildren.length > 0 ? { ...node, children: schemaChildren, isLeaf: false } : null;
-      }
-      return null;
-    }
-    if (objectTypeMatches(node)) {
-      return node;
-    }
-    if (node.type === 'database') {
-      const filteredChildren = (node.children || []).map(visit).filter(Boolean) as SidebarTreeNode[];
-      return filteredChildren.length > 0 ? { ...node, children: filteredChildren, isLeaf: false } : null;
-    }
-    return null;
-  };
-
-  return nodes.map(visit).filter(Boolean) as SidebarTreeNode[];
-};
 
 export type V2CommandSearchItem =
   | {
@@ -1162,7 +987,7 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
       mode: 'object',
       rawValue,
       keyword,
-      normalizedKeyword: keyword.toLowerCase(),
+      normalizedKeyword: normalizeSidebarSearchText(keyword),
       aiPrompt: '',
     };
   }
@@ -1173,7 +998,7 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
       mode: 'ai',
       rawValue,
       keyword: aiPrompt,
-      normalizedKeyword: aiPrompt.toLowerCase(),
+      normalizedKeyword: normalizeSidebarSearchText(aiPrompt),
       aiPrompt,
     };
   }
@@ -1182,7 +1007,7 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
     mode: 'default',
     rawValue,
     keyword: trimmedValue,
-    normalizedKeyword: trimmedValue.toLowerCase(),
+    normalizedKeyword: normalizeSidebarSearchText(trimmedValue),
     aiPrompt: '',
   };
 };
@@ -1191,9 +1016,8 @@ const isV2CommandSearchObjectNode = (node: SidebarTreeNode): boolean => {
   return node.type === 'table'
     || node.type === 'view'
     || node.type === 'materialized-view'
-    || node.type === 'sequence'
-    || node.type === 'package'
-    || node.type === 'message-object';
+    || node.type === 'sequence' || node.type === 'package'
+    || node.type === 'database-link' || node.type === 'message-object';
 };
 
 export const V2_COMMAND_SEARCH_INITIAL_TREE_LIMIT = 24;
@@ -1214,8 +1038,8 @@ export const buildV2CommandSearchTreeIndex = (
     }
     seenKeys.add(dedupeKey);
     const dataRef = item.node.dataRef || {};
-    const normalizedTitle = String(item.title || '').toLowerCase();
-    const normalizedPrimaryObjectText = String(
+    const normalizedTitle = normalizeSidebarSearchText(item.title);
+    const normalizedPrimaryObjectText = normalizeSidebarSearchText(
       dataRef.messageObjectName
       || dataRef.topicName
       || dataRef.queueName
@@ -1223,14 +1047,14 @@ export const buildV2CommandSearchTreeIndex = (
       || dataRef.tableName
       || dataRef.viewName
       || dataRef.sequenceName
-      || dataRef.packageName
+      || dataRef.packageName || dataRef.databaseLinkName
       || item.title
       || '',
-    ).toLowerCase();
+    );
 
     return [{
       item,
-      normalizedSearchText: [
+      normalizedSearchText: normalizeSidebarSearchText([
         item.title,
         item.meta,
         dataRef.messageObjectName,
@@ -1241,11 +1065,14 @@ export const buildV2CommandSearchTreeIndex = (
         dataRef.viewName,
         dataRef.sequenceName,
         dataRef.packageName,
+        dataRef.tableComment,
         dataRef.dbName,
         dataRef.name,
         dataRef.config?.host,
-      ].filter(Boolean).join(' ').toLowerCase(),
-      normalizedObjectText: `${normalizedPrimaryObjectText} ${normalizedTitle}`.trim(),
+      ].filter(Boolean).join(' ')),
+      normalizedObjectText: normalizeSidebarSearchText(
+        `${normalizedPrimaryObjectText} ${String(dataRef.tableComment || '').trim()} ${normalizedTitle}`,
+      ),
       objectNode: isV2CommandSearchObjectNode(item.node),
     }];
   });
@@ -1272,7 +1099,9 @@ export const filterV2CommandSearchTreeItems = (
     }
     if (!normalizedKeyword) {
       result.push(entry.item);
-    } else if (objectMode ? entry.normalizedObjectText.includes(normalizedKeyword) : entry.normalizedSearchText.includes(normalizedKeyword)) {
+    } else if (objectMode
+      ? matchesSidebarSearchText(entry.normalizedObjectText, normalizedKeyword)
+      : matchesSidebarSearchText(entry.normalizedSearchText, normalizedKeyword)) {
       result.push(entry.item);
     }
     if (result.length >= maxResults) {
@@ -1447,7 +1276,8 @@ export const resolveSidebarTreeDropPlacement = ({
   fallbackInsertBefore,
   metrics,
 }: SidebarTreeDropPlacementOptions): SidebarTreeDropPlacement => {
-  const isHostMovingToGroup = dragNodeType === 'connection' && dropNodeType === 'tag';
+  const isHostMovingToGroup = (dragNodeType === 'connection' || dragNodeType === 'tag')
+    && dropNodeType === 'tag';
   if (isHostMovingToGroup) {
     const clientY = metrics?.clientY;
     const top = metrics?.top;
@@ -1465,8 +1295,9 @@ export const resolveSidebarTreeDropPlacement = ({
       const offset = clientY - top;
       if (offset < edgeSize) return 'before';
       if (offset > height - edgeSize) return 'after';
+      return 'inside';
     }
-    return 'inside';
+    if (dragNodeType === 'connection') return 'inside';
   }
 
   if (

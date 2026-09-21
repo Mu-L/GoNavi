@@ -64,7 +64,7 @@ describe('AIMCPClientInstallPanel', () => {
 
     expect(markup).toContain('This connects GoNavi MCP to supported local clients or remote Agents');
     expect(markup).toContain('external tool calls');
-    expect(markup).toContain('After their local command is detected, Claude Code, Codex, OpenCode, ZCode, DeepSeek Harness, Kimi Code, and Grok Build can receive a user-level MCP config');
+    expect(markup).toContain('After their local command is detected, Claude Code, Codex, OpenCode, Cursor, ZCode, DeepSeek Harness, Kimi Code, and Grok Build can receive a user-level MCP config');
     expect(markup).toContain('Cloud Agents such as OpenClaw and Hermans use remote connection guidance');
     expect(markup).toContain('Connect external client');
     expect(markup).toContain('Select external client');
@@ -368,5 +368,71 @@ describe('AIMCPClientInstallPanel', () => {
 
     expect(markup).toContain('Selected client status');
     expect(markup).toContain('Current status: Connected to current GoNavi; no repeated action needed');
+  });
+
+  it('exposes a batch update button for locally detected clients that need updating', () => {
+    const markup = renderToStaticMarkup(
+      <AIMCPClientInstallPanel
+        statuses={[
+          {
+            client: 'claude-code',
+            displayName: 'Claude Code',
+            installMode: 'auto',
+            installed: true,
+            matchesCurrent: false,
+            clientDetected: true,
+            clientCommand: 'claude',
+            message: 'stale',
+          },
+          {
+            client: 'codex',
+            displayName: 'Codex',
+            installMode: 'auto',
+            installed: true,
+            matchesCurrent: false,
+            clientDetected: true,
+            clientCommand: 'codex',
+            message: 'stale',
+          },
+          {
+            client: 'opencode',
+            displayName: 'OpenCode',
+            installMode: 'auto',
+            installed: false,
+            matchesCurrent: false,
+            clientDetected: false,
+            clientCommand: 'opencode',
+            message: 'missing',
+          },
+        ]}
+        selectedClient="claude-code"
+        selectedStatus={{
+          client: 'claude-code',
+          displayName: 'Claude Code',
+          installMode: 'auto',
+          installed: true,
+          matchesCurrent: false,
+          clientDetected: true,
+          clientCommand: 'claude',
+          message: 'stale',
+        }}
+        selectedCommandText="gonavi-mcp-server stdio"
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        cardBg="#fff"
+        cardBorder="rgba(0,0,0,0.08)"
+        loading={false}
+        statusLoading={false}
+        onSelectClient={() => {}}
+        onRefreshStatus={() => {}}
+        onCopyConfigPath={() => {}}
+        onCopyLaunchCommand={() => {}}
+        onInstall={() => {}}
+        onUpdateStaleClients={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('Update all that need updating (2)');
+    expect(markup).toContain('Update Claude Code connection config');
   });
 });

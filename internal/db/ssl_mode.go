@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"net"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -102,14 +103,20 @@ func resolvePostgresSSLMode(config connection.ConnectionConfig) string {
 func resolveSQLServerTLSSettings(config connection.ConnectionConfig) (encrypt string, trustServerCertificate string) {
 	switch normalizedSSLMode(config) {
 	case sslModeDisable:
-		return "disable", "true"
+		encrypt, trustServerCertificate = "disable", "true"
 	case sslModeRequired:
-		return "true", "false"
+		encrypt, trustServerCertificate = "true", "false"
 	case sslModeSkipVerify:
-		return "true", "true"
+		encrypt, trustServerCertificate = "true", "true"
 	default:
-		return "false", "true"
+		encrypt, trustServerCertificate = "false", "true"
 	}
+	if looksLikeAzureSQLHost(config.Host) && (encrypt == "disable" || encrypt == "false") {
+		// Azure SQL Database / Synapse require TDS encryption. Leaving encrypt
+		// disabled can still complete login and then hang later catalog queries.
+		return "true", "true"
+	}
+	return encrypt, trustServerCertificate
 }
 
 func applyPostgresSSLPathParams(params interface{ Set(string, string) }, config connection.ConnectionConfig) {
@@ -174,4 +181,55 @@ func resolveTDengineNet(config connection.ConnectionConfig) string {
 		return "ws"
 	}
 	return "wss"
+}
+
+var azureSQLHostSuffixes = []string{
+	".database.windows.net",
+	".database.secure.windows.net",
+	".database.chinacloudapi.cn",
+	".database.cloudapi.de",
+	".database.usgovcloudapi.net",
+	".sql.azuresynapse.net",
+}
+
+func looksLikeAzureSQLHost(host string) bool {
+	return azureSQLHostNameInCertificate(host) != ""
+}
+
+func normalizeSQLServerHost(host string) string {
+	normalized := strings.TrimSpace(host)
+	if normalized == "" {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(normalized); err == nil {
+		normalized = h
+	}
+	normalized = strings.Trim(normalized, "[]")
+	if len(normalized) > 1 {
+		normalized = strings.TrimSuffix(normalized, ".")
+	}
+	return normalized
+}
+
+// sqlServerHostNameInCertificate returns the certificate name to verify for a
+// SQL Server endpoint. Azure uses the wildcard issued by Microsoft; all other
+// hosts use the original remote host instead of the SSH local forward address.
+func sqlServerHostNameInCertificate(host string) string {
+	if hostNameInCertificate := azureSQLHostNameInCertificate(host); hostNameInCertificate != "" {
+		return hostNameInCertificate
+	}
+	return normalizeSQLServerHost(host)
+}
+
+func azureSQLHostNameInCertificate(host string) string {
+	normalized := strings.ToLower(normalizeSQLServerHost(host))
+	if normalized == "" {
+		return ""
+	}
+	for _, suffix := range azureSQLHostSuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			return "*" + suffix
+		}
+	}
+	return ""
 }

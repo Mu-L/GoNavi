@@ -30,6 +30,7 @@ const openCodeStatus = {
 };
 
 const additionalAutoMCPClients = [
+  ['cursor', 'Cursor', 'AIInstallCursorMCP'],
   ['zcode', 'ZCode', 'AIInstallZCodeMCP'],
   ['deepseek-harness', 'DeepSeek Harness', 'AIInstallDeepSeekHarnessMCP'],
   ['kimi', 'Kimi Code', 'AIInstallKimiMCP'],
@@ -37,6 +38,16 @@ const additionalAutoMCPClients = [
 ] as const;
 
 const additionalAutoMCPClientStatuses = [
+  {
+    client: 'cursor',
+    displayName: 'Cursor',
+    installMode: 'auto' as const,
+    installed: false,
+    matchesCurrent: false,
+    clientDetected: true,
+    clientCommand: 'cursor',
+    message: 'No Cursor user-level GoNavi MCP configuration was detected',
+  },
   {
     client: 'zcode',
     displayName: 'ZCode',
@@ -88,6 +99,15 @@ const translate = (
   }
   if (key === 'ai_chat.mcp_client.install.message.install_success') {
     return `T: installed ${params?.label}`;
+  }
+  if (key === 'ai_chat.mcp_client.install.message.update_all_success') {
+    return `T: updated ${params?.count} ${params?.labels}`;
+  }
+  if (key === 'ai_chat.mcp_client.install.message.update_all_none') {
+    return 'T: none';
+  }
+  if (key === 'ai_chat.mcp_client.install.message.update_all_partial') {
+    return `T: partial ${params?.updated} ${params?.failed}`;
   }
   return key;
 };
@@ -189,6 +209,7 @@ describe('useAIMCPClientInstaller', () => {
       AIInstallClaudeCodeMCP: vi.fn(async () => ({})),
       AIInstallCodexMCP: vi.fn(async () => ({})),
       AIInstallOpenCodeMCP: vi.fn(async () => ({})),
+      AIInstallCursorMCP: vi.fn(async () => ({ success: true })),
       AIInstallZCodeMCP: vi.fn(async () => ({ success: true })),
       AIInstallDeepSeekHarnessMCP: vi.fn(async () => ({ success: true })),
       AIInstallKimiMCP: vi.fn(async () => ({ success: true })),
@@ -214,7 +235,7 @@ describe('useAIMCPClientInstaller', () => {
     expect(service.AIInstallClaudeCodeMCP).not.toHaveBeenCalled();
     expect(service.AIInstallCodexMCP).not.toHaveBeenCalled();
     expect(service.AIInstallOpenCodeMCP).not.toHaveBeenCalled();
-    expect(onConfigChanged).toHaveBeenCalledTimes(4);
+    expect(onConfigChanged).toHaveBeenCalledTimes(5);
   });
 
   it('does not write a local MCP config until the selected client is detected', async () => {
@@ -236,5 +257,85 @@ describe('useAIMCPClientInstaller', () => {
     expect(onBeforeInstall).not.toHaveBeenCalled();
     expect(onAfterInstall).not.toHaveBeenCalled();
     expect(onConfigChanged).not.toHaveBeenCalled();
+  });
+
+  it('updates every locally detected stale client in one action and skips the rest', async () => {
+    const service = {
+      AIGetMCPClientInstallStatuses: vi.fn(async () => [
+        {
+          client: 'claude-code',
+          displayName: 'Claude Code',
+          installMode: 'auto' as const,
+          installed: true,
+          matchesCurrent: false,
+          clientDetected: true,
+          clientCommand: 'claude',
+          message: 'stale',
+        },
+        {
+          client: 'codex',
+          displayName: 'Codex',
+          installMode: 'auto' as const,
+          installed: true,
+          matchesCurrent: false,
+          clientDetected: true,
+          clientCommand: 'codex',
+          message: 'stale',
+        },
+        {
+          client: 'opencode',
+          displayName: 'OpenCode',
+          installMode: 'auto' as const,
+          installed: true,
+          matchesCurrent: true,
+          clientDetected: true,
+          clientCommand: 'opencode',
+          message: 'connected',
+        },
+        {
+          client: 'cursor',
+          displayName: 'Cursor',
+          installMode: 'auto' as const,
+          installed: false,
+          matchesCurrent: false,
+          clientDetected: true,
+          clientCommand: 'cursor',
+          message: 'missing',
+        },
+        {
+          client: 'kimi',
+          displayName: 'Kimi Code',
+          installMode: 'auto' as const,
+          installed: true,
+          matchesCurrent: false,
+          clientDetected: false,
+          clientCommand: 'kimi',
+          message: 'not detected',
+        },
+      ]),
+      AIInstallClaudeCodeMCP: vi.fn(async () => ({ success: true })),
+      AIInstallCodexMCP: vi.fn(async () => ({ success: true })),
+      AIInstallOpenCodeMCP: vi.fn(async () => ({ success: true })),
+      AIInstallCursorMCP: vi.fn(async () => ({ success: true })),
+      AIInstallKimiMCP: vi.fn(async () => ({ success: true })),
+    };
+    renderInstaller(service);
+
+    await act(async () => {
+      await latestHook!.loadMCPClientStatuses();
+    });
+    await act(async () => {
+      await latestHook!.handleUpdateStaleMCPClients();
+    });
+
+    expect(service.AIInstallClaudeCodeMCP).toHaveBeenCalledTimes(1);
+    expect(service.AIInstallCodexMCP).toHaveBeenCalledTimes(1);
+    expect(service.AIInstallOpenCodeMCP).not.toHaveBeenCalled();
+    expect(service.AIInstallCursorMCP).not.toHaveBeenCalled();
+    expect(service.AIInstallKimiMCP).not.toHaveBeenCalled();
+    expect(onBeforeInstall).toHaveBeenCalledTimes(1);
+    expect(onAfterInstall).toHaveBeenCalledTimes(1);
+    expect(onConfigChanged).toHaveBeenCalledTimes(1);
+    expect(messageApi.success).toHaveBeenCalledWith('T: updated 2 Claude Code, Codex');
   });
 });

@@ -144,6 +144,20 @@ const DATABASE_TOOL_INFO_COPY: DatabaseToolInfoCopy[] = [
     required: ["connectionId", "dbName", "tableName"],
   },
   {
+    name: "get_server_version",
+    icon: "🏷️",
+    desc: "Read the live database server version",
+    detail:
+      "Pass connectionId and return that connection's real server version. Call this before generating SQL so older databases are not given newer-version syntax.",
+    params: "connectionId: connection ID",
+    toolDescription:
+      "Read the live database server version for the specified connection. Call this before generating SQL and use only syntax and functions that version already supports.",
+    parameters: {
+      connectionId: { type: "string", description: "Connection ID (from get_connections)" },
+    },
+    required: ["connectionId"],
+  },
+  {
     name: "get_table_ddl",
     icon: "📝",
     desc: "Get the table creation statement (DDL)",
@@ -215,12 +229,12 @@ const DATABASE_TOOL_INFO_COPY: DatabaseToolInfoCopy[] = [
   {
     name: "execute_sql",
     icon: "▶️",
-    desc: "Execute a SQL query and return results",
+    desc: "Execute a SQL statement and return results",
     detail:
-      "Pass connectionId, dbName, and sql, then execute SQL on the target database and return results (up to 50 rows). Controlled by safety level; read-only mode only allows SELECT/SHOW/DESCRIBE.",
+      "Pass connectionId, dbName, and sql, then execute SQL. Follows safety control: read-only queries, read/write DML, full DDL. Query results default to 50 rows.",
     params: "connectionId, dbName, sql",
     toolDescription:
-      "Execute SQL on the specified connection and database and return results. Controlled by safety level; read-only mode only allows query operations such as SELECT/SHOW/DESCRIBE. Results return at most 50 rows.",
+      "Execute SQL on the specified connection and database. Same safety controls as the built-in assistant: read-only queries, read/write DML, full DDL. Calling this tool is the confirmation. Query results default to 50 rows.",
     parameters: {
       connectionId: { type: "string", description: "Connection ID" },
       dbName: { type: "string", description: "Database name" },

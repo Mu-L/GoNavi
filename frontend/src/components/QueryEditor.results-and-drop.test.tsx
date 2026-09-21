@@ -462,8 +462,10 @@ vi.mock('@ant-design/icons', () => {
     HistoryOutlined: Icon,
     KeyOutlined: Icon,
     TableOutlined: Icon,
+    ApiOutlined: Icon,
     ArrowLeftOutlined: Icon,
     ArrowRightOutlined: Icon,
+    LoadingOutlined: Icon,
     PlayCircleOutlined: Icon,
     SaveOutlined: Icon,
     UndoOutlined: Icon,
@@ -474,6 +476,7 @@ vi.mock('@ant-design/icons', () => {
     ThunderboltOutlined: Icon,
     DownOutlined: Icon,
     RobotOutlined: Icon,
+    AimOutlined: Icon,
     SearchOutlined: Icon,
     DatabaseOutlined: Icon,
     EyeOutlined: Icon,
@@ -524,6 +527,15 @@ vi.mock('antd', () => {
     Space,
     Table,
     Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    Spin: () => <div className="mock-spin" />,
+    Checkbox: ({ children, checked, onChange }: any) => (
+      <label>
+        <input type="checkbox" checked={!!checked} onChange={(event) => onChange?.({ target: { checked: event.target.checked } })} />
+        {children}
+      </label>
+    ),
+    DatePicker: ({ value }: any) => <input data-mock="datepicker" value={value || ''} />,
+    InputNumber: ({ value }: any) => <input data-mock="inputnumber" value={value ?? ''} />,
     Empty,
     message: messageApi,
     Modal: ({ children, open, onOk, okText = '确认' }: any) => (open ? (
@@ -1071,6 +1083,90 @@ describe('QueryEditor external SQL save', () => {
     renderer?.unmount();
   });
 
+  it('warns that a write executed without a managed transaction cannot be rolled back', async () => {
+    // DDL 在后端 shouldUseManagedSQLTransaction 中不算可托管写操作，
+    // 会以 autocommit 直接落地：必须显式告知不可撤销。
+    backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'DROP TABLE tmp_table;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    expect(storeState.sqlEditorPendingTransactions['tab-1']).toBeUndefined();
+    renderer?.unmount();
+  });
+
+  it('does not warn about rollback for a write inside a managed transaction', async () => {
+    backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
+      success: true,
+      transactionId: 'tx-managed',
+      transactionPending: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'DELETE FROM users WHERE id = 1;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    expect(storeState.sqlEditorPendingTransactions['tab-1']).toMatchObject({ id: 'tx-managed' });
+    renderer?.unmount();
+  });
+
+  it('does not warn about rollback for a pure read', async () => {
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['id'], rows: [{ id: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'SELECT * FROM users;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    renderer?.unmount();
+  });
+
   it('runs a connection-scoped SQLite query without requiring a database name', async () => {
     storeState.connections[0].config.type = 'sqlite';
     storeState.connections[0].config.database = '';
@@ -1267,6 +1363,58 @@ describe('QueryEditor external SQL save', () => {
     expect(executedSql).toContain('p_msg_out := substr');
     expect(executedSql).not.toBe(plsql.split('\n').slice(tailLine - 1).join('\n'));
     expect(executedSql).not.toContain('/;');
+    renderer?.unmount();
+  });
+
+  it('surfaces Oracle ALL_ERRORS after CREATE OR REPLACE instead of pretending execution succeeded', async () => {
+    storeState.connections[0].config.type = 'oracle';
+    storeState.connections[0].config.database = 'ORCLPDB1';
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
+    });
+    backendApp.DBQuery.mockImplementation(async (_config: unknown, _dbName: string, sql: string) => {
+      if (/USER_ERRORS|ALL_ERRORS/i.test(String(sql))) {
+        return {
+          success: true,
+          data: [{
+            object_name: 'CPROC_TZHSSR_ORDER2SALE_A1',
+            object_type: 'PROCEDURE',
+            error_line: 12,
+            error_position: 5,
+            error_text: "PLS-00201: identifier 'MISSING_TABLE' must be declared",
+          }],
+        };
+      }
+      return { success: true, data: [] };
+    });
+    const plsql = [
+      'CREATE OR REPLACE PROCEDURE cproc_tzhssr_order2sale_A1 AS',
+      'BEGIN',
+      '  SELECT * FROM missing_table;',
+      'END;',
+    ].join('\n');
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'ORCLPDB1', query: plsql, queryMode: 'object-edit' })} />);
+    });
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const rendered = textContent(renderer!.toJSON());
+    expect(backendApp.DBQuery.mock.calls.some((call: unknown[]) => /USER_ERRORS|ALL_ERRORS/i.test(String(call[2])))).toBe(true);
+    expect(messageApi.success).not.toHaveBeenCalledWith('执行成功。');
+    expect(messageApi.error).toHaveBeenCalled();
+    expect(String(messageApi.error.mock.calls[0][0])).toContain('PLS-00201');
+    expect(rendered).toContain('PLS-00201');
+    expect(rendered).not.toContain('执行成功');
     renderer?.unmount();
   });
 
@@ -1485,6 +1633,85 @@ describe('QueryEditor external SQL save', () => {
     expect(dataGridState.latestProps?.columnNames).toEqual(['dddwno', 'dddwlist']);
     expect(dataGridState.latestProps?.data?.[0]).toMatchObject({ dddwno: '001', dddwlist: 'demo' });
     expect(messageApi.success).toHaveBeenCalledWith('已执行完成，生成 1 个结果集。');
+  });
+
+  it('hides ignorable SQL Server session notices after a single SELECT', async () => {
+    storeState.connections[0].config.type = 'sqlserver';
+    storeState.connections[0].config.database = 'NSGJ_Golf75';
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          columns: ['ID', 'OrderDate', 'Amount', 'rn'],
+          rows: [{ ID: 101, OrderDate: '2026-01-01', Amount: 500, rn: '1' }],
+        },
+        {
+          columns: [],
+          rows: [],
+          messages: [
+            "mssql: Changed database context to 'NSGJ_Golf75'.",
+            '(1 row(s) affected)',
+          ],
+        },
+      ],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        dbName: 'NSGJ_Golf75',
+        query: 'WITH OracleData_CTE AS (SELECT 1 AS ID) SELECT * FROM OracleData_CTE',
+      })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const rendered = textContent(renderer!.toJSON());
+    expect(rendered).toContain('结果 1');
+    expect(rendered).not.toContain('消息 2');
+    expect(messageApi.success).toHaveBeenCalledWith('已执行完成，生成 1 个结果集。');
+    expect(dataGridState.latestProps?.columnNames).toEqual(['ID', 'OrderDate', 'Amount', 'rn']);
+  });
+
+  it('keeps SQL Server PRINT output after a query result without counting it as a second result set', async () => {
+    storeState.connections[0].config.type = 'sqlserver';
+    storeState.connections[0].config.database = 'hydee';
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [
+        { columns: ['id'], rows: [{ id: 1 }] },
+        {
+          columns: [],
+          rows: [],
+          messages: ["insert into c_user(userid) values('168')"],
+        },
+      ],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'hydee', query: 'SELECT 1 AS id' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const rendered = textContent(renderer!.toJSON());
+    expect(rendered).toContain('结果 1');
+    expect(rendered).toContain('消息 2');
+    expect(messageApi.success).toHaveBeenCalledWith('已执行完成，生成 1 个结果集。');
+    expect(messageApi.success).not.toHaveBeenCalledWith('已执行完成，生成 2 个结果集。');
   });
 
   it('hides redundant sqlserver affected-row status results for every statement in a batch', async () => {
@@ -3079,7 +3306,7 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      void findButton(renderer, '运行').props.onClick();
+      void renderer.root.findByType(QueryEditorToolbar).props.onRun();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -3129,7 +3356,7 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      void findButton(renderer, '运行').props.onClick();
+      void renderer.root.findByType(QueryEditorToolbar).props.onRun();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -4309,8 +4536,12 @@ describe('QueryEditor external SQL save', () => {
     });
     expect(dataGridState.latestProps?.data).toEqual([{ value: 2 }]);
     expect(dataGridState.latestProps?.isActive).toBe(true);
+    // The per-result grid renders in its own memoized module so a result switch
+    // can skip untouched grids; the active flag must still be scoped per result.
+    expect(readFileSync(new URL('./QueryEditorResultTabContent.tsx', import.meta.url), 'utf8'))
+      .toContain('isActive={isResultActive}');
     expect(readFileSync(new URL('./QueryEditorResultsPanel.tsx', import.meta.url), 'utf8'))
-      .toContain('isActive={isActive && resolvedActiveResultKey === rs.key}');
+      .toContain('isResultActive={isActive && resolvedActiveResultKey === rs.key}');
 
     renderer.unmount();
   });

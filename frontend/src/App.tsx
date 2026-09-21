@@ -35,7 +35,7 @@ import {
   isReleaseNotesRead,
   markReleaseNotesRead,
 } from './utils/updateReleaseNotesReadState';
-import { type DataSyncEntryMode } from './components/dataSyncEntryMode';
+import { normalizeDataSyncEntryMode, type DataSyncEntryModeAlias } from './components/dataSyncEntryMode';
 import LinuxCJKFontBanner from './components/LinuxCJKFontBanner';
 import LogPanel from './components/LogPanel';
 import AIPanelErrorBoundary from './components/ai/AIPanelErrorBoundary';
@@ -51,11 +51,17 @@ import {
   resolveBrandAboutSrc,
   resolveBrandDockSrc,
   resolveBrandIconSrc,
+  resolveBrandIcon,
   setLoadedBrandIconSources,
   BRAND_ICONS,
   type BrandIconId,
 } from './brand/brandIcons';
-import { composeMacOSDockIconBase64, shouldSyncApplicationBrandIcon } from './brand/macDockIcon';
+import {
+  composeMacOSDockIconBase64,
+  composeWindowsNativeIconBase64,
+  LEGACY_MASCOT_DOCK_ICON_INSET,
+  shouldSyncApplicationBrandIcon,
+} from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
 import SettingsCenterTreeNav, {
@@ -130,11 +136,17 @@ import { createGlobalProxyDraft, toSaveGlobalProxyInput } from './utils/globalPr
 import {
   detectConnectionImportKind,
   isConnectionPackagePasswordRequiredError,
+  parseConnectionsExcelImportEnvelope,
   resolveConnectionPackageExportResult,
   normalizeConnectionPackagePassword,
 } from './utils/connectionExport';
 import { downloadBrowserTextFile } from './utils/browserFileTransfer';
-import { buildDataSyncWorkbenchTab } from './utils/dataSyncTab';
+import {
+  planExcelGroupAssignments,
+  type ExcelGroupAssignment,
+  type ExcelGroupPlanContext,
+} from './utils/connectionExcelGroups';
+import { buildDataSyncWorkbenchTab, resolveExistingDataSyncWorkbenchTabId } from './utils/dataSyncTab';
 import {
   buildDriverManagerWorkbenchTab,
   DOWNLOAD_SOURCE_CHANGED_EVENT,
@@ -151,6 +163,7 @@ import {
 import { SettingsCenterWorkbenchRegistrar } from './components/settings/SettingsCenterWorkbenchBridge';
 import { buildSqlAuditWorkbenchTab } from './utils/sqlAuditTab';
 import { buildRequestDiagnosticsWorkbenchTab } from './utils/requestDiagnosticsTab';
+import { buildDMLSnapshotWorkbenchTab } from './utils/dmlSnapshotTab';
 import {
   getDataSourceCapabilities,
   isMessageQueueDataSource,
@@ -194,6 +207,7 @@ import {
   SIDEBAR_OBJECT_GROUP_KEYS,
   type SidebarObjectGroupKey,
 } from './utils/sidebarObjectVisibility';
+import { buildSidebarObjectVisibilitySettings } from './utils/sidebarObjectVisibilitySettings';
 import {
   getSecurityUpdateStatusMeta,
   resolveSecurityUpdateEntryVisibility,
@@ -291,10 +305,12 @@ import {
 import { useAppUpdateManager } from './hooks/useAppUpdateManager';
 import { useAppLogPanelResize } from './hooks/useAppLogPanelResize';
 import { useAppSidebarResize } from './hooks/useAppSidebarResize';
+import { resolveSidebarResizeHitGeometry } from './utils/sidebarLayout';
 import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/newQueryContext';
 import { useAppUtilityStyles } from './hooks/useAppUtilityStyles';
 import { useWorkbenchTabs } from './hooks/useWorkbenchTabs';
 import { useAIWorkspaceSnapshot } from './components/ai/useAIWorkspaceSnapshot';
+import { isWailsDevNativeContextMenu, shouldAllowNativeContextMenu } from './utils/nativeContextMenu';
 import AgentDataSettingsPanel from './components/ai/AgentDataSettingsPanel';
 import {
   ApplyDataRootDirectory,
@@ -309,6 +325,7 @@ import {
   OpenDataRootDirectory,
   OpenLogDirectory,
   OpenSavedQueryDirectory,
+  RestartApplication,
   SelectDataRootDirectory,
   SelectLogDirectory,
   SelectSavedQueryDirectory,
@@ -595,6 +612,7 @@ const mergeSavedConnections = (current: SavedConnection[], imported: SavedConnec
 type ConnectionPackageImportPayload = {
   connections: SavedConnection[];
   redisDbAliases: RedisDbAliasMap;
+  excelGroups?: ExcelGroupAssignment[];
 };
 
 /** Normalize ImportConnectionsPayload results: object (new) or bare array (legacy/mock). */
@@ -608,13 +626,17 @@ const normalizeConnectionPackageImportPayload = (value: unknown): ConnectionPack
   if (!value || typeof value !== 'object') {
     return null;
   }
-  const record = value as { connections?: unknown; redisDbAliases?: unknown };
+  const record = value as { connections?: unknown; redisDbAliases?: unknown; excelGroups?: unknown };
   if (!Array.isArray(record.connections)) {
     return null;
   }
+  const excelGroups = Array.isArray(record.excelGroups)
+    ? (record.excelGroups as ExcelGroupAssignment[])
+    : [];
   return {
     connections: record.connections as SavedConnection[],
     redisDbAliases: sanitizeRedisDbAliases(record.redisDbAliases),
+    excelGroups,
   };
 };
 
@@ -851,6 +873,10 @@ function App() {
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const [connectionHealthTargetIds, setConnectionHealthTargetIds] = useState<string[]>([]);
   const pendingConnectionTagIdRef = useRef<string | null>(null);
+  // Suppresses the brand-icon sync effect while the explicit selection flow is
+  // applying the same icon through the native bridge, so the shortcut update
+  // and window identity rotation run exactly once.
+  const windowsBrandIconApplyingRef = useRef<BrandIconId | null>(null);
   const connectionModalWarmupDoneRef = useRef(false);
   const windowState = useStore(state => state.windowState);
   const themeMode = useStore(state => state.theme);
@@ -887,6 +913,9 @@ function App() {
   const updateShortcut = useStore(state => state.updateShortcut);
   const resetShortcutOptions = useStore(state => state.resetShortcutOptions);
   const [systemThemeMode, setSystemThemeMode] = useState<'light' | 'dark'>(() => getSystemThemeMode());
+  const [runtimePlatform, setRuntimePlatform] = useState('');
+  const [runtimeBuildType, setRuntimeBuildType] = useState('');
+  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const activeCustomTheme = useMemo(
       () => resolveAvailableCustomTheme(customThemes, activeCustomThemeId),
       [activeCustomThemeId, customThemes],
@@ -1032,8 +1061,18 @@ function App() {
           link.setAttribute('data-brand-icon', 'true');
           document.head.appendChild(link);
       }
-      link.type = 'image/svg+xml';
+      // The current ribbon assets are SVG, while the restored 0.9.7 mascot
+      // assets are lossless WebP files. Keep the favicon MIME in sync with
+      // the selected asset so browsers do not discard the mascot icon.
+      link.type = /\.webp(?:[?#]|$)/i.test(href) ? 'image/webp' : 'image/svg+xml';
       link.href = href;
+
+      // The selection flow below rotates the live window identity itself;
+      // skip this sync while that apply is in flight so the shortcut update
+      // and window re-grouping run exactly once.
+      if (runtimePlatform === 'windows' && windowsBrandIconApplyingRef.current === brandIconId) {
+          return;
+      }
 
       let cancelled = false;
       const applyNativeIcon = async () => {
@@ -1046,7 +1085,13 @@ function App() {
               // The compact fallback is suitable for UI placeholders, but it
               // must never become the cached Windows taskbar or macOS Dock icon.
               if (!dockHref) return;
-              const b64 = await composeMacOSDockIconBase64(dockHref);
+              const b64 = runtimePlatform === 'windows'
+                  ? await composeWindowsNativeIconBase64(dockHref, {
+                      transparentMark: resolveBrandIcon(brandIconId).bundled ? true : undefined,
+                  })
+                  : await composeMacOSDockIconBase64(dockHref, {
+                      inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
+                  });
               if (cancelled) return;
               const result = await SetApplicationBrandIcon(b64);
               if (!result.success && !cancelled) {
@@ -1064,13 +1109,13 @@ function App() {
       return () => {
           cancelled = true;
       };
-  }, [brandIconId, t, brandAssetRevision]);
+  }, [brandIconId, brandAssetRevision, runtimePlatform, t]);
 
   useEffect(() => {
       let cancelled = false;
       const loadBrandAssets = async () => {
           const loaded: Partial<Record<BrandIconId, string>> = {};
-          await Promise.all(BRAND_ICONS.map(async (icon) => {
+          await Promise.all(BRAND_ICONS.filter((icon) => !icon.bundled).map(async (icon) => {
               try {
                   const source = await GetBrandIconDataURL(icon.id);
                   if (source) loaded[icon.id] = source;
@@ -1175,9 +1220,6 @@ function App() {
   const effectiveOpacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const effectiveBlur = normalizeBlurForPlatform(resolvedAppearance.blur);
   const blurFilter = blurToFilter(effectiveBlur);
-  const [runtimePlatform, setRuntimePlatform] = useState('');
-  const [runtimeBuildType, setRuntimeBuildType] = useState('');
-  const [isLinuxRuntime, setIsLinuxRuntime] = useState(false);
   const isWebRuntime = runtimeBuildType === 'web'
     || (typeof window !== 'undefined' && (window as any).__GONAVI_WEB_RUNTIME__?.buildType === 'web');
   const [installedFontFamilies, setInstalledFontFamilies] = useState<InstalledFontFamily[]>(EMPTY_INSTALLED_FONT_FAMILIES);
@@ -3307,6 +3349,14 @@ function App() {
       }
   }, [t]);
 
+  const restartApplication = useCallback(async (): Promise<boolean> => {
+      const res = await RestartApplication();
+      if (res && res.success === false) {
+          throw new Error(res.message || t('common.unknown'));
+      }
+      return true;
+  }, [t]);
+
   const handleApplicationQuitRequest = useCallback(async (
       confirmedAction?: ApplicationQuitConfirmedAction,
       cancelledAction?: () => void,
@@ -3457,6 +3507,55 @@ function App() {
       });
   }, [applicationQuitModalZIndex, ensureSavedQueriesLoaded, forceQuitApplication, resetApplicationQuitRequest, saveQuery, t]);
 
+  const handleBrandIconChange = useCallback(async (id: BrandIconId) => {
+      if (id === brandIconId) return;
+      const previousId = brandIconId;
+      if (runtimePlatform !== 'windows') {
+          setBrandIconId(id);
+          message.success(t('app.settings.entry.brand_icon.applied'));
+          return;
+      }
+
+      // Windows applies the new ICO to existing shortcuts and rotates the live
+      // window's AppUserModel identity in a single native call, so Explorer
+      // re-renders the taskbar group immediately — no restart required now
+      // that the identity follows the icon. Detached native windows spawned
+      // before the next full app restart keep the previous identity until
+      // then, which is the only leftover of skipping the restart.
+      windowsBrandIconApplyingRef.current = id;
+      setBrandIconId(id);
+      try {
+          const source = resolveBrandDockSrc(id);
+          if (!source) {
+              // Remote ribbon assets are still warming the cache. The compact
+              // GN fallback must never be written to the Windows icon cache;
+              // the dock sync effect applies the verified asset once it lands.
+              message.success(t('app.settings.entry.brand_icon.applied'));
+              return;
+          }
+          // Windows fills the whole taskbar tile; the macOS Dock safe-area
+          // inset would shrink the ICO mark relative to neighbouring apps.
+          // Bundled mascots drop the white tile and the GoNavi word mark —
+          // the cut-out dog itself becomes the whole icon, no background.
+          const b64 = await composeWindowsNativeIconBase64(source, {
+              transparentMark: resolveBrandIcon(id).bundled ? true : undefined,
+          });
+          const result = await SetApplicationBrandIcon(b64);
+          if (!result || result.success === false) {
+              throw new Error(result?.message || 'Windows brand icon update failed');
+          }
+          message.success(t('app.settings.entry.brand_icon.applied'));
+      } catch (error) {
+          setBrandIconId(previousId);
+          console.warn('Failed to apply the Windows brand icon:', error);
+          message.error(t('app.settings.entry.brand_icon.native_sync_failed'));
+      } finally {
+          if (windowsBrandIconApplyingRef.current === id) {
+              windowsBrandIconApplyingRef.current = null;
+          }
+      }
+  }, [brandIconId, runtimePlatform, setBrandIconId, t]);
+
   const handleInstallUpdateRequest = useCallback(async () => {
       let pendingCloseInstanceCount: number | null = null;
       hideUpdateDownloadProgress();
@@ -3604,6 +3703,13 @@ function App() {
   }, [connectionImportTargetTagId, moveConnectionsToTag, refreshConnectionsAfterImport, setConnectionDisplaySortMode, t]);
 
   const importConnectionPayloadFromFile = async (raw: string, sourceGroup?: ToolCenterGroupKey) => {
+      // Excel 由后端在统一入口直接完成导入，返回信封结果而非文本载荷。
+      const excelResult = parseConnectionsExcelImportEnvelope(raw);
+      if (excelResult) {
+          await finishExcelImport({ data: excelResult }, sourceGroup);
+          return;
+      }
+
       const importKind = detectConnectionImportKind(raw);
 
       if (importKind === 'invalid') {
@@ -3685,6 +3791,26 @@ function App() {
       }
 
       try {
+          // Excel 为二进制格式：转 base64 走专用导入通道，其余格式按文本解析。
+          if (/\.xlsx$/i.test(file.name)) {
+              const backendApp = (window as any).go?.app?.App;
+              if (typeof backendApp?.ImportConnectionsExcelFileBase64 !== 'function') {
+                  throw new Error(t('app.connection_package.error.import_capability_unavailable'));
+              }
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result || ''));
+                  reader.onerror = () => reject(reader.error || new Error(t('app.connection_package.message.import_failed')));
+                  reader.readAsDataURL(file);
+              });
+              const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+              const res = await backendApp.ImportConnectionsExcelFileBase64(base64);
+              if (!res?.success) {
+                  throw new Error(String(res?.message || ''));
+              }
+              await finishExcelImport(res, sourceGroup);
+              return;
+          }
           await importConnectionPayloadFromFile(await file.text(), sourceGroup);
       } catch (error) {
           const detail = error instanceof Error ? error.message : String(error ?? '').trim();
@@ -3757,6 +3883,91 @@ function App() {
           confirmLoading: false,
           selectedConnectionIds: connections.map((item) => item.id),
       });
+  };
+
+  // === Excel 批量导入（issue #1226）：统一入口按格式分流 ===
+  // Excel 导入结果里分组按连接名声明；导入完成后按名字→ID 映射把连接挂入
+  // 既有或新建的分组（"父分组/子分组" 逐级查/建），并沿用导入面板的目标分组兜底。
+  const applyExcelGroupAssignments = async (excelGroups: ExcelGroupAssignment[], importedConnections: SavedConnection[]) => {
+      if (!Array.isArray(excelGroups) || excelGroups.length === 0) return 0;
+      await connectionSidebarLayoutCoordinatorRef.current?.bootstrap();
+      const tags = useStore.getState().connectionTags;
+      const resolveTagId = (name: string, parentTagId: string | undefined) => {
+          const found = tags.find((tag) => (
+              tag.parentTagId === (parentTagId || undefined)
+              && String(tag.name || '').localeCompare(name, undefined, { sensitivity: 'accent' }) === 0
+          ));
+          return found?.id;
+      };
+      let nextTagSeq = 0;
+      const context: ExcelGroupPlanContext = {
+          resolveTagId,
+          nextTagId: () => `${Date.now()}-${nextTagSeq++}`,
+      };
+      const plan = planExcelGroupAssignments(excelGroups, context);
+      if (plan.tagsToCreate.length > 0) {
+          plan.tagsToCreate.forEach((tag) => {
+              useStore.getState().addConnectionTag({
+                  id: tag.id,
+                  name: tag.name,
+                  parentTagId: tag.parentTagId,
+                  connectionIds: [],
+              });
+          });
+      }
+      const nameToId = new Map(importedConnections.map((conn) => [conn.name, conn.id]));
+      let movedCount = 0;
+      Object.entries(plan.movesByLeafTagId).forEach(([leafTagId, connectionNames]) => {
+          const ids = connectionNames
+              .map((name) => nameToId.get(name))
+              .filter((id): id is string => Boolean(id));
+          if (ids.length === 0) return;
+          useStore.getState().moveConnectionsToTag(ids, leafTagId);
+          movedCount += ids.length;
+      });
+      if (movedCount > 0 || plan.tagsToCreate.length > 0) {
+          try {
+              await connectionSidebarLayoutCoordinatorRef.current?.flush();
+          } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error ?? '').trim();
+              throw new Error(t('app.connection_package.import.group_save_failed', { detail }));
+          }
+      }
+      return movedCount;
+  };
+
+  const finishExcelImport = async (result: any, sourceGroup?: ToolCenterGroupKey) => {
+      const imported = normalizeConnectionPackageImportPayload(result?.data);
+      if (!imported || imported.connections.length === 0) {
+          throw new Error(t('app.connection_package.error.import_no_connections'));
+      }
+      const targetTagId = String(connectionImportTargetTagId || '').trim();
+      const placement = resolveConnectionImportPlacement(
+          imported.connections.map((connection) => connection.id),
+          targetTagId,
+          useStore.getState().connectionTags,
+      );
+      placement.manualOrderTargetGroupIds.forEach((groupID) => {
+          setConnectionDisplaySortMode(groupID, 'manual');
+      });
+      await refreshConnectionsAfterImport(imported.connections);
+      if (placement.groupAssignment) {
+          moveConnectionsToTag(
+              placement.groupAssignment.connectionIds,
+              placement.groupAssignment.targetGroupId,
+          );
+      }
+      const movedByExcel = await applyExcelGroupAssignments(imported.excelGroups || [], imported.connections);
+      if (sourceGroup) {
+          setToolCenterBackGroupKey(sourceGroup);
+          setActiveSettingsCenterGroupKey(sourceGroup);
+          setActiveSettingsCenterPane({ key: 'import', group: sourceGroup });
+      }
+      const summary = movedByExcel > 0
+          ? t('app.connection_package.excel.groups_applied', { count: imported.connections.length, groupCount: movedByExcel })
+          : t('app.connection_package.message.imported_connections', { count: imported.connections.length });
+      setConnectionImportNotice({ type: 'success', message: summary });
+      void message.success(summary);
   };
 
   const handleConfirmConnectionPackageDialog = async () => {
@@ -4311,8 +4522,14 @@ function App() {
           finalizeSecurityRepairReturnFromAISettings();
       }
   }), [activeSettingsCenterPane?.key, closeConnectionPackageDialog, closeSettingsCenterWorkbenchTab, finalizeSecurityRepairReturnFromAISettings]);
-  const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryMode) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
-      addTab(buildDataSyncWorkbenchTab({ entryMode }));
+  const handleOpenDataSyncWorkbench = useCallback((entryMode: DataSyncEntryModeAlias) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
+      const normalized = normalizeDataSyncEntryMode(entryMode);
+      const nextTab = buildDataSyncWorkbenchTab({ entryMode: normalized });
+      const existingId = resolveExistingDataSyncWorkbenchTabId(
+          normalized,
+          useStore.getState().tabs,
+      );
+      addTab(existingId ? { ...nextTab, id: existingId } : nextTab);
   }), [addTab]);
   const isSettingsAboutPaneOpen = isSettingsModalOpen && activeSettingsCenterPane?.key === 'about-go-navi';
   const wasSettingsCenterTabOpenRef = useRef(false);
@@ -4380,7 +4597,7 @@ function App() {
   const handleTitleBarSettingsNavigation = useCallback((spec: {
     group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
     pane?: string;
-    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'drivers' | 'sql-audit';
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'compare' | 'sync' | 'drivers' | 'sql-audit';
   }) => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       if (spec.action === 'import-connections') {
           handleOpenToolCenterPane('config', 'import');
@@ -4390,12 +4607,12 @@ function App() {
           void handleExportConnections('config');
           return;
       }
-      if (spec.action === 'schema-compare') {
-          handleOpenDataSyncWorkbench('schemaCompare');
-          return;
-      }
-      if (spec.action === 'data-compare') {
-          handleOpenDataSyncWorkbench('dataCompare');
+      if (
+          spec.action === 'compare' ||
+          spec.action === 'schema-compare' ||
+          spec.action === 'data-compare'
+      ) {
+          handleOpenDataSyncWorkbench('compare');
           return;
       }
       if (spec.action === 'sync') {
@@ -5325,6 +5542,7 @@ function App() {
       sidebarWidth,
       sidebarCollapsed: isSidebarCollapsed,
   });
+  const sidebarResizeHit = resolveSidebarResizeHitGeometry(sidebarResizeHandleWidth);
 
   // Apply the document theme before the first paint. V2 structural styles are
   // scoped by data-ui-version; a passive effect leaves one unstyled titlebar
@@ -6416,17 +6634,7 @@ function App() {
   ]);
   const renderSidebarObjectVisibilitySettingsPane = useCallback(() => {
       const hiddenObjectGroups = new Set(appearance.sidebarHiddenObjectGroups);
-      const objectGroupItems: Array<{ key: SidebarObjectGroupKey; label: string }> = [
-          { key: 'savedQueries', label: t('sidebar.tree.saved_queries') },
-          { key: 'tables', label: t('sidebar.object_group.tables') },
-          { key: 'views', label: t('sidebar.object_group.views') },
-          { key: 'materializedViews', label: t('sidebar.object_group.materialized_views') },
-          { key: 'routines', label: t('sidebar.object_group.routines') },
-          { key: 'triggers', label: t('sidebar.object_group.triggers') },
-          { key: 'events', label: t('sidebar.object_group.events') },
-          { key: 'sequences', label: t('sidebar.object_group.sequences') },
-          { key: 'packages', label: t('sidebar.object_group.packages') },
-      ];
+      const objectGroupItems: Array<{ key: SidebarObjectGroupKey; label: string }> = buildSidebarObjectVisibilitySettings(t);
       const setObjectGroupVisible = (key: SidebarObjectGroupKey, visible: boolean) => {
           const nextHiddenObjectGroups = visible
               ? appearance.sidebarHiddenObjectGroups.filter((item) => item !== key)
@@ -6609,21 +6817,19 @@ function App() {
 
   const renderSettingsCenterAboutProjectEntry = ({
       icon,
-      logoSrc,
       title,
       description,
       url,
       copyText,
   }: {
-      icon?: React.ReactNode;
-      logoSrc?: string;
+      icon: React.ReactNode;
       title: string;
       description: string;
       url?: string;
       copyText?: string;
   }) => (
       <button
-        className={`gonavi-about-project-entry${logoSrc ? ' is-sponsor' : ''}`}
+        className="gonavi-about-project-entry"
         type="button"
         onClick={() => {
             if (copyText) {
@@ -6640,7 +6846,7 @@ function App() {
         style={{
             width: '100%',
             display: 'flex',
-            alignItems: logoSrc ? 'center' : 'flex-start',
+            alignItems: 'flex-start',
             gap: 10,
             padding: '10px 12px',
             border: `1px solid ${darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.10)'}`,
@@ -6652,13 +6858,9 @@ function App() {
             textAlign: 'left',
         }}
       >
-          {logoSrc ? (
-              <img className="gonavi-about-project-entry-logo" src={logoSrc} alt="" />
-          ) : (
-              <span style={{ fontSize: 18, display: 'grid', placeItems: 'center', marginTop: 1, color: overlayTheme.iconColor }}>
-                  {icon}
-              </span>
-          )}
+          <span style={{ fontSize: 18, display: 'grid', placeItems: 'center', marginTop: 1, color: overlayTheme.iconColor }}>
+              {icon}
+          </span>
           <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35 }}>{title}</span>
@@ -6877,20 +7079,6 @@ function App() {
                           title: t('app.about.project.wechat.title'),
                           description: t('app.about.project.wechat.description'),
                           copyText: t('app.about.project.wechat.id'),
-                      })}
-                  </div>
-              </section>
-
-              <section className="gonavi-about-section" aria-labelledby="gonavi-about-sponsors-heading">
-                  <div id="gonavi-about-sponsors-heading" className="gonavi-about-section-title" style={{ color: overlayTheme.titleText }}>
-                      {t('app.about.sponsors')}
-                  </div>
-                  <div className="gonavi-about-link-grid">
-                      {renderSettingsCenterAboutProjectEntry({
-                          logoSrc: '/sponsors/hualong-mark.png',
-                          title: t('app.about.project.hualong.title'),
-                          description: t('app.about.project.hualong.description'),
-                          url: 'https://api.hualong.online/',
                       })}
                   </div>
               </section>
@@ -7998,10 +8186,7 @@ function App() {
                     darkMode={darkMode}
                     accentColor={overlayTheme.selectedText}
                     ariaLabel={t('app.settings.entry.brand_icon.title')}
-                    onChange={(id: BrandIconId) => {
-                        setBrandIconId(id);
-                        message.success(t('app.settings.entry.brand_icon.applied'));
-                    }}
+                    onChange={handleBrandIconChange}
                   />
               </div>
           );
@@ -8092,6 +8277,11 @@ function App() {
   const sidebarPanelCollapseLabel = t('app.sidebar.collapse');
   const sidebarPanelExpandLabel = t('app.sidebar.expand');
   const sidebarPanelToggleLabel = isSidebarCollapsed ? sidebarPanelExpandLabel : sidebarPanelCollapseLabel;
+  const allowDebugNativeContextMenu = isWailsDevNativeContextMenu(import.meta.env.DEV);
+  const handleAppContextMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (event.defaultPrevented || shouldAllowNativeContextMenu(event.target, { allowDebugMenu: allowDebugNativeContextMenu })) return;
+    event.preventDefault();
+  }, [allowDebugNativeContextMenu]);
 
   return (
     <ConfigProvider
@@ -8107,6 +8297,7 @@ function App() {
         <ToolbarAppearanceStyleHost />
         <Layout
           className="gn-v2-app-root"
+          onContextMenu={handleAppContextMenu}
           data-gonavi-close-shortcut-scope="workspace"
           data-empty-workbench={tabs.length === 0 ? 'true' : 'false'}
           data-collapsed-sidebar-actions-docked={
@@ -8129,7 +8320,7 @@ function App() {
           <input
             ref={browserConnectionImportInputRef}
             type="file"
-            accept=".gonavi-conn,.json,.xml,.ncx"
+            accept=".gonavi-conn,.json,.xml,.ncx,.xlsx"
             style={{ display: 'none' }}
             onChange={(event) => { void handleBrowserConnectionImportFileChange(event); }}
           />
@@ -8282,7 +8473,7 @@ function App() {
                 position: 'relative',
                 background: 'var(--gn-bg-panel-2)',
                 ['--gonavi-sidebar-collapsed-width' as any]: `${sidebarCollapsedWidth}px`,
-                ['--gonavi-sidebar-resize-inner-hit-width' as any]: `${sidebarResizeHandleWidth / 2}px`,
+                [sidebarResizeHit.cssVariable as any]: `${sidebarResizeHit.innerHitWidth}px`,
             }}
           >
             <div
@@ -8371,10 +8562,10 @@ function App() {
                 title={t('app.sidebar.resize_width')}
                 style={{
                     position: 'absolute',
-                    right: -(sidebarResizeHandleWidth / 2),
+                    right: sidebarResizeHit.handleOffset,
                     top: 0,
                     bottom: 0,
-                    width: sidebarResizeHandleWidth,
+                    width: sidebarResizeHit.handleWidth,
                     cursor: 'col-resize',
                     zIndex: 3,
                     touchAction: 'none',
@@ -8673,30 +8864,21 @@ function App() {
                 description: t('app.tools.group.workflow.description'),
                 items: [
                   {
-                    key: 'schema-compare',
-                    icon: <AppstoreOutlined />,
-                    title: t('app.tools.entry.schema_compare.title'),
-                    description: t('app.tools.entry.schema_compare.description'),
-                    onClick: () => {
-                      handleOpenDataSyncWorkbench('schemaCompare');
-                    },
-                  },
-                  {
-                    key: 'data-compare',
-                    icon: <SwitcherOutlined />,
-                    title: t('app.tools.entry.data_compare.title'),
-                    description: t('app.tools.entry.data_compare.description'),
-                    onClick: () => {
-                      handleOpenDataSyncWorkbench('dataCompare');
-                    },
-                  },
-                  {
                     key: 'sync',
                     icon: <UploadOutlined rotate={90} />,
                     title: t('app.tools.entry.sync.title'),
                     description: t('app.tools.entry.sync.description'),
                     onClick: () => {
                       handleOpenDataSyncWorkbench('sync');
+                    },
+                  },
+                  {
+                    key: 'compare',
+                    icon: <SwitcherOutlined />,
+                    title: t('app.tools.entry.compare.title'),
+                    description: t('app.tools.entry.compare.description'),
+                    onClick: () => {
+                      handleOpenDataSyncWorkbench('compare');
                     },
                   },
                 ],
@@ -8747,11 +8929,21 @@ function App() {
                   {
                     key: 'request-diagnostics',
                     icon: <BugOutlined />,
-                    title: '请求诊断',
-                    description: '按请求 ID 查看默认脱敏、可复制导出的调用追踪。',
+                    title: t('app.tools.entry.request_diagnostics.title'),
+                    description: t('app.tools.entry.request_diagnostics.description'),
                     onClick: () => {
                       handleCancelSettingsCenterPane();
                       addTab(buildRequestDiagnosticsWorkbenchTab());
+                    },
+                  },
+                  {
+                    key: 'dml-snapshot',
+                    icon: <SafetyCertificateOutlined />,
+                    title: t('dml_snapshot.workbench.title'),
+                    description: t('dml_snapshot.workbench.description'),
+                    onClick: () => {
+                      handleCancelSettingsCenterPane();
+                      addTab(buildDMLSnapshotWorkbenchTab());
                     },
                   },
                 ],

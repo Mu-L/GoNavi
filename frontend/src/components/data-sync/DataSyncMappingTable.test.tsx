@@ -476,6 +476,127 @@ describe('DataSyncMappingTable', () => {
     expect(onRemove).toHaveBeenCalledWith('mapped-orders');
   });
 
+  it('lets the source catalog select and clear all visible objects', () => {
+    const onAddMany = vi.fn();
+    const onRemove = vi.fn();
+    const onRemoveMany = vi.fn();
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[]}
+        taskKind="migration"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+          { name: 'payments', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={onAddMany}
+        onChange={() => undefined}
+        onRemove={onRemove}
+        onRemoveMany={onRemoveMany}
+      />,
+    );
+
+    const selectAll = renderer.root.findByProps({
+      className: 'gn-data-sync-mapping-catalog__select-all',
+    });
+    expect(selectAll.findByType('input').props.checked).toBe(false);
+    act(() => selectAll.findByType('input').props.onChange({ target: { checked: true } }));
+    expect(onAddMany).toHaveBeenCalledWith(['orders', 'customers', 'payments']);
+
+    const selectedRenderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[
+          createDataSyncTableMapping('mapped-orders', 'orders', 'orders'),
+          createDataSyncTableMapping('mapped-customers', 'customers', 'customers'),
+          createDataSyncTableMapping('mapped-payments', 'payments', 'payments'),
+        ]}
+        taskKind="migration"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+          { name: 'payments', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={onAddMany}
+        onChange={() => undefined}
+        onRemove={onRemove}
+        onRemoveMany={onRemoveMany}
+      />,
+    );
+    const selectedAll = selectedRenderer.root.findByProps({
+      className: 'gn-data-sync-mapping-catalog__select-all',
+    });
+    expect(selectedAll.findByType('input').props.checked).toBe(true);
+    act(() => selectedAll.findByType('input').props.onChange({ target: { checked: false } }));
+    expect(onRemoveMany).toHaveBeenCalledWith([
+      'mapped-orders',
+      'mapped-customers',
+      'mapped-payments',
+    ]);
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it('clears a mixed catalog selection in one remove-many call', () => {
+    const onRemoveMany = vi.fn();
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[
+          createDataSyncTableMapping('mapped-orders', 'orders', 'orders'),
+          createDataSyncTableMapping('mapped-customers', 'customers', 'customers'),
+        ]}
+        taskKind="migration"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+          { name: 'payments', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+        onRemoveMany={onRemoveMany}
+      />,
+    );
+    const selectAll = renderer.root.findByProps({
+      className: 'gn-data-sync-mapping-catalog__select-all',
+    });
+    expect(selectAll.findByType('input').props.checked).toBe(false);
+    act(() => selectAll.findByType('input').props.onChange({}));
+    expect(onRemoveMany).toHaveBeenCalledWith(['mapped-orders', 'mapped-customers']);
+  });
+
+  it('uses compare copy instead of write language for schema compare', () => {
+    const renderer = TestRenderer.create(
+      <DataSyncMappingTable
+        mappings={[]}
+        taskKind="compare"
+        compareMode="schema"
+        sourceObjects={metadata([
+          { name: 'orders', kind: 'table' },
+          { name: 'customers', kind: 'table' },
+        ])}
+        targetObjects={metadata([{ name: 'orders', kind: 'table' }])}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onAdd={() => undefined}
+        onAddMany={() => undefined}
+        onChange={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+    const markup = JSON.stringify(renderer.toJSON());
+    expect(markup).toContain('Choose tables to compare schema');
+    expect(markup).toContain('Check tables whose schema should be compared');
+    expect(markup).not.toContain('Choose data to sync');
+    expect(markup).not.toContain('Write to');
+  });
+
   it('does not offer a second picker when the source catalog is visible', () => {
     const renderer = TestRenderer.create(
       <DataSyncMappingTable

@@ -234,6 +234,9 @@ type ConnectionExportOptions struct {
 type ConnectionPackageImportResult struct {
 	Connections    []connection.SavedConnectionView `json:"connections"`
 	RedisDbAliases map[string]map[string]string     `json:"redisDbAliases,omitempty"`
+	// ExcelGroups 仅 Excel 批量导入返回：按连接名回指 Excel 行声明的分组路径
+	// （支持 "父分组/子分组"），分组树的查/建由前端侧边栏布局完成。
+	ExcelGroups []ConnectionExcelGroupAssignment `json:"excelGroups,omitempty"`
 }
 
 func defaultConnectionPackageKDFSpec() connectionPackageKDFSpec {

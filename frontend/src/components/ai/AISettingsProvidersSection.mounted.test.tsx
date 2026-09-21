@@ -90,7 +90,9 @@ describe('provider settings mounted controls', () => {
     stored = new Map();
     vi.stubGlobal('window', { localStorage: { getItem: (key: string) => stored.get(key) || null, setItem: (key: string, value: string) => stored.set(key, value) } });
     bridge.capabilities.mockResolvedValue([capability, claudeCapability, codexCapability]);
-    bridge.models.mockResolvedValue({ models: ['discovered-model'], source: 'cli', stale: false });
+    bridge.models.mockResolvedValue({
+      models: ['discovered-model'], source: 'cli', stale: false, defaultModel: '', modelCapabilities: null,
+    });
     values = { model: 'typed-model', models: ['my-model'], effort: 'low' };
     props = {
       providers: [
@@ -268,6 +270,29 @@ describe('provider settings mounted controls', () => {
     expect(props.onSaveProvider).toHaveBeenCalledOnce();
   });
 
+  it('lets a keyboard user open and copy a long truncated test error', async () => {
+    const trailingReason = 'model qwen3-coder is not enabled for this key';
+    const message = `${'POST https://api.example.invalid/v1/chat/completions failed with 403. '.repeat(4)}${trailingReason}`;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await render({
+      isEditing: true, editingProvider: { id: 'a' }, testStatus: 'error',
+      testResult: { success: false, checkKind: 'none', modelVerified: false, message },
+    });
+    const alert = renderer!.root.findByProps({ role: 'alert' });
+    expect(elementText(alert)).toContain(trailingReason);
+    const toggle = renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-result-toggle' });
+    expect(toggle.props.type).toBe('button');
+    expect(renderedText(toggle)).toBe('View full error');
+    await act(async () => toggle.props.onClick());
+    expect(elementText(renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-error-body' }))).toContain(trailingReason);
+    await act(async () => renderer!.root.findByProps({ className: 'gonavi-ai-provider-test-error-copy' }).props.onClick());
+    expect(writeText).toHaveBeenCalledWith(message);
+    const buttons = renderer!.root.findAllByType('button');
+    expect(buttons.some((button) => renderedText(button) === 'Test connection')).toBe(true);
+    expect(buttons.some((button) => renderedText(button) === 'Save changes')).toBe(true);
+  });
+
   it('omits the provider description, collapse action and connection disclosure', async () => {
     await render({ isEditing: true, editingProvider: { id: 'a' } });
     const text = renderedText(renderer!.toJSON());
@@ -284,6 +309,34 @@ describe('provider settings mounted controls', () => {
     expect(modelPickers()[0].props.options).toContainEqual({ label: 'discovered-model', value: 'discovered-model' });
     expect(renderer!.root.findAllByProps({ 'data-field': 'effort' })).toHaveLength(1);
     expect(props.onCLIDefaults).toHaveBeenCalledWith(capability);
+  });
+
+  it('projects Cursor model-id suffixes into the effort selector', async () => {
+    const cursorCapability = {
+      ...capability, apiFormat: 'cursor-cli', command: 'cursor-agent',
+      supportsEffort: false, effortValues: [], supportsModelDiscovery: true, defaultModel: '', defaultEffort: '',
+    };
+    bridge.capabilities.mockResolvedValue([capability, claudeCapability, codexCapability, cursorCapability]);
+    bridge.models.mockResolvedValue({
+      models: ['cursor-grok-4.6-high', 'cursor-grok-4.6-xhigh'], source: 'cli', stale: false, defaultModel: '',
+      modelCapabilities: {
+        'cursor-grok-4.6-high': { effortValues: ['high', 'xhigh'], defaultEffort: 'high' },
+        'cursor-grok-4.6-xhigh': { effortValues: ['high', 'xhigh'], defaultEffort: 'xhigh' },
+      },
+    });
+    values = { ...values, model: 'cursor-grok-4.6-xhigh', effort: '', authMode: 'local-cli', type: 'custom' };
+    await render({
+      isEditing: true, editingProvider: { id: 'cursor-1' }, watchedPresetKey: 'cursor', watchedApiFormat: 'cursor-cli',
+      providerPresets: [...presets, {
+        key: 'cursor', fixedApiFormat: 'cursor-cli', label: 'Cursor', authMode: 'local-cli',
+        backendType: 'custom', defaultBaseUrl: '', desc: '', icon: null,
+      }],
+    });
+    const effortSelect = renderer!.root.findByProps({ 'data-field': 'effort' }).findByType('select');
+    expect(effortSelect.props.disabled).toBeFalsy();
+    expect(effortSelect.props.options.map((option: any) => option.value)).toEqual(['high', 'xhigh']);
+    await act(async () => effortSelect.props.onChange('high'));
+    expect(props.form.setFieldValue).toHaveBeenCalledWith('model', 'cursor-grok-4.6-high');
   });
 
   it('uses the live Codex catalog without mixing in the OpenAI API preset model', async () => {
@@ -375,9 +428,52 @@ describe('provider settings mounted controls', () => {
     expect(modelPickers()[0].props.options).not.toContainEqual({ value: 'upstream-a', label: 'upstream-a' });
   });
 
-  it('does not label a local CLI catalog refresh as an upstream sync', async () => {
-    await render({ isEditing: true, providers: [], editingProvider: { id: '' }, onSyncProviderModels: vi.fn() });
-    expect(renderer!.root.findAllByProps({ className: 'gonavi-ai-provider-model-sync' })).toHaveLength(0);
+  it('refreshes local CLI catalogs without labeling them as upstream sync', async () => {
+    const onSyncProviderModels = vi.fn();
+    stored.set('gonavi.ai.providers.modelCatalog.v2', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: Date.now() } }));
+    await render({ isEditing: true, providers: [], editingProvider: { id: '' }, onSyncProviderModels });
+    const sync = renderer!.root.findByProps({ className: 'gonavi-ai-provider-model-sync' });
+    expect(elementText(sync.props.children)).toContain('Sync from CLI');
+    expect(elementText(sync.props.children)).not.toContain('Sync upstream');
+    expect(bridge.models).not.toHaveBeenCalled();
+    await act(async () => sync.props.onClick({ preventDefault() {}, stopPropagation() {} }));
+    expect(bridge.models).toHaveBeenCalledTimes(1);
+    expect(onSyncProviderModels).not.toHaveBeenCalled();
+    expect(modelPickers()[0].props.options).toContainEqual({ value: 'discovered-model', label: 'discovered-model' });
+    expect(renderedText(renderer!.toJSON())).toContain('Synced 1 models from the CLI');
+  });
+
+  it('refetches a cached CLI catalog even if StrictMode replays the catalog effect', async () => {
+    stored.set('gonavi.ai.providers.modelCatalog.v2', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: Date.now() } }));
+    props = {
+      ...props,
+      isEditing: true,
+      providers: [],
+      editingProvider: { id: '' },
+    };
+    await act(async () => {
+      renderer = create(
+        <React.StrictMode>
+          <AISettingsProvidersSection {...props} />
+        </React.StrictMode>,
+      );
+    });
+    expect(bridge.models).not.toHaveBeenCalled();
+    const sync = renderer!.root.findByProps({ className: 'gonavi-ai-provider-model-sync' });
+    await act(async () => sync.props.onClick({ preventDefault() {}, stopPropagation() {} }));
+    expect(bridge.models).toHaveBeenCalled();
+    expect(modelPickers()[0].props.options).toContainEqual({ value: 'discovered-model', label: 'discovered-model' });
+  });
+
+  it('shows the CLI catalog error when a manual refresh fails', async () => {
+    stored.set('gonavi.ai.providers.modelCatalog.v2', JSON.stringify({ 'grok-cli': { catalog: { models: ['cached-grok'], source: 'cli', stale: false }, fetchedAt: Date.now() } }));
+    await render({ isEditing: true, providers: [], editingProvider: { id: '' } });
+    bridge.models.mockRejectedValueOnce(new Error('cursor-agent command was not found'));
+    const sync = renderer!.root.findByProps({ className: 'gonavi-ai-provider-model-sync' });
+    await act(async () => sync.props.onClick({ preventDefault() {}, stopPropagation() {} }));
+    expect(bridge.models).toHaveBeenCalledTimes(1);
+    expect(renderedText(renderer!.toJSON())).toContain('cursor-agent command was not found');
+    expect(modelPickers()[0].props.options).toContainEqual({ value: 'cached-grok', label: 'cached-grok' });
   });
 
   it('reuses the cached CLI catalog on entry and only refetches from the enabled count', async () => {

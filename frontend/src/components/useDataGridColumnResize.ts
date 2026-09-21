@@ -1,23 +1,26 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   MIN_DATA_TABLE_COLUMN_WIDTH,
   resolveDataTableColumnWidth,
 } from '../utils/dataGridDisplay';
-import { calculateAutoFitColumnWidth } from './dataGridAutoWidth';
+import { calculateAutoFitColumnWidth, calculateAutoFitColumnWidths } from './dataGridAutoWidth';
 import { DEFAULT_GRID_MONO_FONT_FAMILY, GONAVI_ROW_NUMBER_COLUMN_KEY } from './DataGridCore';
 
 const ROW_NUMBER_DEFAULT_WIDTH = 36;
 const ROW_NUMBER_MIN_WIDTH = 28;
 const ROW_NUMBER_MAX_WIDTH = 120;
+const useDataGridLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 type UseDataGridColumnResizeContext = Record<string, any>;
-type ColumnResizePreviewTargetKind = 'width' | 'width-and-flex' | 'delta-width' | 'table-width' | 'sticky-left';
+type ColumnResizePreviewTargetKind = 'width' | 'width-and-flex' | 'bounded-width-and-flex' | 'delta-width' | 'table-width' | 'sticky-left';
 type ColumnResizePreviewTarget = {
   element: HTMLElement;
   initialWidth: string;
   initialWidthPriority: string;
   initialMinWidth: string;
   initialMinWidthPriority: string;
+  initialMaxWidth: string;
+  initialMaxWidthPriority: string;
   initialFlex: string;
   initialLeft: string;
   kind: ColumnResizePreviewTargetKind;
@@ -85,6 +88,8 @@ const createColumnResizePreview = (
       initialWidthPriority: element.style.getPropertyPriority?.('width') ?? '',
       initialMinWidth: element.style.minWidth,
       initialMinWidthPriority: element.style.getPropertyPriority?.('min-width') ?? '',
+      initialMaxWidth: element.style.maxWidth,
+      initialMaxWidthPriority: element.style.getPropertyPriority?.('max-width') ?? '',
       initialFlex: element.style.flex,
       initialLeft: element.style.left,
       kind,
@@ -128,6 +133,9 @@ const createColumnResizePreview = (
       addTarget(cell, 'sticky-left', left);
     });
   }
+  if (key === GONAVI_ROW_NUMBER_COLUMN_KEY) {
+    addTarget(headerCell, 'bounded-width-and-flex');
+  }
 
   const virtualRows = Array.from(
     tableRoot.querySelectorAll('.ant-table-tbody-virtual .ant-table-row'),
@@ -141,7 +149,10 @@ const createColumnResizePreview = (
     ));
     if (!targetCell) return;
 
-    addTarget(targetCell, 'width-and-flex');
+    addTarget(
+      targetCell,
+      key === GONAVI_ROW_NUMBER_COLUMN_KEY ? 'bounded-width-and-flex' : 'width-and-flex',
+    );
     const rowWidth = parseInlinePixelValue(row.style.width, row.getBoundingClientRect?.().width ?? 0);
     addTarget(row, 'delta-width', rowWidth);
 
@@ -165,7 +176,11 @@ const createColumnResizePreview = (
         ? cell.classList?.contains('data-grid-row-number-cell')
         : cell.getAttribute?.('data-col-name') === key
     ));
-    if (!targetCell?.classList?.contains('ant-table-cell-fix-left')) return;
+    if (!targetCell) return;
+    if (key === GONAVI_ROW_NUMBER_COLUMN_KEY) {
+      addTarget(targetCell, 'bounded-width-and-flex');
+    }
+    if (!targetCell.classList?.contains('ant-table-cell-fix-left')) return;
 
     const targetIndex = cells.indexOf(targetCell);
     cells.slice(targetIndex + 1).forEach((cell) => {
@@ -216,6 +231,13 @@ const applyColumnResizePreview = (
       element.style.flex = `0 0 ${width}px`;
       return;
     }
+    if (kind === 'bounded-width-and-flex') {
+      element.style.width = `${width}px`;
+      element.style.minWidth = `${width}px`;
+      element.style.maxWidth = `${width}px`;
+      element.style.flex = `0 0 ${width}px`;
+      return;
+    }
     const nextValue = (baseValue ?? 0) + delta;
     if (kind === 'table-width') {
       element.style.setProperty('width', `${nextValue}px`, 'important');
@@ -238,6 +260,8 @@ const restoreColumnResizePreview = (preview: ColumnResizePreview | null) => {
     initialWidthPriority,
     initialMinWidth,
     initialMinWidthPriority,
+    initialMaxWidth,
+    initialMaxWidthPriority,
     initialFlex,
     initialLeft,
   }) => {
@@ -248,6 +272,10 @@ const restoreColumnResizePreview = (preview: ColumnResizePreview | null) => {
     element.style.minWidth = initialMinWidth;
     if (initialMinWidthPriority) {
       element.style.setProperty('min-width', initialMinWidth, initialMinWidthPriority);
+    }
+    element.style.maxWidth = initialMaxWidth;
+    if (initialMaxWidthPriority) {
+      element.style.setProperty('max-width', initialMaxWidth, initialMaxWidthPriority);
     }
     element.style.flex = initialFlex;
     element.style.left = initialLeft;
@@ -461,27 +489,30 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
     return (text: string) => measureTextWidth(text, font);
   }, [measureTextWidth]);
 
-  const autoFitDoneRef = useRef<string>('');
-  useEffect(() => {
+  const initialAutoFitSignature = displayColumnNames.length > 0
+    && displayColumnNames.every((key: string) => Number.isFinite(columnWidths[key]))
+      ? displayColumnNames.join(',')
+      : '';
+  const autoFitDoneRef = useRef<string>(initialAutoFitSignature);
+  useDataGridLayoutEffect(() => {
     if (displayColumnNames.length === 0 || displayData.length === 0) return;
     const sig = displayColumnNames.join(',');
     if (autoFitDoneRef.current === sig) return;
-    const font = `${densityParams.dataFontSize}px ${DEFAULT_GRID_MONO_FONT_FAMILY}`;
-    const newWidths: Record<string, number> = {};
-    displayColumnNames.forEach((key: string) => {
-      const autoWidth = calculateAutoFitColumnWidth({
-        headerTexts: [key],
-        valueTexts: displayData.slice(0, 200).map((row: any) => row?.[key]),
-        measureHeaderText: (text) => measureTextWidth(text, `600 ${font}`),
-        measureCellText: (text) => measureTextWidth(text, `400 ${font}`),
-        minWidth: MIN_DATA_TABLE_COLUMN_WIDTH,
-        maxWidth: 600,
-        defaultWidth: densityParams.defaultColumnWidth,
-      });
-      newWidths[key] = autoWidth;
+    const newWidths = calculateAutoFitColumnWidths({
+      columnNames: displayColumnNames,
+      rows: displayData,
+      dataFontSize: densityParams.dataFontSize,
+      defaultWidth: densityParams.defaultColumnWidth,
+      minWidth: MIN_DATA_TABLE_COLUMN_WIDTH,
+      maxWidth: 600,
+      measureTextWidth,
     });
     autoFitDoneRef.current = sig;
-    setColumnWidths((prev: Record<string, number>) => ({ ...newWidths, ...prev }));
+    setColumnWidths((prev: Record<string, number>) => (
+      Object.keys(newWidths).every((key) => Number.isFinite(prev[key]))
+        ? prev
+        : { ...newWidths, ...prev }
+    ));
   }, [displayColumnNames, displayData, densityParams, measureTextWidth, setColumnWidths]);
 
   const autoFitColumnWidth = useCallback((key: string, headerEl?: HTMLElement | null) => {

@@ -41,6 +41,8 @@ const readDataGridSecondaryActionsSource = (): string =>
   readFileSync(new URL('./DataGridSecondaryActions.tsx', import.meta.url), 'utf8');
 const readDataGridShellSource = (): string =>
   readFileSync(new URL('./DataGridShell.tsx', import.meta.url), 'utf8');
+const readDataGridColumnResizeSource = (): string =>
+  readFileSync(new URL('./useDataGridColumnResize.ts', import.meta.url), 'utf8');
 
 const mockStoreState = vi.hoisted(() => ({
   languagePreference: 'system' as LanguagePreference,
@@ -152,6 +154,17 @@ const zhRowNumberHint = zhCnCatalog['data_grid.row_number.double_click_to_view']
 const enUndoCellChangeLabel = enUsCatalog['data_grid.context_menu.undo_cell_change'];
 
 describe('DataGrid layout', () => {
+  it('applies new-column auto widths before the browser paints the reused grid', () => {
+    const source = readDataGridColumnResizeSource();
+    const autoFitEffect = source.slice(
+      source.indexOf('const initialAutoFitSignature'),
+      source.indexOf('const autoFitColumnWidth'),
+    );
+
+    expect(autoFitEffect).toContain('useDataGridLayoutEffect(() => {');
+    expect(autoFitEffect).not.toContain('useEffect(() => {');
+  });
+
   it('uses SQL max-row presets for paginated SQL results without changing other grids', () => {
     expect(buildDataGridPaginationPageSizeOptions()).toEqual(['100', '200', '500', '1000']);
     expect(buildDataGridPaginationPageSizeOptions(750)).toEqual(['100', '500', '1000', '5000', '20000', '0', '750']);
@@ -501,8 +514,7 @@ describe('DataGrid layout', () => {
       expect(ruleStart).toBeGreaterThan(transparentHover);
       const ruleEnd = css.indexOf('}', ruleStart);
       const rule = css.slice(ruleStart, ruleEnd + 1);
-      expect(rule).toContain('background: var(--gn-bg-panel, #ffffff) !important;');
-      expect(rule).toContain('background-image: none !important;');
+      expect(rule).toContain('background: rgb(from var(--gn-bg-panel-2, #ffffff) r g b / 1) !important;');
     });
 
     const fixedRowControlSelectedSelectors = [
@@ -516,7 +528,7 @@ describe('DataGrid layout', () => {
       expect(ruleStart).toBeGreaterThan(transparentHover);
       const ruleEnd = css.indexOf('}', ruleStart);
       const rule = css.slice(ruleStart, ruleEnd + 1);
-      expect(rule).toContain('background-color: var(--gn-bg-panel, #ffffff) !important;');
+      expect(rule).toContain('background-color: rgb(from var(--gn-bg-panel, #ffffff) r g b / 1) !important;');
       expect(rule).toContain('background-image: linear-gradient(');
       expect(rule).toContain('var(--gn-bg-selected, rgba(34, 197, 94, 0.14))');
     });
@@ -540,11 +552,7 @@ describe('DataGrid layout', () => {
     const fixedControlHoverRuleStart = css.indexOf(fixedControlHoverSelector);
     const fixedControlHoverRuleEnd = css.indexOf('}', fixedControlHoverRuleStart);
     const fixedControlHoverRule = css.slice(fixedControlHoverRuleStart, fixedControlHoverRuleEnd + 1);
-    expect(fixedControlHoverRule).toContain('background-color: var(--gn-bg-panel, #ffffff) !important;');
-    expect(fixedControlHoverRule).toContain('background-image: linear-gradient(');
-    expect(fixedControlHoverRule).toContain(
-      'var(--gn-bg-hover, rgba(15, 23, 42, 0.045))',
-    );
+    expect(fixedControlHoverRule).toContain('background: rgb(from var(--gn-bg-panel-2, #ffffff) r g b / 1) !important;');
     expect(css).toContain('var(--gn-bg-hover, rgba(15, 23, 42, 0.045))');
     expect(css).toContain('var(--gn-bg-active, rgba(15, 23, 42, 0.075))');
     expect(css.indexOf('[data-cell-selected="true"]')).toBeGreaterThan(css.indexOf(rowSelector));
@@ -1650,6 +1658,8 @@ describe('DataGrid layout', () => {
       expect(markup).toContain('vertical-align:middle');
       expect(markup).toContain('data-grid-row-number="true"');
       expect(markup).toContain('data-grid-row-number-action="true"');
+      expect(markup).toContain('data-col-name="id"');
+      expect(markup).toContain('data-col-name="name"');
       expect(markup).toContain(`title="${zhRowNumberHint}"`);
       expect(markup).toContain(
         `<span class="data-grid-row-number" data-grid-row-number="true" title="${zhRowNumberHint}"`,
@@ -1658,6 +1668,9 @@ describe('DataGrid layout', () => {
       expect(markup).toContain('width:100%');
       expect(markup).toContain('height:100%');
       expect(markup).toContain('width:36');
+      expect(markup).toContain('min-width:36');
+      expect(markup).toContain('max-width:36');
+      expect(markup).toContain('flex:0 0 36px');
       // ant Table fixed 列会渲染 fix 相关 class
       expect(markup.includes('ant-table-cell-fix') || markup.includes('fixed')).toBe(true);
       expect(markup).toContain('51');
@@ -2027,11 +2040,104 @@ describe('DataGrid layout', () => {
     expect(source).not.toContain('virtualRowHeightMeasurement');
   });
 
+  it('keeps native horizontal scrolling outside the post-commit visual guard', () => {
+    const source = readDataGridSource();
+    const virtualColumnSource = source.slice(
+      source.indexOf('const virtualListItemColumnVirtual ='),
+      source.indexOf('const tableComponents ='),
+    );
+    const visualSyncSource = source.slice(
+      source.indexOf('const syncVirtualHorizontalVisualOffset = useCallback'),
+      source.indexOf('virtualHorizontalPostCommitFrameHandlerRef.current ='),
+    );
+    const postCommitSource = source.slice(
+      source.indexOf('const scheduleVirtualHorizontalPostCommit = useCallback'),
+      source.indexOf('const applyVirtualHorizontalOffset = useCallback'),
+    );
+    const externalScrollSource = source.slice(
+      source.indexOf('const applyExternalScrollToTableTargets = useCallback'),
+      source.indexOf('const handleExternalHorizontalScrollPointerDown = useCallback'),
+    );
+
+    expect(source).toContain('const isWindowsLike = useMemo(() => isWindowsPlatform(), []);');
+    expect(source).toContain('const virtualListItemHorizontalOffsetComposited = isMacLike || isWindowsLike;');
+    expect(source).toContain('const horizontalScrollVisible = isTableSurfaceActive && !isWindowsLike && externalHorizontalScrollMetrics.visible;');
+    // Every platform now keeps the column window: rc-table's 640/960px overscan
+    // plus its 512px retention buffer covers a one-frame-late window.
+    expect(virtualColumnSource).not.toContain('&& !isWindowsLike');
+    expect(virtualColumnSource).not.toContain('&& !isMacLike');
+    expect(virtualColumnSource).toContain('&& shouldVirtualizeDataGridColumns(displayColumnNames.length);');
+    expect(visualSyncSource).toContain('virtualHorizontalPostCommitGuardRef.current?.cancel();');
+    expect(visualSyncSource).toContain('virtualHorizontalPreviewActiveRef.current = false;');
+    expect(postCommitSource).toContain('virtualListItemHorizontalOffsetComposited) return;');
+    expect(externalScrollSource).toContain("horizontalSyncSourceRef.current === 'table'");
+  });
+
+  it('keeps the native header on one transform path that follows every scroll source', () => {
+    const source = readDataGridSource();
+    const shellSource = readDataGridShellSource();
+    const css = buildDataGridCssText({
+      darkMode: false,
+      densityParams: { dataFontSize: 12 },
+      gridId: 'mac-scroll-grid',
+      floatingScrollbarHeight: 8,
+    });
+    const visualSyncSource = source.slice(
+      source.indexOf('const syncVirtualHorizontalVisualOffset = useCallback'),
+      source.indexOf('virtualHorizontalPostCommitFrameHandlerRef.current ='),
+    );
+    const nativeScrollHandlerIndex = source.indexOf('const handleTargetScroll = (event: Event)');
+    const nativeScrollBindingSource = source.slice(
+      source.lastIndexOf('useEffect(() => {', nativeScrollHandlerIndex),
+      source.indexOf('const paginationControlTotal = useMemo', nativeScrollHandlerIndex),
+    );
+
+    const nativeScrollFlushSource = source.slice(
+      source.indexOf('const flushNativeVirtualHorizontalScroll = useCallback'),
+      source.indexOf('const scheduleNativeVirtualHorizontalScroll = useCallback'),
+    );
+
+    expect(shellSource).toContain("data-horizontal-scroll-sync={virtualListItemHorizontalOffsetComposited ? 'transform' : undefined}");
+    expect(css).not.toContain('[data-horizontal-scroll-sync="timeline"]');
+    expect(css).toContain('[data-horizontal-scroll-sync="transform"] .ant-table-header > table');
+    expect(css).toContain('translate: var(--gn-datagrid-h-scroll, 0px) 0 !important;');
+    expect(css).not.toContain('animation-timeline:');
+    expect(source).not.toContain('resolveDataGridHorizontalSyncMode');
+    expect(visualSyncSource).toContain('syncDataGridHeaderHorizontalOffset(');
+    expect(visualSyncSource).not.toContain("headerEl.style.setProperty('--gn-datagrid-h-scroll'");
+    expect(visualSyncSource).not.toContain("cell.style.setProperty('transform'");
+    expect(nativeScrollBindingSource).toContain('scheduleNativeVirtualHorizontalScroll(tableContainer)');
+    expect(nativeScrollBindingSource).not.toContain('syncVirtualHorizontalVisualOffset(tableContainer, source.scrollLeft)');
+    expect(nativeScrollFlushSource).toContain('const visual = syncVirtualHorizontalVisualOffset(tableContainer, holderEl.scrollLeft);');
+    expect(nativeScrollFlushSource).not.toContain('timeline');
+  });
+
+  it('uses native Windows scrollbars and keeps the macOS overlay track', () => {
+    const source = readDataGridSource();
+    const css = buildDataGridCssText({
+      darkMode: false,
+      densityParams: { dataFontSize: 12 },
+      gridId: 'win-scroll-grid',
+      floatingScrollbarHeight: 8,
+    });
+    const themeCss = readV2ThemeCss();
+
+    expect(source).toContain('const virtualListItemHorizontalOffsetComposited = isMacLike || isWindowsLike;');
+    expect(source).toContain('const horizontalScrollVisible = isTableSurfaceActive && !isWindowsLike && externalHorizontalScrollMetrics.visible;');
+    expect(source).toContain('const virtualListItemNativeScrollbarControlled = isMacLike && virtualListItemHeightFixed;');
+    expect(css).toContain('body[data-platform="darwin"] .win-scroll-grid .ant-table-tbody-virtual-holder[data-horizontal-scroll-native="true"]::-webkit-scrollbar');
+    expect(css).toContain('body[data-platform="windows"] .win-scroll-grid .data-grid-external-horizontal-scroll');
+    expect(css).toContain('body:not([data-platform="windows"]) .win-scroll-grid .ant-table-body::-webkit-scrollbar');
+    expect(themeCss).toContain('body[data-ui-version="v2"]:not([data-platform="windows"]) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar');
+    expect(themeCss).not.toMatch(/body\[data-ui-version="v2"\] ::-webkit-scrollbar \{/);
+  });
+
   it('keeps overflowing table column references stable across viewport-only resizes', () => {
     const source = readDataGridSource();
 
     expect(source).toContain('const baseTableColumns = useMemo(() => (');
     expect(source).toContain('columns: baseTableColumns,');
+    expect(source).toContain('stretchToViewport: mergedColumns.length > 0');
   });
 
   it('keeps DataGrid scroll synchronization throttled to animation frames', () => {

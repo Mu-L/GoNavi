@@ -28,6 +28,9 @@ vi.mock('antd', () => ({
     antdState.selectProps.push(props);
     return <div data-select={props.className}>{props.placeholder}</div>;
   },
+  // 「最大返回行数」选择器的下拉内嵌自定义输入框；本 mock 不透传 popupRender，
+  // 只保证 Input 可被解析，避免引入该组件后整份用例挂在未定义导出上。
+  Input: (props: any) => <input data-input value={props.value ?? ''} readOnly />,
   Tooltip: ({ children }: any) => <>{children}</>,
 }));
 
@@ -44,6 +47,7 @@ vi.mock('@ant-design/icons', () => {
     EllipsisOutlined: Icon,
     FileTextOutlined: Icon,
     FormatPainterOutlined: Icon,
+    LoadingOutlined: Icon,
     PlayCircleOutlined: Icon,
     RobotOutlined: Icon,
     SearchOutlined: Icon,
@@ -381,19 +385,55 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
 
   it('shows a working stop action while an ES request is running', () => {
     const onCancel = vi.fn();
+    const onRun = vi.fn();
     act(() => {
       renderer = create(<QueryEditorToolbar {...buildProps({
         editorMode: 'elasticsearch',
         loading: true,
         onCancel,
+        onRun,
       })} />);
     });
 
+    const stopButtons = antdState.buttonProps.filter((props) => props['aria-label'] === 'query_editor.action.stop');
+    expect(stopButtons).toHaveLength(1);
+    expect(stopButtons[0].className).toContain('gn-v2-query-toolbar-run-action');
+    expect(stopButtons[0].className).not.toContain('gn-v2-query-toolbar-stop-action');
+    expect(stopButtons[0].loading).toBeUndefined();
+    expect(stopButtons[0].disabled).toBe(false);
+    expect(buttonByLabel('query_editor.elasticsearch.action.run_current')).toBeUndefined();
+
     act(() => {
-      buttonByLabel('query_editor.action.stop')?.onClick();
+      stopButtons[0].onClick();
     });
     expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onRun).not.toHaveBeenCalled();
     expect(antdState.selectProps).toHaveLength(2);
     expect(antdState.selectProps.every((props) => props.disabled === true)).toBe(true);
+  });
+
+  it('turns the spinning SQL run button into stop without adding a second control', () => {
+    const onCancel = vi.fn();
+    const onRun = vi.fn();
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps({
+        loading: true,
+        runDisabled: true,
+        onCancel,
+        onRun,
+      })} />);
+    });
+
+    const stopButtons = antdState.buttonProps.filter((props) => props['aria-label'] === 'query_editor.action.stop');
+    expect(stopButtons).toHaveLength(1);
+    expect(stopButtons[0].className).toContain('gn-v2-query-toolbar-run-action');
+    expect(stopButtons[0].disabled).toBe(false);
+    expect(buttonByLabel('query_editor.action.run')).toBeUndefined();
+
+    act(() => {
+      stopButtons[0].onClick();
+    });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onRun).not.toHaveBeenCalled();
   });
 });

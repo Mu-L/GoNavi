@@ -9,12 +9,10 @@ import (
 	"io"
 	"os"
 	"reflect"
-	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
@@ -32,56 +30,65 @@ type agentRequest struct {
 	// exactly one response frame for a connect request.
 	StreamSSHProgress    bool                            `json:"streamSSHProgress,omitempty"`
 	Query                string                          `json:"query,omitempty"`
+	// Args 是 json-lines-v2 协议新增的位置绑定参数；旧版主进程不会发送该字段。
+	Args                 []any                           `json:"args,omitempty"`
 	TimeoutMs            int64                           `json:"timeoutMs,omitempty"`
 	DBName               string                          `json:"dbName,omitempty"`
 	TableName            string                          `json:"tableName,omitempty"`
 	Changes              *connection.ChangeSet           `json:"changes,omitempty"`
+	AttachSpec           *db.ExternalAttachSpec          `json:"attachSpec,omitempty"`
+	Alias                string                          `json:"alias,omitempty"`
 	ElasticsearchRequest *db.ElasticsearchConsoleRequest `json:"elasticsearchRequest,omitempty"`
 }
 
 type agentResponse struct {
-	ID              int64                         `json:"id"`
-	Success         bool                          `json:"success"`
-	Error           string                        `json:"error,omitempty"`
-	OutcomeUnknown  bool                          `json:"outcomeUnknown,omitempty"`
-	SSHHostKeyTrust *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
-	SSHProgress     *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
-	Data            interface{}                   `json:"data,omitempty"`
-	Fields          []string                      `json:"fields,omitempty"`
-	Messages        []string                      `json:"messages,omitempty"`
-	ChunkType       string                        `json:"chunkType,omitempty"`
-	RowsAffected    int64                         `json:"rowsAffected,omitempty"`
+	ID                        int64                         `json:"id"`
+	Success                   bool                          `json:"success"`
+	Error                     string                        `json:"error,omitempty"`
+	OutcomeUnknown            bool                          `json:"outcomeUnknown,omitempty"` // ExternalAttachNotAttached 标记 DETACH 目标别名不存在（幂等语义）。
+	ExternalAttachNotAttached bool                          `json:"externalAttachNotAttached,omitempty"`
+	SSHHostKeyTrust           *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
+	SSHProgress               *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
+	Data                      interface{}                   `json:"data,omitempty"`
+	Fields                    []string                      `json:"fields,omitempty"`
+	Messages                  []string                      `json:"messages,omitempty"`
+	ChunkType                 string                        `json:"chunkType,omitempty"`
+	RowsAffected              int64                         `json:"rowsAffected,omitempty"`
 }
 
 type agentConnectionInfo struct {
-	ElasticsearchServerMajor int `json:"elasticsearchServerMajor,omitempty"`
+	ElasticsearchServerMajor int    `json:"elasticsearchServerMajor,omitempty"`
+	ProtocolSchema           string `json:"protocolSchema,omitempty"`
 }
 
 const (
-	agentMethodConnect              = "connect"
-	agentMethodClose                = "close"
-	agentMethodMetadata             = "metadata"
-	agentMethodPing                 = "ping"
-	agentMethodOpenSession          = "openSession"
-	agentMethodCloseSession         = "closeSession"
-	agentMethodOpenTransaction      = "openTransaction"
-	agentMethodCommitTransaction    = "commitTransaction"
-	agentMethodRollbackTransaction  = "rollbackTransaction"
-	agentMethodQuery                = "query"
-	agentMethodQueryMulti           = "queryMulti"
-	agentMethodStreamQuery          = "streamQuery"
-	agentMethodExec                 = "exec"
-	agentMethodElasticsearchConsole = "executeElasticsearchConsoleRequest"
-	agentMethodGetDatabases         = "getDatabases"
-	agentMethodGetTables            = "getTables"
-	agentMethodTableExists          = "tableExists"
-	agentMethodGetCreateStmt        = "getCreateStatement"
-	agentMethodGetColumns           = "getColumns"
-	agentMethodGetAllColumns        = "getAllColumns"
-	agentMethodGetIndexes           = "getIndexes"
-	agentMethodGetForeignKey        = "getForeignKeys"
-	agentMethodGetTriggers          = "getTriggers"
-	agentMethodApplyChanges         = "applyChanges"
+	agentMethodConnect                 = "connect"
+	agentMethodClose                   = "close"
+	agentMethodMetadata                = "metadata"
+	agentMethodPing                    = "ping"
+	agentMethodOpenSession             = "openSession"
+	agentMethodCloseSession            = "closeSession"
+	agentMethodOpenTransaction         = "openTransaction"
+	agentMethodCommitTransaction       = "commitTransaction"
+	agentMethodRollbackTransaction     = "rollbackTransaction"
+	agentMethodQuery                   = "query"
+	agentMethodQueryMulti              = "queryMulti"
+	agentMethodStreamQuery             = "streamQuery"
+	agentMethodExec                    = "exec"
+	agentMethodElasticsearchConsole    = "executeElasticsearchConsoleRequest"
+	agentMethodGetDatabases            = "getDatabases"
+	agentMethodGetTables               = "getTables"
+	agentMethodTableExists             = "tableExists"
+	agentMethodGetCreateStmt           = "getCreateStatement"
+	agentMethodGetColumns              = "getColumns"
+	agentMethodGetAllColumns           = "getAllColumns"
+	agentMethodGetIndexes              = "getIndexes"
+	agentMethodGetForeignKey           = "getForeignKeys"
+	agentMethodGetTriggers             = "getTriggers"
+	agentMethodApplyChanges            = "applyChanges"
+	agentMethodAttachExternalDatabase  = "attachExternalDatabase"
+	agentMethodDetachExternalDatabase  = "detachExternalDatabase"
+	agentMethodListExternalAttachments = "listExternalAttachments"
 )
 
 const legacyClickHouseDefaultTimeout = 2 * time.Hour
@@ -94,23 +101,12 @@ const (
 	// 调小到 64：单批 JSON 编码 + 主进程解码的瞬时内存峰值降为原来的 1/4，
 	// 代价是 IPC 次数变为 4 倍，但每批仅一次 stdin/stdout 行读写，整体影响可忽略。
 	// 重要：减小批次不能根除内存峰值，仍需配合 SetGCPercent + 周期 GC（见 main）。
-	agentStreamBatchSize         = 64
-	agentMemoryTrimRowsThreshold = 100000
-	agentMemoryTrimMinInterval   = 3 * time.Second
+	agentStreamBatchSize = 64
 )
 
 var (
-	agentDriverType         string
-	agentDatabaseFactory    func() db.Database
-	agentMemoryTrimRunning  atomic.Bool
-	agentMemoryTrimLastAt   atomic.Int64
-	runAgentMemoryTrimAsync = func(fn func()) {
-		go fn()
-	}
-	agentMemoryTrimFn = func() {
-		runtime.GC()
-		debug.FreeOSMemory()
-	}
+	agentDriverType      string
+	agentDatabaseFactory func() db.Database
 )
 
 type agentRuntime struct {
@@ -280,9 +276,11 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 			return failWithSSHHostKeyTrust(resp, err)
 		}
 		runtimeState.inst = next
+		connectionInfo := agentConnectionInfo{ProtocolSchema: agentProtocolSchemaV2}
 		if versionProvider, ok := next.(db.ElasticsearchServerVersionProvider); ok {
-			resp.Data = agentConnectionInfo{ElasticsearchServerMajor: versionProvider.ElasticsearchServerMajor()}
+			connectionInfo.ElasticsearchServerMajor = versionProvider.ElasticsearchServerMajor()
 		}
+		resp.Data = connectionInfo
 		return resp
 	case agentMethodClose:
 		if runtimeState.inst != nil {
@@ -295,7 +293,7 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 		resp.Data = map[string]string{
 			"driverType":     strings.TrimSpace(agentDriverType),
 			"agentRevision":  db.OptionalDriverAgentRevision(agentDriverType),
-			"protocolSchema": "json-lines-v1",
+			"protocolSchema": agentProtocolSchemaV2,
 		}
 		return resp
 	case agentMethodOpenSession:
@@ -353,6 +351,16 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 	} else if ok {
 		switch method {
 		case agentMethodQuery:
+			if len(req.Args) > 0 {
+				data, fields, messages, err := queryStatementWithArgsOptionalTimeout(session, req.Query, req.Args, req.TimeoutMs)
+				if err != nil {
+					return fail(resp, err.Error())
+				}
+				resp.Data = data
+				resp.Fields = fields
+				resp.Messages = messages
+				break
+			}
 			data, fields, messages, err := queryStatementWithMessagesOptionalTimeout(session, req.Query, req.TimeoutMs)
 			if err != nil {
 				return fail(resp, err.Error())
@@ -371,6 +379,14 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 			resp.Data = data
 			resp.Messages = messages
 		case agentMethodExec:
+			if len(req.Args) > 0 {
+				affected, err := execStatementWithArgsOptionalTimeout(session, req.Query, req.Args, req.TimeoutMs)
+				if err != nil {
+					return fail(resp, err.Error())
+				}
+				resp.RowsAffected = affected
+				break
+			}
 			affected, err := execStatementWithOptionalTimeout(session, req.Query, req.TimeoutMs)
 			if err != nil {
 				return fail(resp, err.Error())
@@ -402,6 +418,16 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 			return fail(resp, err.Error())
 		}
 	case agentMethodQuery:
+		if len(req.Args) > 0 {
+			data, fields, messages, err := queryWithArgsOptionalTimeout(runtimeState.inst, req.Query, req.Args, req.TimeoutMs)
+			if err != nil {
+				return fail(resp, err.Error())
+			}
+			resp.Data = data
+			resp.Fields = fields
+			resp.Messages = messages
+			break
+		}
 		data, fields, messages, err := queryWithMessagesOptionalTimeout(runtimeState.inst, req.Query, req.TimeoutMs)
 		if err != nil {
 			return fail(resp, err.Error())
@@ -420,6 +446,14 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 		resp.Data = data
 		resp.Messages = messages
 	case agentMethodExec:
+		if len(req.Args) > 0 {
+			affected, err := execWithArgsOptionalTimeout(runtimeState.inst, req.Query, req.Args, req.TimeoutMs)
+			if err != nil {
+				return fail(resp, err.Error())
+			}
+			resp.RowsAffected = affected
+			break
+		}
 		affected, err := execWithOptionalTimeout(runtimeState.inst, req.Query, req.TimeoutMs)
 		if err != nil {
 			return fail(resp, err.Error())
@@ -514,6 +548,66 @@ func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentR
 			return fail(resp, err.Error())
 		}
 		resp.Data = data
+	case agentMethodAttachExternalDatabase:
+		if runtimeState.inst == nil {
+			return fail(resp, "connection not open")
+		}
+		if req.AttachSpec == nil {
+			return fail(resp, "attach spec is empty")
+		}
+		attacher, ok := runtimeState.inst.(db.ExternalDatabaseAttacher)
+		if !ok {
+			return fail(resp, fmt.Sprintf("当前数据源（%s）不支持附加外部数据源", strings.TrimSpace(agentDriverType)))
+		}
+		attachCtx := context.Background()
+		var attachCancel context.CancelFunc
+		if req.TimeoutMs > 0 {
+			attachCtx, attachCancel = context.WithTimeout(attachCtx, time.Duration(req.TimeoutMs)*time.Millisecond)
+			defer attachCancel()
+		}
+		if err := attacher.AttachExternalDatabase(attachCtx, *req.AttachSpec); err != nil {
+			return failWithExternalAttachNotAttached(resp, err)
+		}
+		return resp
+	case agentMethodDetachExternalDatabase:
+		if runtimeState.inst == nil {
+			return fail(resp, "connection not open")
+		}
+		attacher, ok := runtimeState.inst.(db.ExternalDatabaseAttacher)
+		if !ok {
+			return fail(resp, fmt.Sprintf("当前数据源（%s）不支持附加外部数据源", strings.TrimSpace(agentDriverType)))
+		}
+		detachCtx := context.Background()
+		var detachCancel context.CancelFunc
+		if req.TimeoutMs > 0 {
+			detachCtx, detachCancel = context.WithTimeout(detachCtx, time.Duration(req.TimeoutMs)*time.Millisecond)
+			defer detachCancel()
+		}
+		if err := attacher.DetachExternalDatabase(detachCtx, req.Alias); err != nil {
+			return failWithExternalAttachNotAttached(resp, err)
+		}
+		return resp
+
+	case agentMethodListExternalAttachments:
+		if runtimeState.inst == nil {
+			return fail(resp, "connection not open")
+		}
+		lister, ok := runtimeState.inst.(db.ExternalAttachmentLister)
+		if !ok {
+			return fail(resp, fmt.Sprintf("当前数据源（%s）不支持附加外部数据源", strings.TrimSpace(agentDriverType)))
+		}
+		listCtx := context.Background()
+		var listCancel context.CancelFunc
+		if req.TimeoutMs > 0 {
+			listCtx, listCancel = context.WithTimeout(listCtx, time.Duration(req.TimeoutMs)*time.Millisecond)
+			defer listCancel()
+		}
+		attachments, listErr := lister.ListExternalAttachments(listCtx)
+		if listErr != nil {
+			return fail(resp, listErr.Error())
+		}
+		resp.Data = attachments
+		return resp
 	case agentMethodApplyChanges:
 		if req.Changes == nil {
 			return fail(resp, "变更集为空")
@@ -765,6 +859,15 @@ func writeResponse(writer *bufio.Writer, resp agentResponse) error {
 	return writer.Flush()
 }
 
+// failWithExternalAttachNotAttached 在错误为“别名未附加”哨兵时打上协议标记，
+// 主进程据此把 DETACH 未附加映射为幂等提示而不是失败。
+func failWithExternalAttachNotAttached(resp agentResponse, err error) agentResponse {
+	failed := fail(resp, err.Error())
+	if errors.Is(err, db.ErrExternalAttachNotAttached) {
+		failed.ExternalAttachNotAttached = true
+	}
+	return failed
+}
 func fail(resp agentResponse, errText string) agentResponse {
 	resp.Success = false
 	resp.Error = strings.TrimSpace(errText)
@@ -1074,40 +1177,3 @@ func execStatementWithOptionalTimeout(inst db.StatementExecer, query string, tim
 	return execWithOptionalTimeout(inst, query, timeoutMs)
 }
 
-func countAgentResponseRows(data interface{}) int64 {
-	rows, ok := data.([]map[string]interface{})
-	if !ok {
-		return 0
-	}
-	return int64(len(rows))
-}
-
-func maybeReleaseAgentMemory(reason string, rows int64) {
-	if rows < agentMemoryTrimRowsThreshold {
-		return
-	}
-	if !agentMemoryTrimRunning.CompareAndSwap(false, true) {
-		return
-	}
-
-	runAgentMemoryTrimAsync(func() {
-		defer agentMemoryTrimRunning.Store(false)
-		if delay := nextAgentMemoryTrimDelay(); delay > 0 {
-			time.Sleep(delay)
-		}
-		agentMemoryTrimFn()
-		agentMemoryTrimLastAt.Store(time.Now().UnixNano())
-	})
-}
-
-func nextAgentMemoryTrimDelay() time.Duration {
-	lastUnixNano := agentMemoryTrimLastAt.Load()
-	if lastUnixNano <= 0 {
-		return 0
-	}
-	elapsed := time.Since(time.Unix(0, lastUnixNano))
-	if elapsed >= agentMemoryTrimMinInterval {
-		return 0
-	}
-	return agentMemoryTrimMinInterval - elapsed
-}

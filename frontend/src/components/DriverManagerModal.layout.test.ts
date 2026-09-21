@@ -8,6 +8,17 @@ const appCss = readFileSync(
   fileURLToPath(new globalThis.URL('../App.css', import.meta.url)),
   'utf8',
 );
+const driverManagerWorkbenchCss = readFileSync(
+  fileURLToPath(new globalThis.URL('./DriverManagerWorkbench.css', import.meta.url)),
+  'utf8',
+);
+const downloadSourceCatalogs = ['de-DE', 'en-US', 'ja-JP', 'ru-RU', 'zh-CN', 'zh-TW'].map((locale) => ({
+  locale,
+  messages: JSON.parse(readFileSync(
+    fileURLToPath(new globalThis.URL(`../../../shared/i18n/${locale}.json`, import.meta.url)),
+    'utf8',
+  )) as Record<string, string>,
+}));
 const v2ThemeCss = readV2ThemeCss();
 
 const MIN_TEXT_CONTRAST = 4.5;
@@ -109,6 +120,35 @@ describe('DriverManagerModal embedded layout', () => {
     expect(appCss).toMatch(
       /\.driver-manager-mirror-chip\.is-compact\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%[^}]*flex:\s*0 1 auto/s,
     );
+    // Keep the mirror chip content-driven: the long localized "GitHub official"
+    // label must not reserve a fixed slot in the driver toolbar.
+    for (const { locale, messages } of downloadSourceCatalogs) {
+      expect(
+        messages['app.download_source.option.github'],
+        `${locale} GitHub mirror label`,
+      ).toBe('GitHub');
+    }
+    expect(appCss).toMatch(
+      /\.driver-manager-mirror-chip-copy\s*\{[^}]*display:\s*flex[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-mirror-chip-source\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+    );
+    expect(appCss).not.toMatch(
+      /\.driver-manager-mirror-chip-source\s*\{[^}]*(?:width|max-width|flex):\s*[^;}]*11ch/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-mirror-chip-switch\.ant-btn\s*\{[^}]*flex-shrink:\s*0/s,
+    );
+    expect(driverManagerWorkbenchCss).toMatch(
+      /\.preview-settings-source-name\s*\{[^}]*min-width:\s*0[^}]*flex:\s*0 1 auto[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+    );
+    expect(driverManagerWorkbenchCss).not.toMatch(
+      /\.preview-settings-source-name\s*\{[^}]*(?:width|max-width|flex):\s*[^;}]*11ch/s,
+    );
+    expect(driverManagerWorkbenchCss).toMatch(
+      /\.preview-settings-source-action\s*\{[^}]*flex:\s*0 0 auto/s,
+    );
     expect(appCss).toMatch(
       /\.gonavi-about-download-source\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%/s,
     );
@@ -138,6 +178,27 @@ describe('DriverManagerModal embedded layout', () => {
     );
     expect(appCss).toMatch(
       /\.driver-manager-progress\.ant-progress-line\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0/s,
+    );
+  });
+
+  it('uses the settings body font for driver detail actions, paths, and logs', () => {
+    expect(appCss).toMatch(
+      /\.driver-manager-shell\s*\{[^}]*--driver-manager-font-body:\s*var\(--gn-settings-font-body, var\(--gn-font-size, 14px\)\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-progress-error\s*\{[^}]*font-size:\s*var\(--driver-manager-font-body\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-detail-path\s*\{[^}]*font-size:\s*var\(--driver-manager-font-body\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-control-label,\s*\.driver-manager-small-text\s*\{[^}]*font-size:\s*var\(--driver-manager-font-body\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-log-empty\s*\{[^}]*font-size:\s*var\(--driver-manager-font-body\)/s,
+    );
+    expect(appCss).toMatch(
+      /body\[data-ui-version\] \.gonavi-settings-center-modal \.driver-manager-card-actions \.ant-btn-sm\s*\{[^}]*font-size:\s*var\(--driver-manager-font-body, var\(--gn-font-size, 14px\)\)/s,
     );
   });
 

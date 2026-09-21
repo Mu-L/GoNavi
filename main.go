@@ -1,8 +1,11 @@
+//go:build !bindings
+
 package main
 
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -89,6 +92,10 @@ func main() {
 	// 会导致 RSS 单调爬升到峰值后不下降。这里收紧到 50，让 GC 更早触发。
 	// 代价是 CPU 开销略增，但导出/导入场景属 I/O 密集型，GC 开销可忽略。
 	debug.SetGCPercent(50)
+	if err := waitForWindowsRestartParent(os.Args[1:]); err != nil {
+		logger.Errorf("等待旧 GoNavi 进程退出失败：%v", err)
+		return
+	}
 
 	executablePath, executableErr := os.Executable()
 	if executableErr == nil {
@@ -105,10 +112,17 @@ func main() {
 	handled, err := runSpecialMode(os.Args[1:])
 	if handled {
 		if err != nil && !isNormalSpecialModeExit(err) {
-			logger.Error(err, "GoNavi 特殊模式退出")
+			reportFatalError(err, "GoNavi 特殊模式退出")
 			os.Exit(1)
 		}
 		return
+	}
+	isWindowsDesktop := strings.EqualFold(strings.TrimSpace(runtime.GOOS), "windows")
+	// The process identity must be fixed before Wails creates its HWND. If it
+	// is assigned from OnStartup, Explorer may already have grouped the window
+	// under the executable's default identity and keep its old taskbar icon.
+	if err := app.InitializeWindowsApplicationIdentity(); err != nil {
+		logger.Warnf("初始化 Windows 应用任务栏身份失败：%v", err)
 	}
 	primaryActivator := &primaryWindowActivator{show: wailsRuntime.WindowShow}
 	if executableErr != nil {
@@ -144,10 +158,7 @@ func main() {
 	if nativeWindowErr != nil {
 		logger.Warnf("初始化原生独立窗口管理器失败：%v", nativeWindowErr)
 	}
-	bindings := []interface{}{application, aiService}
-	if nativeWindowManager != nil {
-		bindings = append(bindings, nativeWindowManager)
-	}
+	bindings := collectWailsBindings(application, aiService, nativeWindowManager)
 	lowMemoryMode := isLowMemoryMode()
 	backgroundColour, windowsOptions := resolveWindowVisualOptions(runtime.GOOS, lowMemoryMode)
 	windowsOptions.WebviewUserDataPath = resolveWindowsWebviewUserDataPath()
@@ -163,6 +174,17 @@ func main() {
 		}, windowChrome.Frameless)
 	}
 
+	// Keep the first native window hidden until the selected Windows icon has
+	// been bound. This prevents the taskbar from caching Wails' embedded icon
+	// while the frontend is still hydrating its persisted brand selection.
+	startupNativeIconReady := make(chan struct{})
+	var signalStartupNativeIconReadyOnce sync.Once
+	signalStartupNativeIconReady := func() {
+		signalStartupNativeIconReadyOnce.Do(func() { close(startupNativeIconReady) })
+	}
+	var showInitialWindowOnce sync.Once
+	windowsStartupGate := newWindowsStartupWindowGate()
+
 	// Create application with options
 	err = wails.Run(&options.App{
 		Title:              "GoNavi",
@@ -174,14 +196,37 @@ func main() {
 		MinWidth:           900,
 		MinHeight:          600,
 		WindowStartState:   resolveInitialWindowStartState(runtime.GOOS),
+		StartHidden:        isWindowsDesktop,
 		Frameless:          windowChrome.Frameless,
+		// 打开 Wails 原生文件拖放：查询编辑器接收操作系统 .sql 文件拖入
+		// （frontend/src/components/queryEditor/useExternalSqlFileDrop.ts），
+		// 同时由 Wails 运行时拦截拖放默认行为，避免 WebView 导航离开应用。
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true,
+		},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: backgroundColour,
 		Menu:             appMenu,
 		OnStartup: func(ctx context.Context) {
+			defer signalStartupNativeIconReady()
 			runtimeCtx = ctx
+			if isWindowsDesktop {
+				// Subscribe before brand-icon I/O so a fast first paint cannot
+				// emit gonavi:frontend-ready into an empty event bus.
+				wailsRuntime.EventsOn(ctx, windowsFrontendReadyEvent, func(...interface{}) {
+					windowsStartupGate.markFrontendReady()
+				})
+				if err := app.InitializePersistedNativeBrandIcon(application, ctx); err != nil {
+					logger.Warnf("启动时应用已保存的 Windows 品牌图标失败：%v", err)
+				}
+			}
+			// The icon is now ready; the remaining lifecycle services may continue
+			// initializing without delaying the first visible frame. Bind queued
+			// second-instance activations only after this barrier as they may show
+			// the native window immediately.
+			signalStartupNativeIconReady()
 			primaryActivator.bindRuntimeContext(ctx)
 			lifecycleCtx := ctx
 			if nativeWindowManager != nil {
@@ -197,12 +242,29 @@ func main() {
 				logger.Warnf("自动修复本地 MCP 客户端配置失败：%v", err)
 			}
 		},
-		OnDomReady: func(_ context.Context) {
+		OnDomReady: func(ctx context.Context) {
 			// 每次 WebView 导航完成（含用户刷新前端）都会触发。
 			// 刷新会让 SQL 编辑器的待提交事务 ID 随组件内存一起丢失，
 			// 但后端事务仍开着并持有行锁：不清理的话，重新执行同一条 DML 会卡满
 			// innodb_lock_wait_timeout 并报 Error 1205，只能重启应用恢复。
 			app.HandleFrontendDomReady(application)
+			if isWindowsDesktop {
+				<-startupNativeIconReady
+				windowsStartupGate.bindShow(func() {
+					showInitialWindowOnce.Do(func() {
+						result := application.RefreshWebViewBounds()
+						if !result.Success && strings.TrimSpace(result.Message) != "" {
+							logger.Warnf("启动时刷新 WebView2 窗口边界失败：%s", result.Message)
+						}
+						wailsRuntime.WindowShow(ctx)
+					})
+				})
+				windowsStartupGate.markIconReady()
+				windowsStartupGate.startFallback(windowsStartupShowFallback, func() {
+					logger.Warnf("前端首屏握手超时，仍显示主窗口以免一直不可见")
+					windowsStartupGate.markTimedOut()
+				})
+			}
 		},
 		OnShutdown: func(ctx context.Context) {
 			nativewindow.ShutdownLifecycle(nativeWindowManager)
@@ -220,8 +282,25 @@ func main() {
 	})
 
 	if err != nil {
-		logger.Error(err, "应用启动失败")
+		reportFatalError(err, "应用启动失败")
+		os.Exit(1)
 	}
+}
+
+// reportFatalError 把启动期致命错误同时写入日志文件与 stderr。
+//
+// internal/logger 默认只写文件，成功路径终端静默是设计如此；但**失败路径**
+// 同样静默就只剩一个空白终端和一个退出码：用户既看不到原因，也不知道该去
+// 哪里查（缺 WebKitGTK、前端资源缺失、数据目录不可写都只体现在日志里）。
+// stdout 承载 CLI 的 JSONL 契约不能占用，stderr 未被任何机器可读输出使用，
+// 因此在这里回显一份是安全的。
+func reportFatalError(err error, message string) {
+	// 固定格式串，避免 message 内的 % 被当成格式指令。
+	logger.Error(err, "%s", message)
+	if err == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[ERROR] %s；错误链：%s\n", message, logger.ErrorChain(err))
 }
 
 // newDesktopAgentToolCatalog keeps the Wails adapter on the same complete Go
@@ -291,20 +370,36 @@ func runMCPServerMode(ctx context.Context, args []string) error {
 
 	mode := strings.ToLower(strings.TrimSpace(args[0]))
 	switch mode {
+	case "help", "--help", "-h":
+		// 与 internal/cli 的 writeMCPUsage 同一惯例：帮助走 stdout、退出成功。
+		mcpserver.WriteAppMCPServerUsage(os.Stdout)
+		return nil
 	case "stdio", "--stdio":
 		return mcpserver.RunAppStdioServer(ctx)
 	case "http", "--http", "streamable-http", "--streamable-http":
 		options, err := mcpserver.ParseHTTPServerOptions(args[1:])
 		if err != nil {
-			return err
+			return reportUsageHelp(err, func() { mcpserver.WriteHTTPServerUsage(os.Stdout) })
 		}
 		logger.Infof("GoNavi MCP Streamable HTTP Server 启动：addr=%s path=%s schemaOnly=%v", options.Addr, options.Path, options.SchemaOnly)
 		return mcpserver.RunAppStreamableHTTPServer(ctx, options)
 	case "remote-config", "--remote-config":
-		return mcpserver.WriteRemoteMCPClientConfig(os.Stdout, args[1:])
+		err := mcpserver.WriteRemoteMCPClientConfig(os.Stdout, args[1:])
+		return reportUsageHelp(err, func() { mcpserver.WriteRemoteMCPClientConfigUsage(os.Stdout) })
 	default:
 		return fmt.Errorf("未知 MCP server 模式: %s（支持 stdio/http/remote-config）", args[0])
 	}
+}
+
+// reportUsageHelp 把 -h/--help 从错误转成正常退出：用户主动求助不是失败。
+// flag 包会把 ErrHelp 当错误返回，而各子模式的用法输出都被设成了丢弃
+// （io.Discard），若不在这里补打，终端只会剩一屏空白加一个非零退出码。
+func reportUsageHelp(err error, writeUsage func()) error {
+	if !errors.Is(err, flag.ErrHelp) {
+		return err
+	}
+	writeUsage()
+	return nil
 }
 
 func isLowMemoryMode() bool {
@@ -344,6 +439,7 @@ func resolveWindowVisualOptions(goos string, lowMemoryMode bool) (*options.RGBA,
 			BackdropType:                      windows.None,
 			DisableWindowIcon:                 false,
 			DisableFramelessWindowDecorations: false,
+			Messages:                          resolveWindowsRuntimeMessages(),
 		}
 	}
 
@@ -353,5 +449,22 @@ func resolveWindowVisualOptions(goos string, lowMemoryMode bool) (*options.RGBA,
 		BackdropType:                      windows.Acrylic,
 		DisableWindowIcon:                 false,
 		DisableFramelessWindowDecorations: false,
+		Messages:                          resolveWindowsRuntimeMessages(),
 	}
+}
+
+func resolveWindowsRuntimeMessages() *windows.Messages {
+	messages := windows.DefaultMessages()
+	messages.InstallationRequired = "GoNavi 需要 Microsoft Edge WebView2 运行时。点击确定下载并安装（安装程序会在后台下载，请稍候）。\n\nGoNavi requires the Microsoft Edge WebView2 Runtime. Press OK to download and install."
+	messages.UpdateRequired = "GoNavi 需要更新 Microsoft Edge WebView2 运行时。点击确定下载并安装。\n\nThe WebView2 runtime needs updating. Press OK to download and install."
+	messages.MissingRequirements = "缺少运行组件 / Missing Requirements"
+	messages.Webview2NotInstalled = "未安装 WebView2 运行时 / WebView2 runtime not installed"
+	messages.Error = "GoNavi 启动失败"
+	messages.FailedToInstall = "WebView2 运行时安装失败，请重试或由管理员安装独立安装包。\n\nThe runtime failed to install. Please retry, or ask an administrator to install the standalone installer."
+	messages.DownloadPage = "GoNavi 需要 Microsoft Edge WebView2 运行时。点击确定打开下载页。最低版本：\n\nThis application requires the WebView2 runtime. Press OK to open the download page. Minimum version required: "
+	messages.PressOKToInstall = "点击确定安装 / Press OK to install."
+	messages.ContactAdmin = "GoNavi 需要 Microsoft Edge WebView2 运行时才能打开。请联系系统管理员安装。\n\nThe WebView2 runtime is required to run GoNavi. Please contact your system administrator."
+	messages.InvalidFixedWebview2 = "已指定的 WebView2 运行时无效，请检查路径与最低版本。\n\nThe specified WebView2 runtime is not valid."
+	messages.WebView2ProcessCrash = "WebView2 进程已崩溃，需要重新打开 GoNavi。\n\nThe WebView2 process crashed and GoNavi needs to be restarted."
+	return messages
 }

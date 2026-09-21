@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   applyDataGridFixedCellPreviewOffset,
-  applyDataGridVirtualInnerOffset,
+  applyDataGridHeaderPinOffset,
   calculateFixedVirtualRange,
+  clearDataGridHeaderPinOffset,
   commitDataGridFixedCellOffset,
+  coversFixedVirtualRange,
   createDataGridIdleCommitScheduler,
   createDataGridVisualFrameGuard,
   readDataGridVirtualInnerOffset,
   shouldVirtualizeDataGridColumns,
+  syncDataGridHeaderHorizontalOffset,
   type DataGridVisualFrameGuard,
 } from './dataGridVirtualScroll';
 
@@ -29,17 +32,45 @@ const createStyleStub = () => {
 };
 
 describe('fixed cell horizontal preview', () => {
-  it('updates one inherited variable instead of every visible fixed cell', () => {
-    const inner = { style: createStyleStub() };
+  it('writes an inline transform onto pinned cells instead of an inherited variable', () => {
+    const pinned = { style: createStyleStub() };
+    const plain = { style: createStyleStub() };
+    const inner = {
+      style: createStyleStub(),
+      querySelectorAll: vi.fn((selector: string) => (
+        selector.includes('fix-left') ? [pinned] : []
+      )),
+    };
 
     expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(1);
-    expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '640px');
+    expect(pinned.style.setProperty).toHaveBeenCalledWith('transform', 'translate3d(640px, 0, 0)', 'important');
+    // 继承变量必须落在共同祖先上，会让整棵子树（99 列 × 41 行）每帧失效重算，
+    // 那正是宽表横向拖动卡顿的来源。只写真正固定的单元格则与列数无关。
+    expect(inner.style.setProperty).not.toHaveBeenCalled();
+    expect(plain.style.setProperty).not.toHaveBeenCalled();
 
     expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(0);
-    expect(inner.style.setProperty).toHaveBeenCalledTimes(1);
+    expect(pinned.style.setProperty).toHaveBeenCalledTimes(1);
   });
 
-  it('persists the settled offset once and releases per-cell preview styles', () => {
+  it('offsets right-pinned cells from the scroll end', () => {
+    const rightCell = { style: createStyleStub() };
+    const inner = {
+      style: createStyleStub(),
+      querySelectorAll: vi.fn((selector: string) => (
+        selector.includes('fix-right') ? [rightCell] : []
+      )),
+    };
+
+    expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 900, 17930)).toBe(1);
+    expect(rightCell.style.setProperty).toHaveBeenCalledWith(
+      'transform',
+      'translate3d(-17030px, 0, 0)',
+      'important',
+    );
+  });
+
+  it('settles the container offset and releases the preview transforms', () => {
     const first = { style: createStyleStub() };
     const second = { style: createStyleStub() };
     const root = { querySelectorAll: vi.fn(() => [first, second]) };
@@ -56,10 +87,90 @@ describe('fixed cell horizontal preview', () => {
     expect(first.style.removeProperty).toHaveBeenCalledWith('transform');
     expect(second.style.removeProperty).toHaveBeenCalledWith('transform');
   });
+
+
+
+});
+
+describe('header fixed cell pin offset', () => {
+  it('writes the pin offset to fixed header cells instead of the header container', () => {
+    const left = { style: createStyleStub() };
+    const right = { style: createStyleStub() };
+    const plain = { style: createStyleStub() };
+    const header = {
+      style: createStyleStub(),
+      querySelectorAll: vi.fn(() => [left, right]),
+    };
+
+    expect(applyDataGridHeaderPinOffset(header as unknown as ParentNode, 640)).toBe(2);
+    expect(left.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '640px');
+    expect(right.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '640px');
+    // 容器上的变量会被全部表头单元格继承，宽表下每帧的样式失效范围随字段数放大。
+    expect(header.style.setProperty).not.toHaveBeenCalled();
+    expect(plain.style.setProperty).not.toHaveBeenCalled();
+  });
+
+  it('skips cells that already carry the same offset', () => {
+    const cell = { style: createStyleStub() };
+    const header = { querySelectorAll: vi.fn(() => [cell]) };
+
+    expect(applyDataGridHeaderPinOffset(header as unknown as ParentNode, 480)).toBe(1);
+    expect(applyDataGridHeaderPinOffset(header as unknown as ParentNode, 480)).toBe(0);
+    expect(applyDataGridHeaderPinOffset(header as unknown as ParentNode, 960)).toBe(1);
+    expect(cell.style.setProperty).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears the pin offset when leaving the composited path', () => {
+    const cell = { style: createStyleStub() };
+    const header = { querySelectorAll: vi.fn(() => [cell]) };
+    cell.style.setProperty('--gn-datagrid-h-scroll', '480px');
+
+    expect(clearDataGridHeaderPinOffset(header as unknown as ParentNode)).toBe(1);
+    expect(cell.style.removeProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll');
+    expect(clearDataGridHeaderPinOffset(header as unknown as ParentNode)).toBe(0);
+  });
+
+  it('tolerates a header without any fixed cell', () => {
+    const header = { querySelectorAll: vi.fn(() => []) };
+
+    expect(applyDataGridHeaderPinOffset(header as unknown as ParentNode, 240)).toBe(0);
+    expect(clearDataGridHeaderPinOffset(header as unknown as ParentNode)).toBe(0);
+  });
+
+  it('recomputes native table translation when rc-table changes header scrollLeft', () => {
+    const cell = { style: createStyleStub() };
+    const table = { style: { translate: '' } };
+    const header = {
+      scrollLeft: 320,
+      querySelector: vi.fn(() => table),
+      querySelectorAll: vi.fn(() => [cell]),
+    };
+
+    syncDataGridHeaderHorizontalOffset(header as unknown as HTMLElement, 480, true);
+    expect(table.style.translate).toBe('-160px 0');
+
+    header.scrollLeft = 0;
+    syncDataGridHeaderHorizontalOffset(header as unknown as HTMLElement, 480, true);
+    expect(table.style.translate).toBe('-480px 0');
+
+    syncDataGridHeaderHorizontalOffset(header as unknown as HTMLElement, 240, false);
+    expect(table.style.translate).toBe('');
+    expect(header.scrollLeft).toBe(240);
+  });
+
+  it('uses the pre-write header measurement without forcing layout during scroll', () => {
+    const table = { style: { translate: '' } };
+    const readScrollLeft = vi.fn(() => 0);
+    const header = { querySelector: () => table, querySelectorAll: () => [] };
+    Object.defineProperty(header, 'scrollLeft', { get: readScrollLeft });
+    syncDataGridHeaderHorizontalOffset(header as unknown as HTMLElement, 480, true, 120);
+    expect(table.style.translate).toBe('-360px 0');
+    expect(readScrollLeft).not.toHaveBeenCalled();
+  });
 });
 
 describe('virtual body horizontal offset', () => {
-  it('uses compositor translate and keeps a marginLeft fallback for stale DOM', () => {
+  it('reads a stale compositor offset before falling back to marginLeft', () => {
     const style = {
       translate: '',
       marginLeft: '-240px',
@@ -67,10 +178,8 @@ describe('virtual body horizontal offset', () => {
     const inner = { style } as unknown as HTMLElement;
 
     expect(readDataGridVirtualInnerOffset(inner)).toBe(240);
-    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(true);
-    expect(style.translate).toBe('-640px 0');
+    style.translate = '-640px 0';
     expect(readDataGridVirtualInnerOffset(inner)).toBe(640);
-    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(false);
   });
 });
 
@@ -127,9 +236,9 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: 14_000_001,
     })).toEqual({
       scrollHeight: 28_000_000,
-      start: 499_991,
-      end: 500_020,
-      offset: 13_999_748,
+      start: 499_981,
+      end: 500_030,
+      offset: 13_999_468,
     });
   });
 
@@ -142,7 +251,7 @@ describe('calculateFixedVirtualRange', () => {
     })).toEqual({
       scrollHeight: 2_800,
       start: 0,
-      end: 21,
+      end: 31,
       offset: 0,
     });
   });
@@ -162,13 +271,13 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: Number.POSITIVE_INFINITY,
     })).toEqual({
       scrollHeight: 2_800,
-      start: 80,
+      start: 70,
       end: 99,
-      offset: 2_240,
+      offset: 1_960,
     });
   });
 
-  it('extends the dependency visible range by one viewport for native scroll coverage', () => {
+  it('extends the dependency visible range by two viewports for native scroll coverage', () => {
     const itemCount = 40;
     const itemHeight = 7;
     const viewportHeight = 70;
@@ -180,7 +289,7 @@ describe('calculateFixedVirtualRange', () => {
         viewportHeight,
         scrollTop,
       });
-      const overscanRows = Math.max(6, Math.ceil(viewportHeight / itemHeight));
+      const overscanRows = Math.max(8, Math.ceil(viewportHeight / itemHeight) * 2);
       expect(calculateFixedVirtualRange({
         itemCount,
         itemHeight,
@@ -209,6 +318,19 @@ describe('calculateFixedVirtualRange', () => {
     expect((initialRange.end + 1) * itemHeight).toBeGreaterThanOrEqual(jumpedViewportBottom);
   });
 
+  it('keeps a two-screen native jump covered before React commits', () => {
+    const itemHeight = 28;
+    const viewportHeight = 840;
+    const initialRange = calculateFixedVirtualRange({
+      itemCount: 1_000,
+      itemHeight,
+      viewportHeight,
+      scrollTop: 0,
+    });
+
+    expect((initialRange.end + 1) * itemHeight).toBeGreaterThanOrEqual(viewportHeight * 3);
+  });
+
   it('keeps the recorded reverse jump covered while React still has the old range', () => {
     const itemHeight = 28;
     const viewportHeight = 840;
@@ -222,6 +344,12 @@ describe('calculateFixedVirtualRange', () => {
     const jumpedVisibleRow = previousVisibleRow - 24;
 
     expect(previousRange.start).toBeLessThanOrEqual(jumpedVisibleRow);
+  });
+
+  it('keeps a safety buffer before treating the current window as covering a native jump', () => {
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 392)).toBe(true);
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 280)).toBe(false);
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 840)).toBe(false);
   });
 });
 

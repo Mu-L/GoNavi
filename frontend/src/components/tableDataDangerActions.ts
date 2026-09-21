@@ -121,6 +121,37 @@ export const supportsTableTruncateAction = (type: string, driver?: string): bool
   }
 };
 
+export const supportsTableClearAction = (type: string, driver?: string): boolean => {
+  switch (resolveTableDataActionDBType(type, driver)) {
+    case 'mysql':
+    case 'goldendb':
+    case 'mariadb':
+    case 'oceanbase':
+    case 'diros':
+    case 'starrocks':
+    case 'sphinx':
+    case 'postgres':
+    case 'kingbase':
+    case 'highgo':
+    case 'vastbase':
+    case 'opengauss':
+    case 'gaussdb':
+    case 'sqlserver':
+    case 'sqlite':
+    case 'duckdb':
+    case 'oracle':
+    case 'dameng':
+    case 'iris':
+    case 'tdengine':
+    case 'clickhouse':
+    case 'trino':
+    case 'mongodb':
+      return true;
+    default:
+      return false;
+  }
+};
+
 const tableDataDangerActionCopy = (
   translate: TableDataDangerActionTranslator | undefined,
   key: string,

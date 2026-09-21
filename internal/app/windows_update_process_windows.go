@@ -12,6 +12,8 @@ import (
 	"time"
 	"unsafe"
 
+	"GoNavi-Wails/internal/logger"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -21,9 +23,21 @@ const (
 	windowsCloseMessage              = 0x0010
 	windowsGracefulProcessCloseWait  = 1500 * time.Millisecond
 	windowsForcedProcessCloseTimeout = 10 * time.Second
+	// A candidate mid-teardown keeps failing its image-name query until the
+	// PID disappears or the query succeeds; a few short retries separate the
+	// two outcomes without delaying a healthy enumeration.
+	windowsProcessInspectAttempts = 4
 )
 
 var windowsPostMessage = windows.NewLazySystemDLL("user32.dll").NewProc("PostMessageW")
+
+var (
+	windowsProcessImageKernel32         = windows.NewLazySystemDLL("kernel32.dll")
+	windowsProcessGetImageFileName      = windowsProcessImageKernel32.NewProc("K32GetProcessImageFileNameW")
+	windowsUpdateQueryProcessExecutable = queryWindowsProcessExecutable
+	windowsUpdateInspectRetryDelay      = 200 * time.Millisecond
+	windowsUpdateDosDeviceTarget        = queryWindowsDosDeviceTarget
+)
 
 func configureWindowsUpdateCommand(cmd *exec.Cmd) {
 	if cmd == nil {
@@ -66,13 +80,27 @@ func findOtherWindowsUpdateInstances(targetPaths []string, currentPID int) ([]wi
 	for {
 		pid := entry.ProcessID
 		if pid != 0 && int(pid) != currentPID {
-			executable, queryErr := queryWindowsProcessExecutable(pid)
+			executable, queryErr := windowsUpdateQueryProcessExecutable(pid)
+			if queryErr != nil {
+				executable, queryErr = retryWindowsProcessExecutableQuery(pid, queryErr)
+			}
 			if queryErr == nil && windowsUpdatePathMatches(targets, executable) {
 				result = append(result, windowsUpdateProcess{PID: pid, Executable: executable})
 			} else if queryErr != nil && !errors.Is(queryErr, windows.ERROR_INVALID_PARAMETER) {
 				entryName := strings.ToLower(windows.UTF16ToString(entry.ExeFile[:]))
 				if _, mayBeTarget := targetNames[entryName]; mayBeTarget {
-					return nil, fmt.Errorf("inspect possible GoNavi process %d (%s): %w", pid, entryName, queryErr)
+					if errors.Is(queryErr, windows.ERROR_ACCESS_DENIED) {
+						// A protected live instance can neither be verified nor
+						// terminated, so the update cannot guarantee a clean
+						// close and must fail with a visible reason.
+						return nil, fmt.Errorf("inspect possible GoNavi process %d (%s): %w", pid, entryName, queryErr)
+					}
+					// A candidate that already exited can keep reporting
+					// transient image-query errors (ERROR_GEN_FAILURE) until
+					// the PID disappears. Skipping it is safe: a dying process
+					// is gone before the installer starts, and a live one is
+					// reported by the installer's own files-in-use handling.
+					logger.Warnf("跳过无法核实的疑似 GoNavi 进程 pid=%d name=%s error=%v", pid, entryName, queryErr)
 				}
 			}
 		}
@@ -85,6 +113,24 @@ func findOtherWindowsUpdateInstances(targetPaths []string, currentPID int) ([]wi
 		}
 	}
 	return result, nil
+}
+
+// retryWindowsProcessExecutableQuery re-queries a candidate whose image-name
+// inspection failed. A process mid-teardown keeps failing with transient
+// errors until OpenProcess starts reporting ERROR_INVALID_PARAMETER, so the
+// retry window lets a dying candidate resolve itself; access-denied and
+// already-invalid PIDs cannot change and stop the loop immediately.
+func retryWindowsProcessExecutableQuery(pid uint32, firstErr error) (string, error) {
+	executable := ""
+	queryErr := firstErr
+	for attempt := 1; attempt < windowsProcessInspectAttempts; attempt++ {
+		if queryErr == nil || errors.Is(queryErr, windows.ERROR_ACCESS_DENIED) || errors.Is(queryErr, windows.ERROR_INVALID_PARAMETER) {
+			break
+		}
+		time.Sleep(windowsUpdateInspectRetryDelay)
+		executable, queryErr = windowsUpdateQueryProcessExecutable(pid)
+	}
+	return executable, queryErr
 }
 
 func closeWindowsUpdateInstances(processes []windowsUpdateProcess) error {
@@ -228,13 +274,90 @@ func queryWindowsProcessExecutable(pid uint32) (string, error) {
 func queryWindowsProcessExecutableFromHandle(process windows.Handle) (string, error) {
 	buffer := make([]uint16, windows.MAX_LONG_PATH)
 	size := uint32(len(buffer))
-	if err := windows.QueryFullProcessImageName(process, 0, &buffer[0], &size); err != nil {
+	queryErr := windows.QueryFullProcessImageName(process, 0, &buffer[0], &size)
+	if queryErr == nil {
+		if size == 0 {
+			return "", errors.New("process executable path is empty")
+		}
+		return windows.UTF16ToString(buffer[:size]), nil
+	}
+	// A terminating process can fail this query with transient errors such as
+	// ERROR_GEN_FAILURE. The kernel image-name query reads the same
+	// section-backed path through a different code path and often still
+	// succeeds, but only returns a device path that must be mapped back to a
+	// DOS drive letter before it can match the update target.
+	devicePath, fallbackErr := queryWindowsProcessImageDeviceName(process)
+	if fallbackErr != nil {
+		return "", queryErr
+	}
+	drivePath, ok := convertWindowsDevicePathToDrivePath(devicePath, windowsUpdateDosDeviceTarget)
+	if !ok {
+		return "", queryErr
+	}
+	return drivePath, nil
+}
+
+func queryWindowsProcessImageDeviceName(process windows.Handle) (string, error) {
+	buffer := make([]uint16, windows.MAX_LONG_PATH)
+	result, _, callErr := windowsProcessGetImageFileName.Call(
+		uintptr(process),
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(len(buffer)),
+	)
+	if result == 0 {
+		return "", fmt.Errorf("query process image device path: %w", callErr)
+	}
+	if result >= uintptr(len(buffer)) {
+		return "", fmt.Errorf("process image device path exceeds %d characters", len(buffer)-1)
+	}
+	return windows.UTF16ToString(buffer[:result]), nil
+}
+
+func queryWindowsDosDeviceTarget(drive string) (string, error) {
+	pointer, err := windows.UTF16PtrFromString(drive)
+	if err != nil {
 		return "", err
 	}
-	if size == 0 {
-		return "", errors.New("process executable path is empty")
+	buffer := make([]uint16, 512)
+	if _, err := windows.QueryDosDevice(pointer, &buffer[0], uint32(len(buffer))); err != nil {
+		return "", err
 	}
-	return windows.UTF16ToString(buffer[:size]), nil
+	// QueryDosDevice returns a MULTI_SZ list whose first entry is the active
+	// mapping; UTF16ToString stops at the first NUL.
+	target := windows.UTF16ToString(buffer)
+	if target == "" {
+		return "", errors.New("empty DOS device mapping")
+	}
+	return target, nil
+}
+
+// convertWindowsDevicePathToDrivePath maps a kernel device path such as
+// `\Device\HarddiskVolume3\Tools\GoNavi.exe` to its DOS drive form by
+// comparing against each drive letter's QueryDosDevice target.
+func convertWindowsDevicePathToDrivePath(devicePath string, dosDeviceTarget func(string) (string, error)) (string, bool) {
+	trimmed := strings.TrimSpace(devicePath)
+	normalized := strings.ToLower(trimmed)
+	if !strings.HasPrefix(normalized, `\device\`) {
+		return "", false
+	}
+	for letter := 'A'; letter <= 'Z'; letter++ {
+		drive := string(letter) + ":"
+		target, err := dosDeviceTarget(drive)
+		if err != nil || strings.TrimSpace(target) == "" {
+			continue
+		}
+		if !strings.HasPrefix(normalized, strings.ToLower(target)) {
+			continue
+		}
+		rest := trimmed[len(target):]
+		// Reject prefix collisions such as \Device\HarddiskVolume3 matching
+		// the drive whose target is \Device\HarddiskVolume30.
+		if !strings.HasPrefix(rest, `\`) {
+			continue
+		}
+		return drive + rest, true
+	}
+	return "", false
 }
 
 func windowsUpdatePathMatches(targets map[string]struct{}, executable string) bool {

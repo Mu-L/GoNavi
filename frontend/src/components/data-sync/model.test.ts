@@ -7,6 +7,9 @@ import {
   buildDataSyncMappingsFromSelection,
   createDataSyncTableMapping,
   createDataSyncTaskDraft,
+  DATA_SYNC_FAMILY_KIND_CHOICES,
+  dataSyncTaskBelongsToFamily,
+  dataSyncTaskStages,
   isDataSyncPreflightCurrent,
   resolveDataSyncPreflightStatus,
   reviseDataSyncTask,
@@ -36,6 +39,22 @@ describe('data sync task model', () => {
       trigger: { mode: 'manual' },
       incremental: { mode: 'snapshot' },
     });
+    expect(dataSyncTaskStages('compare')).toEqual([
+      'endpoints',
+      'mappings',
+    ]);
+    expect(dataSyncTaskStages('reconcile')).toContain('delivery');
+    expect(dataSyncTaskBelongsToFamily(compare, 'compare')).toBe(true);
+    expect(dataSyncTaskBelongsToFamily(compare, 'sync')).toBe(false);
+    expect(dataSyncTaskBelongsToFamily(cdc, 'sync')).toBe(true);
+    expect(dataSyncTaskBelongsToFamily(cdc, 'compare')).toBe(false);
+    expect(DATA_SYNC_FAMILY_KIND_CHOICES.compare.map((choice) => choice.compareMode)).toEqual([
+      'schema',
+      'data',
+    ]);
+    expect(DATA_SYNC_FAMILY_KIND_CHOICES.sync.map((choice) => choice.kind)).not.toContain(
+      'compare',
+    );
     expect(cdc).toMatchObject({
       schemaVersion: 1,
       revision: 1,
@@ -77,6 +96,7 @@ describe('data sync task model', () => {
 
     // issue #1014：目标表缺列时必须默认补列并回填，否则字段同步不动。
     expect(migration.delivery.autoAddColumns).toBe(true);
+    expect(migration.delivery.createIndexes).toBe(true);
     expect(migration.content).toBe('both');
   });
 
@@ -277,6 +297,43 @@ describe('data sync task model', () => {
         'cdc_trigger_required',
       ]),
     );
+  });
+
+  it('blocks a Cron expression the scheduler cannot parse on the trigger stage', () => {
+    const base = createDataSyncTaskDraft({ id: 'task-cron', kind: 'reconcile' });
+    const configured = reviseDataSyncTask(base, {
+      name: 'Orders sync',
+      source: { ...base.source, connectionId: 'mysql-prod' },
+      target: { ...base.target, connectionId: 'pg-warehouse' },
+      mappings: [
+        {
+          ...createDataSyncTableMapping('map-cron', 'orders', 'ods.orders'),
+          keyColumns: ['id'],
+        },
+      ],
+    });
+    const withCron = (expression: string) =>
+      reviseDataSyncTask(configured, {
+        trigger: {
+          mode: 'cron',
+          expression,
+          timezone: 'Asia/Shanghai',
+          overlap: 'skip',
+        },
+      });
+
+    // issue #1298：六段（含秒）格式曾被判为「任务定义无效」，阻断项还落在 endpoints。
+    const seconds = validateDataSyncTask(withCron('0 0 3 * * *'));
+    expect(
+      seconds.find((item) => item.code === 'cron_expression_field_count'),
+    ).toMatchObject({ severity: 'blocker', stage: 'trigger' });
+    expect(seconds.every((item) => item.stage !== 'endpoints')).toBe(true);
+
+    expect(validateDataSyncTask(withCron('60 3 * * *')).map((item) => item.code))
+      .toContain('cron_expression_invalid');
+
+    // 表达式合法时不得引入新的阻断项。
+    expect(validateDataSyncTask(withCron('0 3 * * *'))).toEqual([]);
   });
 
   it('auto-matches field names case-insensitively and keeps existing transforms', () => {

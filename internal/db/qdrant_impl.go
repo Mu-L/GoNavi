@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -834,26 +833,18 @@ type qdrantParsedSQL struct {
 	WhereError    error
 }
 
-var qdrantSQLFromRE = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
-var qdrantSQLLimitRE = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
-var qdrantSQLOffsetRE = regexp.MustCompile(`(?i)\bOFFSET\s+([a-zA-Z0-9_.\-]+)`)
-
 func parseQdrantSQL(sqlText string) (qdrantParsedSQL, bool) {
 	text := strings.TrimSpace(sqlText)
 	if !strings.HasPrefix(strings.ToLower(text), "select") {
 		return qdrantParsedSQL{}, false
 	}
-	matches := qdrantSQLFromRE.FindStringSubmatch(text)
-	if len(matches) == 0 {
-		return qdrantParsedSQL{}, false
-	}
-	collection := firstNonEmpty(matches[1], matches[2], matches[3])
+	collection := parseSQLFromName(text)
 	if collection == "" {
 		return qdrantParsedSQL{}, false
 	}
 	parsed := qdrantParsedSQL{Collection: collection, Limit: 200}
 	lower := strings.ToLower(text)
-	parsed.Count = strings.Contains(lower, "count(")
+	parsed.Count = sqlContainsFunctionCall(sqlSelectProjection(text), "COUNT")
 	parsed.IncludeVector = strings.Contains(lower, "vector")
 	whereExpr, _, whereErr := parseVectorSQLWhere(text)
 	if whereErr == nil {
@@ -863,11 +854,11 @@ func parseQdrantSQL(sqlText string) (qdrantParsedSQL, bool) {
 	if whereErr == nil && whereExpr != nil {
 		parsed.Filter = qdrantFilterFromExpr(whereExpr)
 	}
-	if m := qdrantSQLLimitRE.FindStringSubmatch(text); len(m) > 1 {
-		parsed.Limit, _ = strconv.Atoi(m[1])
+	if limit, ok := parseSQLLimitClause(text); ok {
+		parsed.Limit = limit
 	}
-	if m := qdrantSQLOffsetRE.FindStringSubmatch(text); len(m) > 1 {
-		parsed.Offset = qdrantNormalizePointID(m[1])
+	if offset, ok := parseSQLOffsetToken(text); ok {
+		parsed.Offset = qdrantNormalizePointID(offset)
 	}
 	return parsed, true
 }

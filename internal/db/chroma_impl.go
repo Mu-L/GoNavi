@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -900,37 +899,29 @@ type chromaParsedSQL struct {
 	WhereError        error
 }
 
-var chromaSQLFromRE = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
-var chromaSQLLimitRE = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
-var chromaSQLOffsetRE = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
-
 func parseChromaSQL(sqlText string) (chromaParsedSQL, bool) {
 	text := strings.TrimSpace(sqlText)
 	if !strings.HasPrefix(strings.ToLower(text), "select") {
 		return chromaParsedSQL{}, false
 	}
-	matches := chromaSQLFromRE.FindStringSubmatch(text)
-	if len(matches) == 0 {
-		return chromaParsedSQL{}, false
-	}
-	table := firstNonEmpty(matches[1], matches[2], matches[3])
+	table := parseSQLFromName(text)
 	if table == "" {
 		return chromaParsedSQL{}, false
 	}
 	parsed := chromaParsedSQL{Collection: table, Limit: 200}
 	lower := strings.ToLower(text)
-	parsed.Count = strings.Contains(lower, "count(")
+	parsed.Count = sqlContainsFunctionCall(sqlSelectProjection(text), "COUNT")
 	parsed.IncludeEmbeddings = strings.Contains(lower, "embedding")
 	whereExpr, _, whereErr := parseVectorSQLWhere(text)
 	parsed.WhereError = whereErr
 	if whereErr == nil && whereExpr != nil {
 		parsed.Where = chromaWhereFromExpr(whereExpr)
 	}
-	if m := chromaSQLLimitRE.FindStringSubmatch(text); len(m) > 1 {
-		parsed.Limit, _ = strconv.Atoi(m[1])
+	if limit, ok := parseSQLLimitClause(text); ok {
+		parsed.Limit = limit
 	}
-	if m := chromaSQLOffsetRE.FindStringSubmatch(text); len(m) > 1 {
-		parsed.Offset, _ = strconv.Atoi(m[1])
+	if offset, ok := parseSQLUnsignedOffset(text); ok {
+		parsed.Offset = offset
 	}
 	return parsed, true
 }

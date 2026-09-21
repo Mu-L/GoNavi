@@ -198,7 +198,8 @@ type App struct {
 	driverDownloadTaskMu          sync.RWMutex
 	driverDownloadTasks           map[string]DriverDownloadTaskStatus
 	driverDownloadActiveTaskID    string
-	driverDownloadTaskRunner      func(string, string, string, string) connection.QueryResult
+	driverDownloadTaskRunner      driverDownloadTaskRunner
+	driverDownloadTaskControls    map[string]driverDownloadTaskControl
 	driverInstallMu               sync.Mutex
 	driverMaintenance             map[string]int
 	dataRootApplyMu               sync.Mutex
@@ -321,6 +322,7 @@ func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 		connectionHealthRuns:          make(map[string]*connectionHealthRun),
 		importTasks:                   make(map[string]importTaskRegistration),
 		driverDownloadTasks:           make(map[string]DriverDownloadTaskStatus),
+		driverDownloadTaskControls:    make(map[string]driverDownloadTaskControl),
 		driverMaintenance:             make(map[string]int),
 		sqlTransactions:               make(map[string]*managedSQLTransaction),
 		requestTraceStore:             requesttrace.NewStore(requesttrace.DefaultCapacity),
@@ -1773,6 +1775,9 @@ func (a *App) connectAndCacheDatabase(effectiveConfig connection.ConnectionConfi
 }
 
 func (a *App) cachedConnectFailureError(effectiveConfig connection.ConnectionConfig, key string, messageKey string) error {
+	if a.inStartupConnectRetryWindow() {
+		return nil
+	}
 	failure, remaining, ok := a.getCachedConnectFailureByKey(key)
 	if !ok {
 		return nil
@@ -1845,6 +1850,9 @@ func (a *App) recordConnectFailureForFlight(flight *databaseConnectFlight, key s
 	defer a.mu.Unlock()
 	if flightErr := a.databaseConnectFlightErrorLocked(flight); flightErr != nil {
 		return flightErr
+	}
+	if a.inStartupConnectRetryWindow() {
+		return nil
 	}
 	// Keep the final failure key on the active token so a release that wins
 	// immediately after this commit can clear the just-recorded cooldown.
@@ -1991,10 +1999,18 @@ func (a *App) startupPhaseLabel() string {
 	if age < 0 {
 		age = 0
 	}
-	if age <= startupConnectRetryWindow {
+	if a.inStartupConnectRetryWindow() {
 		return fmt.Sprintf("启动期(age=%s)", age)
 	}
 	return fmt.Sprintf("稳定期(age=%s)", age)
+}
+
+func (a *App) inStartupConnectRetryWindow() bool {
+	if a == nil || a.startedAt.IsZero() {
+		return false
+	}
+	age := time.Since(a.startedAt)
+	return age >= 0 && age <= startupConnectRetryWindow
 }
 
 func (a *App) shouldRetryConnect(err error, attempt int) bool {
@@ -2004,13 +2020,7 @@ func (a *App) shouldRetryConnect(err error, attempt int) bool {
 	if !isTransientStartupConnectError(err) {
 		return false
 	}
-	if a != nil && !a.startedAt.IsZero() {
-		age := time.Since(a.startedAt)
-		if age >= 0 && age <= startupConnectRetryWindow {
-			return true
-		}
-	}
-	return false
+	return a.inStartupConnectRetryWindow()
 }
 
 func isTransientStartupConnectError(err error) bool {
@@ -2032,137 +2042,4 @@ func isTransientStartupConnectError(err error) bool {
 		}
 	}
 	return false
-}
-
-// generateQueryID generates a unique ID for a query using UUID v4
-func generateQueryID() string {
-	return "query-" + uuid.New().String()
-}
-
-func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) func() {
-	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone, driverTypes...)
-	return cleanup
-}
-
-func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) (func(), func(bool)) {
-	driverType := ""
-	if len(driverTypes) > 0 {
-		driverType = normalizeDriverType(driverTypes[0])
-	}
-	a.queryMu.Lock()
-	if a.runningQueries == nil {
-		a.runningQueries = make(map[string]queryContext)
-	}
-	a.nextQueryRegistrationID++
-	if a.nextQueryRegistrationID == 0 {
-		a.nextQueryRegistrationID++
-	}
-	registrationID := a.nextQueryRegistrationID
-	a.runningQueries[queryID] = queryContext{
-		cancel:          cancel,
-		started:         time.Now(),
-		retainUntilDone: retainUntilDone,
-		registrationID:  registrationID,
-		driverType:      driverType,
-	}
-	a.queryMu.Unlock()
-
-	cleanup := func() {
-		a.queryMu.Lock()
-		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
-			delete(a.runningQueries, queryID)
-		}
-		a.queryMu.Unlock()
-	}
-	setCancellable := func(cancellable bool) {
-		a.queryMu.Lock()
-		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
-			current.cancellationUnsupported = !cancellable
-			a.runningQueries[queryID] = current
-		}
-		a.queryMu.Unlock()
-	}
-	return cleanup, setCancellable
-}
-
-// registerExclusiveRunningQuery registers a long-running task only when the
-// caller-provided ID is not already owned by another task. Import jobs use this
-// stricter contract because replacing an owner would make cancellation target
-// the wrong operation and let an older cleanup remove the newer task.
-func (a *App) registerExclusiveRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) (func(), bool) {
-	a.queryMu.Lock()
-	if a.runningQueries == nil {
-		a.runningQueries = make(map[string]queryContext)
-	}
-	if _, exists := a.runningQueries[queryID]; exists {
-		a.queryMu.Unlock()
-		return func() {}, false
-	}
-	a.nextQueryRegistrationID++
-	if a.nextQueryRegistrationID == 0 {
-		a.nextQueryRegistrationID++
-	}
-	registrationID := a.nextQueryRegistrationID
-	a.runningQueries[queryID] = queryContext{
-		cancel:          cancel,
-		started:         time.Now(),
-		retainUntilDone: retainUntilDone,
-		registrationID:  registrationID,
-	}
-	a.queryMu.Unlock()
-
-	return func() {
-		a.queryMu.Lock()
-		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
-			delete(a.runningQueries, queryID)
-		}
-		a.queryMu.Unlock()
-	}, true
-}
-
-// CancelQuery cancels a running query by its ID
-func (a *App) CancelQuery(queryID string) connection.QueryResult {
-	a.queryMu.Lock()
-	defer a.queryMu.Unlock()
-
-	if ctx, exists := a.runningQueries[queryID]; exists {
-		if ctx.cancellationUnsupported {
-			logger.Warnf("取消查询失败：queryID=%s 的底层驱动不支持取消", queryID)
-			return connection.QueryResult{
-				Success:           false,
-				Message:           a.appText("query_editor.message.cancel_unsupported", nil),
-				CancellationState: connection.QueryCancellationStateUnsupported,
-			}
-		}
-		ctx.cancel()
-		a.requestDiagnostics().MarkCancellation(queryID, true)
-		if !ctx.retainUntilDone {
-			delete(a.runningQueries, queryID)
-		}
-		logger.Infof("查询已取消：queryID=%s", queryID)
-		return connection.QueryResult{Success: true, Message: a.appText("query_editor.message.cancel_success", nil)}
-	}
-	a.requestDiagnostics().MarkCancellation(queryID, false)
-	logger.Warnf("取消查询失败：queryID=%s 不存在或已完成", queryID)
-	return connection.QueryResult{Success: false, Message: a.appText("query_editor.message.cancel_no_running", nil)}
-}
-
-// cleanupStaleQueries removes queries older than maxAge.
-func (a *App) cleanupStaleQueries(maxAge time.Duration) {
-	a.queryMu.Lock()
-	defer a.queryMu.Unlock()
-
-	now := time.Now()
-	for id, ctx := range a.runningQueries {
-		if now.Sub(ctx.started) > maxAge {
-			// Query likely finished or stuck, remove from tracking
-			delete(a.runningQueries, id)
-			// Query expired, silently remove
-		}
-	}
-}
-
-// GenerateQueryID generates a unique query ID for cancellation tracking
-func (a *App) GenerateQueryID() string {
-	return generateQueryID()
 }

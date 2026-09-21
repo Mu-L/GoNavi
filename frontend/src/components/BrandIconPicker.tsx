@@ -1,5 +1,11 @@
 import React from 'react';
-import { BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
+import {
+  BUNDLED_BRAND_ICON_ZOOM,
+  BRAND_ICONS,
+  RIBBON_TILE_ART_FRACTION,
+  resolveBrandIconSrc,
+  type BrandIconId,
+} from '../brand/brandIcons';
 
 type BrandIconPickerProps = {
   value: string;
@@ -28,6 +34,7 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
     >
       {BRAND_ICONS.map((item, itemIndex) => {
         const active = value === item.id;
+        const usesBundledPreview = item.bundled === true;
         return (
           <button
             key={item.id}
@@ -72,7 +79,7 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
               textAlign: 'left',
             }}
           >
-            {/* The preview uses the same lossless source as every app surface. */}
+            {/* Keep legacy mascot previews on the lossless 0.9.7 artwork. */}
             <div
               style={{
                 width: 56,
@@ -81,24 +88,58 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                overflow: 'visible',
                 background: 'transparent',
                 border: 'none',
                 borderRadius: 12,
-                overflow: 'hidden',
                 boxShadow: 'none',
               }}
             >
-              <img
-                src={resolveBrandIconSrc(item.id)}
-                alt={item.titleZh}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  display: 'block',
-                }}
-                draggable={false}
-              />
+              {usesBundledPreview ? (
+                // The ribbon SVGs frame their tile at ~80% of the canvas; size
+                // the mascot's white tile to the same fraction and crop the
+                // artwork's white margins so both read as the same tile size.
+                <div
+                  style={{
+                    width: `${RIBBON_TILE_ART_FRACTION * 100}%`,
+                    height: `${RIBBON_TILE_ART_FRACTION * 100}%`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#fff',
+                    borderRadius: 9,
+                    overflow: 'hidden',
+                    boxShadow: `0 0 0 1px ${border}`,
+                  }}
+                >
+                  <img
+                    src={resolveBrandIconSrc(item.id)}
+                    alt={item.titleZh}
+                    style={{
+                      maxWidth: 'none',
+                      maxHeight: 'none',
+                      width: `${BUNDLED_BRAND_ICON_ZOOM * 100}%`,
+                      height: `${BUNDLED_BRAND_ICON_ZOOM * 100}%`,
+                      objectFit: 'cover',
+                      display: 'block',
+                    }}
+                    draggable={false}
+                  />
+                </div>
+              ) : (
+                <img
+                  src={resolveBrandIconSrc(item.id)}
+                  alt={item.titleZh}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: 12,
+                    display: 'block',
+                  }}
+                  draggable={false}
+                />
+              )}
             </div>
             <div style={{ textAlign: 'left', minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 'var(--gn-font-size-sm, 12px)', fontWeight: 700, color: title }}>

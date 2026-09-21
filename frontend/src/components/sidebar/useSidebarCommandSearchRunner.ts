@@ -2,6 +2,7 @@ import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction 
 
 import { t } from '../../i18n';
 import type { SavedConnection } from '../../types';
+import { collectSidebarLocateExpandKeys, type SidebarLocateTreeNodeLike } from '../../utils/sidebarLocate';
 import { resolveSidebarNodeConnectionId, shouldRunV2CommandSearchEnter, type SidebarTreeNode as TreeNode, type V2CommandSearchItem } from '../sidebarV2Utils';
 import { resolveSidebarTitlebarObjectName } from './sidebarHelpers';
 
@@ -85,7 +86,10 @@ export const useSidebarCommandSearchRunner = ({
     });
     setSelectedKeys([key]);
     setActiveContext({ connectionId: key, dbName: '' });
-    mergeExpandedTreeKeys([key]);
+    mergeExpandedTreeKeys(collectSidebarLocateExpandKeys(
+      treeDataRef.current as SidebarLocateTreeNodeLike[],
+      key,
+    ));
     const targetNode = connectionNode || {
       key,
       dataRef: conn,
@@ -167,6 +171,19 @@ export const useSidebarCommandSearchRunner = ({
         tableName: dataRef.tableName || dataRef.viewName,
         schemaName: dataRef.schemaName,
         objectGroup: node.type === 'table' ? 'tables' : (node.type === 'materialized-view' ? 'materializedViews' : 'views'),
+      });
+      onDoubleClick(null, node);
+      return;
+    }
+    if (node.type === 'database-link') {
+      publishTitlebarSelectionForNode?.(node);
+      void locateObjectInSidebar({
+        tabId: String(node.key || ''),
+        connectionId: dataRef.id,
+        dbName: dataRef.dbName,
+        tableName: dataRef.databaseLinkName,
+        schemaName: dataRef.schemaName,
+        objectGroup: 'databaseLinks',
       });
       onDoubleClick(null, node);
       return;

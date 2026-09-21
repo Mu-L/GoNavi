@@ -2,7 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CaretRightOutlined } from '@ant-design/icons';
 
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
+import SettingsCenterTreeSearch from './SettingsCenterTreeSearch';
+import {
+  filterSettingsCenterTreeGroups,
+  normalizeSettingsCenterSearchQuery,
+  renderSettingsCenterTreeLabel,
+} from './settingsCenterTreeSearchModel';
 import './SettingsCenterTreeNav.css';
+
+/** While searching every remaining node is shown expanded. */
+const EXPAND_ALL: ReadonlySet<string> = new Set();
 
 export type SettingsCenterTreeItem = {
   key: string;
@@ -147,6 +156,36 @@ export const findSettingsCenterTreeAncestors = (
   return walkSettingsCenterTreeItems(group.items, itemKey)?.ancestors ?? [];
 };
 
+export const focusSettingsCenterTreeNode = (
+  tree: ParentNode | null | undefined,
+  nodeId: string,
+): HTMLElement | null => {
+  if (!tree) {
+    return null;
+  }
+  const target = tree.querySelector<HTMLElement>(`[data-settings-tree-node="${nodeId}"]`);
+  if (!target) {
+    return null;
+  }
+  target.focus();
+  return target;
+};
+
+export const nextSettingsCenterTreeFocusIndex = (
+  visibleNodes: ReadonlyArray<{ id: string }>,
+  currentId: string,
+  delta: number,
+): number | null => {
+  if (visibleNodes.length === 0) {
+    return null;
+  }
+  const currentIndex = visibleNodes.findIndex((visible) => visible.id === currentId);
+  if (currentIndex < 0) {
+    return 0;
+  }
+  return (currentIndex + delta + visibleNodes.length) % visibleNodes.length;
+};
+
 export const flattenVisibleSettingsCenterTree = (
   groups: ReadonlyArray<SettingsCenterTreeGroup>,
   collapsedKeys: ReadonlySet<string>,
@@ -220,10 +259,19 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     loadCollapsedKeys(collectExpandableSettingsCenterTreeIds(groups))
   ));
   const previousExpandableIdsRef = useRef<string[] | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
   const selectedNodeId = activeItemKey
     ? settingsCenterTreeNodeId({ type: 'item', groupKey: activeGroupKey, itemKey: activeItemKey })
     : settingsCenterTreeNodeId({ type: 'group', groupKey: activeGroupKey });
   const [focusedNodeId, setFocusedNodeId] = useState(selectedNodeId);
+  const [searchQuery, setSearchQuery] = useState('');
+  const normalizedQuery = normalizeSettingsCenterSearchQuery(searchQuery);
+  const searching = normalizedQuery.length > 0;
+  const displayGroups = useMemo(
+    () => filterSettingsCenterTreeGroups(groups, searchQuery),
+    [groups, searchQuery],
+  );
+  const effectiveCollapsedKeys = searching ? EXPAND_ALL : collapsedKeys;
 
   useEffect(() => {
     const previous = previousExpandableIdsRef.current;
@@ -254,6 +302,10 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   }, [collapsedKeys, expandableIds]);
 
   useEffect(() => {
+    const activeElement = treeRef.current?.ownerDocument.activeElement;
+    if (activeElement && treeRef.current?.contains(activeElement)) {
+      return;
+    }
     setFocusedNodeId(selectedNodeId);
   }, [selectedNodeId]);
 
@@ -287,11 +339,14 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   }, [activeGroupKey, activeItemKey, groups]);
 
   const visibleNodes = useMemo(
-    () => flattenVisibleSettingsCenterTree(groups, collapsedKeys),
-    [collapsedKeys, groups],
+    () => flattenVisibleSettingsCenterTree(displayGroups, effectiveCollapsedKeys),
+    [displayGroups, effectiveCollapsedKeys],
   );
 
   const toggleCollapsed = (nodeId: string) => {
+    if (searching) {
+      return;
+    }
     setCollapsedKeys((current) => {
       const next = new Set(current);
       if (next.has(nodeId)) {
@@ -318,8 +373,15 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     findSettingsCenterTreeItem(groups, groupKey, itemKey)
   );
 
-  const activateNode = (node: VisibleTreeNode) => {
-    setFocusedNodeId(node.id);
+  const setFocusedTreeNode = (nodeId: string, syncDomFocus: boolean) => {
+    setFocusedNodeId(nodeId);
+    if (syncDomFocus) {
+      focusSettingsCenterTreeNode(treeRef.current, nodeId);
+    }
+  };
+
+  const activateNode = (node: VisibleTreeNode, syncDomFocus = false) => {
+    setFocusedTreeNode(node.id, syncDomFocus);
     if (node.type === 'group') {
       expandNode(node.id);
       if (node.groupKey !== activeGroupKey) {
@@ -334,27 +396,24 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   };
 
   const revealNode = (node: VisibleTreeNode) => {
-    setFocusedNodeId(node.id);
+    setFocusedTreeNode(node.id, true);
     if (node.type === 'item' && !node.expandable) {
       activateNode(node);
     }
   };
 
   const moveFocus = (currentId: string, delta: number) => {
-    const currentIndex = visibleNodes.findIndex((visible) => visible.id === currentId);
-    if (visibleNodes.length === 0) {
+    const nextIndex = nextSettingsCenterTreeFocusIndex(visibleNodes, currentId, delta);
+    if (nextIndex == null) {
       return;
     }
-    const nextIndex = currentIndex < 0
-      ? 0
-      : (currentIndex + delta + visibleNodes.length) % visibleNodes.length;
     revealNode(visibleNodes[nextIndex]);
   };
 
   const handleTreeKeyDown = (event: React.KeyboardEvent<HTMLElement>, node: VisibleTreeNode) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      activateNode(node);
+      activateNode(node, true);
       return;
     }
     if (event.key === 'ArrowDown') {
@@ -384,7 +443,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     }
     if (event.key === 'ArrowRight' && node.expandable) {
       event.preventDefault();
-      if (collapsedKeys.has(node.id)) {
+      if (effectiveCollapsedKeys.has(node.id)) {
         toggleCollapsed(node.id);
         return;
       }
@@ -393,20 +452,20 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
     }
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      if (node.expandable && !collapsedKeys.has(node.id)) {
+      if (node.expandable && !effectiveCollapsedKeys.has(node.id) && !searching) {
         toggleCollapsed(node.id);
         return;
       }
       if (node.type === 'item' && node.parentItemKey) {
-        setFocusedNodeId(settingsCenterTreeNodeId({
+        setFocusedTreeNode(settingsCenterTreeNodeId({
           type: 'item',
           groupKey: node.groupKey,
           itemKey: node.parentItemKey,
-        }));
+        }), true);
         return;
       }
       if (node.type === 'item') {
-        setFocusedNodeId(settingsCenterTreeNodeId({ type: 'group', groupKey: node.groupKey }));
+        setFocusedTreeNode(settingsCenterTreeNodeId({ type: 'group', groupKey: node.groupKey }), true);
       }
     }
   };
@@ -425,7 +484,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   ) => {
     const itemId = settingsCenterTreeNodeId({ type: 'item', groupKey, itemKey: item.key });
     const hasChildren = Boolean(item.children && item.children.length > 0);
-    const itemExpanded = hasChildren && !collapsedKeys.has(itemId);
+    const itemExpanded = hasChildren && !effectiveCollapsedKeys.has(itemId);
     const itemActive = groupKey === activeGroupKey && item.key === activeItemKey;
     const itemFocused = focusedNodeId === itemId;
     const depthClass = depth >= 3
@@ -454,6 +513,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
           tabIndex={itemFocused ? 0 : -1}
           data-settings-pane-key={item.key}
           data-settings-tree-node={itemId}
+          onFocus={() => setFocusedTreeNode(itemId, false)}
           onClick={() => activateNode(visibleNode)}
           onKeyDown={(event) => handleTreeKeyDown(event, visibleNode)}
           style={{
@@ -464,7 +524,9 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
           {hasChildren ? renderCaret(itemExpanded, itemActive, itemId) : depth === 1 ? (
             <span className="gonavi-settings-center-tree-caret is-placeholder" aria-hidden="true" />
           ) : null}
-          <span className="gonavi-settings-center-tree-label">{item.title}</span>
+          <span className="gonavi-settings-center-tree-label">
+            {renderSettingsCenterTreeLabel(item.title, normalizedQuery)}
+          </span>
         </div>
         {itemExpanded ? (
           <div
@@ -502,16 +564,45 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
   );
 
   return (
+    <div className="gonavi-settings-center-nav">
+    <SettingsCenterTreeSearch
+      value={searchQuery}
+      resultCount={displayGroups.length}
+      onChange={setSearchQuery}
+      onArrowDown={() => {
+        if (visibleNodes[0]) {
+          setFocusedTreeNode(visibleNodes[0].id, true);
+        }
+      }}
+      onEnter={() => {
+        if (visibleNodes[0]) {
+          activateNode(visibleNodes[0], true);
+        }
+      }}
+    />
     <div
+      ref={treeRef}
       className="gonavi-settings-center-tree"
       role="tree"
       aria-label={ariaLabel}
       aria-orientation="vertical"
+      tabIndex={visibleNodes.length === 0 ? 0 : undefined}
+      onKeyDown={visibleNodes.length === 0 ? (event) => {
+        handleTreeKeyDown(event, {
+          type: 'group',
+          groupKey: activeGroupKey,
+          id: focusedNodeId,
+          expandable: false,
+          depth: 0,
+        });
+      } : undefined}
     >
-      {groups.map((group) => {
+      {displayGroups.map((group) => {
         const groupId = settingsCenterTreeNodeId({ type: 'group', groupKey: group.key });
         const groupExpandable = group.items.length > 0;
-        const groupExpanded = groupExpandable && !collapsedKeys.has(groupId) && !collapsedKeys.has(group.key);
+        const groupExpanded = groupExpandable
+          && !effectiveCollapsedKeys.has(groupId)
+          && !effectiveCollapsedKeys.has(group.key);
         const groupActive = group.key === activeGroupKey && (!groupExpandable || !activeItemKey);
         const groupFocused = focusedNodeId === groupId;
         return (
@@ -525,6 +616,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
               title={`${group.title} - ${group.description}`}
               tabIndex={groupFocused ? 0 : -1}
               data-settings-tree-node={groupId}
+              onFocus={() => setFocusedTreeNode(groupId, false)}
               onClick={() => activateNode({
                 type: 'group',
                 groupKey: group.key,
@@ -547,7 +639,9 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
               {groupExpandable ? renderCaret(groupExpanded, groupActive, groupId) : (
                 <span className="gonavi-settings-center-tree-caret is-placeholder" aria-hidden="true" />
               )}
-              <span className="gonavi-settings-center-tree-label">{group.title}</span>
+              <span className="gonavi-settings-center-tree-label">
+                {renderSettingsCenterTreeLabel(group.title, normalizedQuery)}
+              </span>
             </div>
             {groupExpanded ? (
               <div role="group" aria-label={group.title}>
@@ -557,6 +651,7 @@ const SettingsCenterTreeNav: React.FC<SettingsCenterTreeNavProps> = ({
           </div>
         );
       })}
+    </div>
     </div>
   );
 };

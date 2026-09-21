@@ -10,6 +10,7 @@ import {
   reviseDataSyncTask,
   type DataSyncRouteCapability,
   type DataSyncTaskDefinition,
+  type DataSyncTaskStage,
 } from './model';
 import { createDataSyncWorkbenchTranslate } from './text';
 
@@ -35,6 +36,7 @@ const renderDelivery = async (
   task: DataSyncTaskDefinition,
   onPatch = vi.fn(),
   capability = supportedCapability,
+  activeStage: DataSyncTaskStage = 'delivery',
 ) => {
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -43,7 +45,7 @@ const renderDelivery = async (
         task={task}
         gateway={createStaticDataSyncWorkbenchGateway()}
         capability={capability}
-        activeStage="delivery"
+        activeStage={activeStage}
         preflight={null}
         preflightStale
         t={createDataSyncWorkbenchTranslate('zh-CN')}
@@ -322,11 +324,16 @@ describe('DataSyncTaskEditor delivery stage', () => {
 
   it('explains compare tasks without exposing irrelevant write controls', async () => {
     const task = createDataSyncTaskDraft({ id: 'compare', kind: 'compare' });
-    const { renderer } = await renderDelivery(task);
+    // Compare tasks have no delivery step: the read-only contract belongs to
+    // the object-selection step, and no write control may appear anywhere.
+    const { renderer } = await renderDelivery(task, vi.fn(), supportedCapability, 'mappings');
     const rendered = JSON.stringify(renderer.toJSON());
 
     expect(rendered).toContain('这是只读比较任务');
     expect(rendered).toContain('不会写入或删除目标端数据');
+    expect(
+      renderer.root.findAllByProps({ 'data-data-sync-compare-readonly': 'true' }),
+    ).toHaveLength(1);
     expect(
       renderer.root.findAllByProps({ 'data-delivery-policy': 'error' }),
     ).toHaveLength(0);

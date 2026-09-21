@@ -1,7 +1,7 @@
 import Modal from './common/ResizableDraggableModal';
 import { registerWorkbenchTabCloseGuard } from '../utils/workbenchTabCloseProtection';
 // cspell:ignore anticon sqls uuidv uuidv4 hscroll
-import React, { useState, useEffect, useRef, useContext, useMemo, useCallback, useDeferredValue } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useContext, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Popover, DatePicker, TimePicker } from 'antd';
 import type { InputRef } from 'antd';
@@ -28,6 +28,8 @@ import {
     decodeDataGridColumnOrderDragPayload,
     hasDataGridColumnOrderDragPayload,
     moveDataGridColumnInVisibleOrder,
+    resolveDataGridDisplayColumnNames,
+    useDataGridColumnLayout,
 } from './dataGridColumnOrder';
 import { ImportData, ExportDataWithOptions, ExportQueryWithOptions, ApplyChanges, PreviewChanges, DBGetColumns, DBGetIndexes, DBGetForeignKeys, DBShowCreateTable } from '../../wailsjs/go/app/App';
 import ImportPreviewModal from './ImportPreviewModal';
@@ -39,7 +41,7 @@ import { v4 as generateUuid } from 'uuid';
 import 'react-resizable/css/styles.css';
 import '../styles/v2-theme-workbench.css';
 import { buildOrderBySQL, buildPaginatedSelectSQL, buildWhereSQL, escapeLiteral, hasExplicitSort, quoteIdentPart, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
-import { isMacLikePlatform, normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
+import { isMacLikePlatform, isWindowsPlatform, normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
 import { isConnectionDataImportRestricted } from '../utils/connectionReadOnly';
 import { confirmProductionRisk } from '../utils/productionRiskConfirm';
 import { getDataSourceCapabilities, resolveDataSourceType } from '../utils/dataSourceCapabilities';
@@ -47,28 +49,33 @@ import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { normalizeOceanBaseProtocol } from '../utils/oceanBaseProtocol';
 import {
     getDensityParams,
+    MIN_DATA_TABLE_COLUMN_WIDTH,
     resolveDataTableColumnWidth,
-    resolveDataTableVerticalBorderColor,
+    resolveDataTableVerticalBorderRule,
 } from '../utils/dataGridDisplay';
 import { resolvePaginationPageText, resolvePaginationSummaryText, resolvePaginationTotalForControl } from '../utils/dataGridPagination';
 import { countGridColumnValues, filterRowsByGridConditions } from '../utils/dataGridClientFilter';
 import { resolveGridSortInfoFromTableSorter } from '../utils/dataGridSort';
 import {
     absorbExtraWidthIntoFlexibleColumns,
-    calculateTableBodyBottomPadding,
     calculateVirtualTableScrollX,
+    measureDataGridMetrics,
+    observeDataGridMetrics,
     resolveDataGridColumnQuickFindScrollLeft,
     resolveDataGridHorizontalWheelDelta,
+    resolveNativeHorizontalWheelScrollLeft,
     resolveExternalHorizontalScrollMetrics,
+    resolveVirtualHorizontalMaxScroll,
+    shouldCommitVirtualHorizontalRange,
+    shouldLetNativeHorizontalWheelPass,
 } from './dataGridLayout';
 import {
     applyDataGridFixedCellPreviewOffset,
-    applyDataGridVirtualInnerOffset,
     commitDataGridFixedCellOffset,
     createDataGridIdleCommitScheduler,
     createDataGridVisualFrameGuard,
-    readDataGridVirtualInnerOffset,
     shouldVirtualizeDataGridColumns,
+    syncDataGridHeaderHorizontalOffset,
     type DataGridIdleCommitScheduler,
     type DataGridVisualFrameGuard,
 } from './dataGridVirtualScroll';
@@ -80,7 +87,11 @@ import {
     resolveUniqueKeyGroupsFromIndexes,
     type CopySqlError,
 } from './dataGridCopyInsert';
-import { calculateAutoFitColumnWidth } from './dataGridAutoWidth';
+import {
+    calculateAutoFitColumnWidth,
+    calculateAutoFitColumnWidths,
+    createDataGridCanvasTextMeasurer,
+} from './dataGridAutoWidth';
 import { buildSelectedCellClipboardPayload } from './dataGridSelectionCopy';
 import { buildCopiedRowsForPaste, buildPastedRowsFromCopiedRows } from './dataGridRowClipboard';
 import {
@@ -128,11 +139,8 @@ import {
 } from './dataGridTemporal';
 import {
     buildEffectiveFilterConditions,
-    normalizeQuickWhereCondition,
     resolveWhereConditionSelectedValue,
-    resolveWhereConditionSuggestions,
     shouldApplyQuickWhereOnEnter,
-    validateQuickWhereCondition,
 } from '../utils/dataGridWhereFilter';
 import {
     attachDataGridFindRenderVersion,
@@ -204,10 +212,11 @@ import { useDataGridMetadata } from './useDataGridMetadata';
 import { useDataGridColumnResize } from './useDataGridColumnResize';
 import { useDataGridPreviewPanel } from './useDataGridPreviewPanel';
 import { buildTableExportTab } from '../utils/tableExportTab';
-import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLifecycle';
 import { buildDataGridCssText } from './dataGridStyles';
 import { syncDataGridCellSelectionVisuals } from './dataGridCellHighlight';
 import { formatMongoEditableValue, normalizeMongoDocumentForEditing, parseMongoEditedValue } from '../utils/mongodb';
+import { attachDataGridDisplayRenderVersion, hasDataGridDisplayRenderVersionChanged } from './dataGridDisplayRenderVersion';
+
 
 // --- Error Boundary ---
 import {
@@ -220,7 +229,6 @@ import {
     TABLE_CELL_PREVIEW_MAX_CHARS,
     ROW_NUMBER_COLUMN_WIDTH,
     DATA_EDIT_AUTO_COMMIT_DELAY_OPTIONS,
-    DATA_GRID_DISPLAY_RENDER_VERSION,
     DATA_GRID_VIRTUAL_EDIT_RENDER_VERSION,
     DEFAULT_GRID_MONO_FONT_FAMILY,
     normalizedDateTimeCache,
@@ -248,8 +256,6 @@ import {
     renderCellDisplayValue,
     formatCellValue,
     attachDataGridVirtualEditRenderVersion,
-    attachDataGridDisplayRenderVersion,
-    hasDataGridDisplayRenderVersionChanged,
     hasDataGridVirtualEditRenderVersionChanged,
     toEditableText,
     toFormText,
@@ -323,8 +329,6 @@ export {
     resolveContextMenuFieldName,
     formatCellDisplayText,
     attachDataGridVirtualEditRenderVersion,
-    attachDataGridDisplayRenderVersion,
-    hasDataGridDisplayRenderVersionChanged,
     hasDataGridVirtualEditRenderVersionChanged,
     isStringLikeGridFilterColumnType,
     resolveDefaultGridFilterOperator,
@@ -338,6 +342,7 @@ export {
     buildColumnMetaMap,
     shouldOmitBlankDataGridInsertValue,
 } from './DataGridCore';
+export { attachDataGridDisplayRenderVersion, hasDataGridDisplayRenderVersionChanged } from './dataGridDisplayRenderVersion';
 
 const DATA_GRID_BASE_PAGE_SIZE_OPTIONS = ['100', '200', '500', '1000'] as const;
 const DATA_GRID_SQL_RESULT_PAGE_SIZE_OPTIONS = ['100', '500', '1000', '5000', '20000', '0'] as const;
@@ -358,10 +363,15 @@ export const buildDataGridPaginationPageSizeOptions = (queryMaxRows?: number): s
 // Native scroll events can outlive a pointer gesture on macOS. Wait for a brief
 // idle window before the virtual table performs its final visual correction.
 const EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS = 80;
-// rc-table keeps 320px of offscreen columns on each side. Refresh the virtual
-// column range at half that distance so visual-only horizontal movement never
-// outruns the mounted cells before the next React commit.
-const VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX = 160;
+const useDataGridLayoutEffect = import.meta.env.MODE === 'test' || typeof document === 'undefined' ? useEffect : useLayoutEffect;
+// How far the horizontal offset may drift before the mounted column window is
+// recomputed. This must stay below the window's own trailing overscan (960px in
+// the rc-table patch): once the drift passes it, the mounted cells stop short of
+// the right edge and the user sees a blank strip that grows until the commit
+// lands. Committing remounts every visible column in every rendered row, so the
+// threshold cannot be tiny either — 480px keeps the strip at zero while cutting
+// the remount rate to roughly once per 38 frames of a fast drag.
+const VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX = 480;
 
 const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, columnPinScope, objectType = 'table', exportScope = 'table', dbName, schemaName, ddlDbName, ddlTableName, connectionId, connectionParamsOverride, pkColumns = [], editLocator, readOnly = false,
@@ -376,6 +386,8 @@ const DataGrid: React.FC<DataGridProps> = ({
     onDataViewActivate,
     onDataChange,
     workbenchTabId,
+    initialColumnMetaMap,
+    initialUniqueKeyGroups,
 }) => {
   const storedConnections = useStore(state => state.connections);
   const connections = useMemo(() => {
@@ -438,7 +450,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }), [translateDataGrid]);
 
   const isMacLike = useMemo(() => isMacLikePlatform(), []);
-
+  const isWindowsLike = useMemo(() => isWindowsPlatform(), []);
   const effectiveUiScale = Math.min(1.25, Math.max(0.8, Number(uiScale) || 1));
   const activeShortcutPlatform = useMemo(() => getShortcutPlatform(isMacLike), [isMacLike]);
   const darkMode = theme === 'dark';
@@ -457,13 +469,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       () => ({ padding: densityParams.inputCellPadding }),
       [densityParams.inputCellPadding],
   );
-  const dataTableVerticalBorderColor = resolveDataTableVerticalBorderColor({
+  const dataTableVerticalBorderRule = resolveDataTableVerticalBorderRule({
       darkMode,
       visible: showDataTableVerticalBorders,
   });
-  const dataTableVerticalBorderRule = showDataTableVerticalBorders
-      ? `1px solid ${dataTableVerticalBorderColor}`
-      : 'none';
   const effectiveEditLocator = useMemo<EditRowLocator | undefined>(() => {
       if (editLocator) return editLocator;
       if (pkColumns.length === 0) return undefined;
@@ -487,9 +496,13 @@ const DataGrid: React.FC<DataGridProps> = ({
   const showColumnType = queryOptions?.showColumnType ?? true;
 
   // --- Display Columns Order & Visibility Management ---
-  const [allOrderedColumnNames, setAllOrderedColumnNames] = useState<string[]>([]);
-  const [displayColumnNames, setDisplayColumnNames] = useState<string[]>([]);
-  const [localHiddenColumns, setLocalHiddenColumns] = useState<string[]>([]);
+  const layoutMemoryKey = connectionId && dbName && tableName ? `${connectionId}-${dbName}-${tableName}` : '';
+  const { allOrderedColumnNames, setAllOrderedColumnNames, localHiddenColumns, setLocalHiddenColumns } = useDataGridColumnLayout(
+      visibleColumnNames,
+      enableColumnOrderMemory && layoutMemoryKey ? tableColumnOrders[layoutMemoryKey] : undefined,
+      enableHiddenColumnMemory && layoutMemoryKey ? tableHiddenColumns[layoutMemoryKey] : undefined,
+      JSON.stringify([connectionId, dbName, tableName, enableColumnOrderMemory, enableHiddenColumnMemory]),
+  );
   const [columnSearchText, setColumnSearchText] = useState('');
   const [columnQuickFindText, setColumnQuickFindText] = useState('');
   const [highlightedColumnName, setHighlightedColumnName] = useState('');
@@ -524,16 +537,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
   }, []);
 
-  // Sync hidden columns from store
-  useEffect(() => {
-      if (enableHiddenColumnMemory && connectionId && dbName && tableName) {
-          const storedHidden = tableHiddenColumns[`${connectionId}-${dbName}-${tableName}`];
-          setLocalHiddenColumns(Array.isArray(storedHidden) ? storedHidden : []);
-      } else {
-          setLocalHiddenColumns([]);
-      }
-  }, [tableHiddenColumns, enableHiddenColumnMemory, connectionId, dbName, tableName]);
-
   const toggleColumnVisibility = useCallback((col: string, visible: boolean) => {
       setLocalHiddenColumns(prev => {
           const nextSet = new Set(prev);
@@ -557,23 +560,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
   }, [allOrderedColumnNames, enableHiddenColumnMemory, connectionId, dbName, tableName, setTableHiddenColumns]);
 
-  // Sync display order from incoming prop and store memory
-  useEffect(() => {
-    let nextOrder = [...visibleColumnNames];
-    if (enableColumnOrderMemory && connectionId && dbName && tableName) {
-      const storedOrder = tableColumnOrders[`${connectionId}-${dbName}-${tableName}`];
-      if (Array.isArray(storedOrder) && storedOrder.length > 0) {
-        // Only layout known columns. Filter out missing or new columns.
-        const storedSet = new Set(storedOrder);
-        const incomingSet = new Set(nextOrder);
-        const validStored = storedOrder.filter(col => incomingSet.has(col));
-        const missingNew = nextOrder.filter(col => !storedSet.has(col));
-        nextOrder = [...validStored, ...missingNew];
-      }
-    }
-    setAllOrderedColumnNames(nextOrder);
-  }, [visibleColumnNames, tableColumnOrders, enableColumnOrderMemory, connectionId, dbName, tableName]);
-
   const pinnedLeftColumnScope = columnPinScope || tableName;
   const pinnedLeftColumnMemoryKey = useMemo(() => {
       if (!connectionId || !dbName || !pinnedLeftColumnScope) return '';
@@ -591,19 +577,15 @@ const DataGrid: React.FC<DataGridProps> = ({
       [pinnedLeftColumnNames],
   );
 
-  // Compute final display columns（固定列须连续靠左，否则 ant Table fixed 会错位）
-  useEffect(() => {
-      const hiddenSet = new Set(localHiddenColumns);
-      const visible = allOrderedColumnNames.filter((col) => !hiddenSet.has(col));
-      if (pinnedLeftColumnNames.length === 0) {
-          setDisplayColumnNames(visible);
-          return;
-      }
-      const pinnedSet = new Set(pinnedLeftColumnNames);
-      const pinnedVisible = pinnedLeftColumnNames.filter((col) => visible.includes(col));
-      const restVisible = visible.filter((col) => !pinnedSet.has(col));
-      setDisplayColumnNames([...pinnedVisible, ...restVisible]);
-  }, [allOrderedColumnNames, localHiddenColumns, pinnedLeftColumnNames]);
+  // The stored order is synchronized in an effect. Derive the current list
+  // from the incoming columns when that snapshot is stale so rows never render
+  // a selection/#-only frame while their real fields are already available.
+  const displayColumnNames = useMemo(() => resolveDataGridDisplayColumnNames({
+      visibleColumnNames,
+      orderedColumnNames: allOrderedColumnNames,
+      hiddenColumnNames: new Set(localHiddenColumns),
+      pinnedLeftColumnNames,
+  }), [allOrderedColumnNames, localHiddenColumns, pinnedLeftColumnNames, visibleColumnNames]);
 
   const displayOutputColumnNames = useMemo(
       () => resolveDataGridOutputColumnNames(
@@ -1030,10 +1012,18 @@ const DataGrid: React.FC<DataGridProps> = ({
       holderEl: HTMLElement | null;
       innerEl: HTMLElement | null;
       headerEl: HTMLElement | null;
-  }>({ tableContainer: null, holderEl: null, innerEl: null, headerEl: null });
+  }>({
+      tableContainer: null,
+      holderEl: null,
+      innerEl: null,
+      headerEl: null,
+  });
   const horizontalSyncSourceRef = useRef<'table' | 'external' | ''>('');
   const lastTableScrollLeftRef = useRef(0);
   const lastCommittedVirtualHorizontalOffsetRef = useRef(0);
+  // Resolved in the visual-offset sync; consumed by the fixed-cell commit calls so
+  // right-pinned cells can be offset from the scroll end.
+  const virtualHorizontalMaxScrollRef = useRef(0);
   const lastExternalScrollLeftRef = useRef(0);
   const externalSyncRafRef = useRef<number | null>(null);
   const externalScrollSettleRafRef = useRef<number | null>(null);
@@ -1045,6 +1035,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const externalIdleCommitSchedulerRef = useRef<DataGridIdleCommitScheduler<number> | null>(null);
   const tableTargetSyncRafRef = useRef<number | null>(null);
   const tableHorizontalWheelRafRef = useRef<number | null>(null);
+  const nativeHorizontalSyncRafRef = useRef<number | null>(null);
   const virtualHorizontalAlignmentRafRef = useRef<number | null>(null);
   const virtualHorizontalPostCommitFrameHandlerRef = useRef<(offset: number) => void>(() => {});
   const virtualHorizontalPostCommitGuardRef = useRef<DataGridVisualFrameGuard<number> | null>(null);
@@ -1125,6 +1116,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (tableHorizontalWheelRafRef.current !== null) {
           cancelAnimationFrame(tableHorizontalWheelRafRef.current);
           tableHorizontalWheelRafRef.current = null;
+      }
+      if (nativeHorizontalSyncRafRef.current !== null) {
+          cancelAnimationFrame(nativeHorizontalSyncRafRef.current);
+          nativeHorizontalSyncRafRef.current = null;
       }
       virtualHorizontalPostCommitGuardRef.current?.cancel();
       if (scrollSnapshotRafRef.current !== null) {
@@ -1215,7 +1210,15 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [resolveContextMenuPosition]);
 
   const [sortInfo, setSortInfo] = useState<Array<{ columnKey: string, order: string, enabled?: boolean }>>([]);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => calculateAutoFitColumnWidths({
+      columnNames: displayColumnNames,
+      rows: data,
+      dataFontSize: densityParams.dataFontSize,
+      defaultWidth: densityParams.defaultColumnWidth,
+      minWidth: MIN_DATA_TABLE_COLUMN_WIDTH,
+      maxWidth: 600,
+      measureTextWidth: createDataGridCanvasTextMeasurer(),
+  }));
   const mergedDisplayDataRef = useRef<Item[]>([]);
   const closeCellEditModeRef = useRef<() => void>(() => {});
   const formRef = useRef(form);
@@ -1253,6 +1256,8 @@ const DataGrid: React.FC<DataGridProps> = ({
       exportScope,
       visibleColumnNames,
       loading,
+      initialColumnMetaMap,
+      initialUniqueKeyGroups,
   });
 
   const displayColumnTypeMap = useMemo(() => {
@@ -1538,87 +1543,42 @@ const DataGrid: React.FC<DataGridProps> = ({
           tableBodyBottomPadding,
           verticalScrollbarTrackBg,
       }),
-      [themeStyles, gridId, tableBodyBottomPadding, darkMode, opacity, dataTableVerticalBorderColor, densityParams],
+      [themeStyles, gridId, tableBodyBottomPadding, darkMode, opacity, dataTableVerticalBorderRule, densityParams],
   );
 
   const recalculateTableMetrics = useCallback((targetElement?: HTMLElement | null) => {
       const target = targetElement || containerRef.current;
-      if (!target) return;
-
-      // P5 性能优化：合并 getBoundingClientRect 调用，减少 DOM 查询次数
-      const rect = target.getBoundingClientRect();
-      const height = rect.height;
-      const width = rect.width;
-      if (!Number.isFinite(height) || height < 50) return;
-      if (Number.isFinite(width) && width > 0) {
-          setTableViewportWidth(Math.floor(width));
-      }
-
-      const headerEl =
-          (target.querySelector('.ant-table-header') as HTMLElement | null) ||
-          (target.querySelector('.ant-table-thead') as HTMLElement | null);
-      const rawHeaderHeight = headerEl ? headerEl.getBoundingClientRect().height : NaN;
-      const headerHeight =
-          Number.isFinite(rawHeaderHeight) && rawHeaderHeight >= 24 && rawHeaderHeight <= 120 ? rawHeaderHeight : 42;
-      const paginationEl = target.querySelector('.data-grid-pagination-wrap') as HTMLElement | null;
-      const rawPaginationHeight = paginationEl ? paginationEl.getBoundingClientRect().height : 0;
-      const paginationHeight =
-          Number.isFinite(rawPaginationHeight) && rawPaginationHeight > 0 ? rawPaginationHeight : 0;
-
-      const bodyEl = target.querySelector('.ant-table-body') as HTMLElement | null;
-      const virtualBodyEl = target.querySelector('.ant-table-tbody-virtual-holder') as HTMLElement | null;
-      const rcVirtualHolderEl = target.querySelector('.rc-virtual-list-holder') as HTMLElement | null;
-      const virtualScrollbarEl = target.querySelector('.ant-table-tbody-virtual-scrollbar-horizontal') as HTMLElement | null;
-      const scrollableEl = virtualBodyEl || rcVirtualHolderEl || bodyEl;
-      const measuredScrollWidth = scrollableEl?.scrollWidth || 0;
-      const measuredClientWidth = scrollableEl?.clientWidth || 0;
-      const measuredTrackClientWidth = externalHorizontalScrollRef.current?.clientWidth || 0;
-      const hasHorizontalOverflow = measuredScrollWidth - measuredClientWidth > 1;
-      setMeasuredHorizontalScrollMetrics((current) => (
-          current.scrollWidth === measuredScrollWidth
-          && current.clientWidth === measuredClientWidth
-          && current.trackClientWidth === measuredTrackClientWidth
-              ? current
-              : {
-                  scrollWidth: measuredScrollWidth,
-                  clientWidth: measuredClientWidth,
-                  trackClientWidth: measuredTrackClientWidth,
-              }
-      ));
-      // 普通表格可通过 body 底部内边距避开悬浮横向滚动条；
-      // 但虚拟表格的内部横向滚动轨道会直接覆盖在可视区底部，需要同时从 y 高度里扣掉安全区。
-      const nextBodyBottomPadding = calculateTableBodyBottomPadding({
-          hasHorizontalOverflow,
+      if (!target) return false;
+      const metrics = measureDataGridMetrics({
+          target,
+          externalHorizontalTrack: externalHorizontalScrollRef.current,
           floatingScrollbarHeight,
           floatingScrollbarGap,
+          isWindowsLike,
       });
-      setTableBodyBottomPadding(nextBodyBottomPadding);
-      const extraBottom = 2;
-      const virtualScrollbarViewportReserve = hasHorizontalOverflow && !!virtualScrollbarEl
-          ? Math.ceil(virtualScrollbarEl.getBoundingClientRect().height || (floatingScrollbarHeight + floatingScrollbarGap + 4))
-          : 0;
-      const nextHeight = Math.max(
-          100,
-          Math.floor(height - headerHeight - paginationHeight - extraBottom - virtualScrollbarViewportReserve)
-      );
-      setTableHeight(nextHeight);
-  }, [floatingScrollbarGap, floatingScrollbarHeight]);
+      if (!metrics) return false;
+      if (metrics.viewportWidth !== null) setTableViewportWidth(metrics.viewportWidth);
+      setMeasuredHorizontalScrollMetrics((current) => (
+          current.scrollWidth === metrics.scrollWidth
+          && current.clientWidth === metrics.clientWidth
+          && current.trackClientWidth === metrics.trackClientWidth
+              ? current
+              : {
+                  scrollWidth: metrics.scrollWidth,
+                  clientWidth: metrics.clientWidth,
+                  trackClientWidth: metrics.trackClientWidth,
+              }
+      ));
+      setTableBodyBottomPadding(metrics.bodyBottomPadding);
+      if (metrics.tableHeight === null) return false;
+      setTableHeight(metrics.tableHeight);
+      return true;
+  }, [floatingScrollbarGap, floatingScrollbarHeight, isWindowsLike]);
 
-  useEffect(() => {
+  useDataGridLayoutEffect(() => {
       const el = containerRef.current;
       if (!el) return;
-
-      const scheduler = createSidebarResizeAwareFrameScheduler(() => {
-          recalculateTableMetrics(containerRef.current);
-      });
-      const resizeObserver = new ResizeObserver(() => scheduler.schedule());
-
-      resizeObserver.observe(el);
-      scheduler.schedule();
-      return () => {
-          resizeObserver.disconnect();
-          scheduler.dispose();
-      };
+      return observeDataGridMetrics(el, recalculateTableMetrics);
   }, [recalculateTableMetrics]);
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -2728,7 +2688,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       () => `${connectionId || ''}\u0001${dbName || ''}\u0001${tableName || ''}\u0001${resolvedDdlDbName || ''}\u0001${resolvedDdlTableName || ''}\u0001${connectionParamsOverride || ''}`,
       [connectionId, connectionParamsOverride, dbName, resolvedDdlDbName, resolvedDdlTableName, tableName],
   );
-  const previousDataSourceContextKeyRef = useRef<string | null>(null);
+  const previousDataSourceContextKeyRef = useRef<string | null>(dataSourceContextKey);
 
   // Reset local state when data source likely changes (e.g. tableName change)
   useEffect(() => {
@@ -2999,9 +2959,9 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const tableRenderData = useMemo(
       () => attachDataGridVirtualEditRenderVersion(
-          attachDataGridDisplayRenderVersion(
-              attachDataGridFindRenderVersion(mergedDisplayData, normalizedPageFindText),
-              displayRenderVersion,
+          attachDataGridFindRenderVersion(
+              attachDataGridDisplayRenderVersion(mergedDisplayData, displayRenderVersion),
+              normalizedPageFindText,
           ),
           virtualEditingCellForRender,
       ),
@@ -3711,14 +3671,18 @@ const DataGrid: React.FC<DataGridProps> = ({
               paddingInline: 2,
               verticalAlign: 'middle' as const,
               width: rowNumberColumnWidth,
-              minWidth: 28,
+              minWidth: rowNumberColumnWidth,
+              maxWidth: rowNumberColumnWidth,
+              flex: `0 0 ${rowNumberColumnWidth}px`,
           },
       }),
       onCell: (record: Item, index?: number) => ({
           'data-grid-row-number-action': 'true',
           style: {
               width: rowNumberColumnWidth,
-              minWidth: 28,
+              minWidth: rowNumberColumnWidth,
+              maxWidth: rowNumberColumnWidth,
+              flex: `0 0 ${rowNumberColumnWidth}px`,
               padding: 0,
               textAlign: 'center' as const,
             },
@@ -3970,7 +3934,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           return false;
       }
 
-      const { inserts, updates, deletes } = changeSetResult.changes;
+      const { inserts, updates, deletes, previousDeletes, locatorColumns } = changeSetResult.changes;
       if (inserts.length === 0 && updates.length === 0 && deletes.length === 0) {
           void message.info(translateDataGrid('data_grid.message.no_changes_to_commit'));
           return true;
@@ -3994,14 +3958,28 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (!approved) return false;
 
       const startTime = Date.now();
-      const res = await ApplyChanges(buildRpcConnectionConfig(config) as any, dbName || '', tableName, { inserts, updates, deletes, locatorStrategy: effectiveEditLocator?.strategy } as any);
+      // previousDeletes / locatorColumns 是执行前快照的还原线索，必须与正向变更一起送达后端；
+      // 只传 inserts/updates/deletes 会让快照生成静默失效（提交照样成功，但事后不可还原）。
+      const res = await ApplyChanges(buildRpcConnectionConfig(config) as any, dbName || '', tableName, {
+          inserts,
+          updates,
+          deletes,
+          locatorStrategy: effectiveEditLocator?.strategy,
+          previousDeletes,
+          locatorColumns,
+      } as any);
       const duration = Date.now() - startTime;
+      const outcomeUnknown = res?.outcomeUnknown === true;
+      const logMessage = outcomeUnknown
+          ? `${res.message} (${translateDataGrid('data_grid.message.transaction_outcome_unknown')})`
+          : res.message;
 
       const logSql = buildDataGridTransactionLog({
           dbType,
           tableName,
           preview: res.data,
           committed: res.success,
+          outcomeUnknown,
       });
 
       if (res.success) {
@@ -4012,7 +3990,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               sql: logSql.trim(),
               status: 'success',
               duration,
-              message: res.message,
+              message: logMessage,
               dbName
           });
           setAddedRows([]);
@@ -4031,11 +4009,28 @@ const DataGrid: React.FC<DataGridProps> = ({
               sql: logSql.trim(),
               status: 'error',
               duration,
-              message: res.message,
+              message: logMessage,
               dbName
           });
           if (source === 'auto') {
               autoCommitFailedTokenRef.current = autoCommitChangeTokenRef.current;
+          }
+          if (outcomeUnknown) {
+              autoCommitFailedTokenRef.current = autoCommitChangeTokenRef.current;
+              setAddedRows([]);
+              setModifiedRows({});
+              setDeletedRowKeys(new Set());
+              setModifiedColumns({});
+              try {
+                  await onReload?.();
+              } catch {
+                  // Reload failures must not hide the unknown-outcome warning.
+              } finally {
+                  void message.warning(source === 'auto'
+                      ? translateDataGrid('data_grid.message.auto_commit_outcome_unknown', { detail: res.message })
+                      : translateDataGrid('data_grid.message.commit_outcome_unknown', { detail: res.message }));
+              }
+              return false;
           }
           void message.error(source === 'auto'
               ? translateDataGrid('data_grid.message.auto_commit_failed', { detail: res.message })
@@ -4411,8 +4406,10 @@ const DataGrid: React.FC<DataGridProps> = ({
           totalWidth,
           tableViewportWidth,
           isMacLike,
+          nativeHorizontalScroll: isMacLike || isWindowsLike,
+          stretchToViewport: mergedColumns.length > 0,
       });
-  }, [totalWidth, isMacLike, tableViewportWidth]);
+  }, [mergedColumns.length, totalWidth, isMacLike, isWindowsLike, tableViewportWidth]);
   const externalHorizontalScrollMetrics = useMemo(() => resolveExternalHorizontalScrollMetrics({
       tableScrollWidth: tableScrollX,
       tableViewportWidth,
@@ -4428,7 +4425,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       tableScrollX,
       tableViewportWidth,
   ]);
-  const horizontalScrollVisible = isTableSurfaceActive && externalHorizontalScrollMetrics.visible;
+  const horizontalScrollVisible = isTableSurfaceActive && !isWindowsLike && externalHorizontalScrollMetrics.visible;
   const horizontalScrollWidth = externalHorizontalScrollMetrics.innerWidth;
   const tableScrollConfig = useMemo(() => ({ x: tableScrollX, y: tableHeight }), [tableScrollX, tableHeight]);
   // V2 data rows have a CSS-enforced 28px height. Entering fixed mode on the
@@ -4437,10 +4434,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   const virtualListItemHeight = Math.max(1, 28 * effectiveUiScale);
   const virtualListItemHeightFixed = !virtualEditingCellForRender;
   const virtualListItemNativeScrollbarControlled = isMacLike && virtualListItemHeightFixed;
-  const virtualListItemHorizontalOffsetComposited = isMacLike;
+  const virtualListItemHorizontalOffsetComposited = isMacLike || isWindowsLike;
+  // Wide result sets keep every column mounted only when the column window
+  // cannot be trusted. It is trusted now: the rc-table patch keeps a 640px
+  // leading / 960px trailing overscan plus a 512px retention buffer, so a
+  // one-frame-late window still covers the viewport instead of exposing blanks.
   const virtualListItemColumnVirtual = enableVirtual
       && !virtualEditingCellForRender
-      && (!isMacLike || shouldVirtualizeDataGridColumns(displayColumnNames.length));
+      && shouldVirtualizeDataGridColumns(displayColumnNames.length);
   const tableComponents = useMemo(() => {
       const body: Record<string, any> = {};
       // 虚拟表模式下 render() 已返回 EditableCell；这里再挂 body.cell 会形成双层包装，
@@ -4492,46 +4493,77 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [enableVirtual, isTableSurfaceActive]);
 
   const readVirtualHorizontalOffset = useCallback((tableContainer: HTMLElement): number => {
-      const { innerEl, headerEl } = resolveVirtualHorizontalElements(tableContainer);
+      const { holderEl, innerEl, headerEl } = resolveVirtualHorizontalElements(tableContainer);
+      if (virtualListItemHorizontalOffsetComposited && holderEl instanceof HTMLElement) {
+          return Math.max(0, holderEl.scrollLeft);
+      }
       if (innerEl instanceof HTMLElement) {
-          return virtualListItemHorizontalOffsetComposited
-              ? readDataGridVirtualInnerOffset(innerEl)
-              : Math.max(0, Math.abs(parseFloat(innerEl.style.marginLeft) || 0));
+          return Math.max(0, Math.abs(parseFloat(innerEl.style.marginLeft) || 0));
       }
       return headerEl ? Math.max(0, headerEl.scrollLeft) : 0;
   }, [resolveVirtualHorizontalElements, virtualListItemHorizontalOffsetComposited]);
 
   /**
    * 虚拟表横滚视觉同步：
-   * - Mac 表体：独立 translate 合成层，不触发横向布局；其他平台保留 marginLeft
-   * - 固定列：只更新表体上的一个继承变量，避免逐单元格写 style
-   * - 表头：真实 scrollLeft + sticky 固定全选/行号（不要对 header table 做 transform，
-   *   否则会把全选 checkbox / # 裁没或钉飞）
+   * - 原生表体：holder 只持有滚动条，sticky filler 避免合成线程抢先移动内容
+   * - 原生表头/表体：在同一次 scroll 回调中写入 translate，固定列由 CSS 补偿
+   * - 其他平台：保留 marginLeft + 单 CSS 变量补偿
    */
+
   const syncVirtualHorizontalVisualOffset = useCallback((tableContainer: HTMLElement, nextOffset: number) => {
       const { holderEl, innerEl, headerEl } = resolveVirtualHorizontalElements(tableContainer);
       if (!(holderEl instanceof HTMLElement) || !(innerEl instanceof HTMLElement)) {
           return null;
       }
 
-      virtualHorizontalPreviewActiveRef.current = true;
-
-      const maxScroll = Math.max(0, tableScrollX - holderEl.clientWidth);
+      const maxScroll = resolveVirtualHorizontalMaxScroll({
+          tableScrollX,
+          clientWidth: holderEl.clientWidth,
+          scrollWidth: holderEl.scrollWidth,
+          useNativeScroll: virtualListItemHorizontalOffsetComposited,
+      });
       const clampedOffset = Math.max(0, Math.min(maxScroll, nextOffset));
+      const headerScrollLeft = headerEl?.scrollLeft;
+      virtualHorizontalMaxScrollRef.current = maxScroll;
       const currentOffset = virtualListItemHorizontalOffsetComposited
-          ? readDataGridVirtualInnerOffset(innerEl)
+          ? Math.max(0, holderEl.scrollLeft)
           : Math.max(0, Math.abs(parseFloat(innerEl.style.marginLeft) || 0));
-      virtualHorizontalPostCommitGuardRef.current?.update(clampedOffset);
+      if (virtualListItemHorizontalOffsetComposited) {
+          // post-commit guard would reapply an older React offset after the
+          // compositor has already advanced the holder.
+          virtualHorizontalPostCommitGuardRef.current?.cancel();
+          virtualHorizontalPreviewActiveRef.current = false;
+      } else {
+          virtualHorizontalPreviewActiveRef.current = true;
+          virtualHorizontalPostCommitGuardRef.current?.update(clampedOffset);
+      }
 
       if (virtualListItemHorizontalOffsetComposited) {
-          applyDataGridVirtualInnerOffset(innerEl, clampedOffset);
+          const nextMaxScrollVar = `${maxScroll}px`;
+          if (tableContainer.style.getPropertyValue('--gn-datagrid-h-max') !== nextMaxScrollVar) {
+              tableContainer.style.setProperty('--gn-datagrid-h-max', nextMaxScrollVar);
+          }
+          // Windows 原生横滚由浏览器持有 scrollLeft；再写回去会把滑块从轨道末端弹回。
+          if (!isWindowsLike && Math.abs(holderEl.scrollLeft - clampedOffset) > 0.5) {
+              holderEl.scrollLeft = clampedOffset;
+          }
+          const nextBodyTranslate = `${-clampedOffset}px 0`;
+          if (innerEl.style.translate !== nextBodyTranslate) innerEl.style.translate = nextBodyTranslate;
+          if (innerEl.style.marginLeft) {
+              innerEl.style.removeProperty('margin-left');
+          }
+          // 固定列直接用内联 transform 钉住，不再写继承变量。变量必须落在共同祖先
+          // 上，会让 99 列 × 41 行的整棵子树（约 615 个单元格）每帧失效重算——实测
+          // 一次 2s 拖动要花掉约 2s 的样式重算，这正是横向拖动卡顿的来源。
+          // 只写真正固定的约 82 个单元格，拖动回到稳定 60fps。
+          applyDataGridFixedCellPreviewOffset(innerEl, clampedOffset, maxScroll);
       } else {
           const nextMarginLeft = `${-clampedOffset}px`;
           if (innerEl.style.marginLeft !== nextMarginLeft) {
               innerEl.style.marginLeft = nextMarginLeft;
           }
+          applyDataGridFixedCellPreviewOffset(innerEl, clampedOffset, maxScroll);
       }
-      applyDataGridFixedCellPreviewOffset(innerEl, clampedOffset);
       if (tableContainer.style.getPropertyValue('--gn-datagrid-h-scroll')) {
           tableContainer.style.removeProperty('--gn-datagrid-h-scroll');
       }
@@ -4540,14 +4572,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
 
       if (headerEl instanceof HTMLElement) {
-          headerEl.style.removeProperty('--gn-datagrid-h-scroll');
-          if (Math.abs(headerEl.scrollLeft - clampedOffset) > 1) {
-              headerEl.scrollLeft = clampedOffset;
-          }
+          syncDataGridHeaderHorizontalOffset(headerEl, clampedOffset, virtualListItemHorizontalOffsetComposited, headerScrollLeft);
       }
 
       return { holderEl, innerEl, clampedOffset, currentOffset };
-  }, [resolveVirtualHorizontalElements, tableScrollX, virtualListItemHorizontalOffsetComposited]);
+  }, [isWindowsLike, resolveVirtualHorizontalElements, tableScrollX, virtualListItemHorizontalOffsetComposited]);
 
   virtualHorizontalPostCommitFrameHandlerRef.current = (offset) => {
       const tableContainer = tableContainerRef.current;
@@ -4567,6 +4596,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                   || externalScrollSettleRafRef.current !== null
                   || pendingExternalScrollLeftRef.current !== null
                   || tableHorizontalWheelRafRef.current !== null
+                  || nativeHorizontalSyncRafRef.current !== null
                   || Math.abs(pendingTableHorizontalDeltaRef.current) >= 0.5
               ),
               onStop: () => {
@@ -4579,11 +4609,11 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, []);
 
   const scheduleVirtualHorizontalPostCommit = useCallback((tableContainer: HTMLElement, committedOffset: number) => {
-      if (!tableContainer.isConnected) return;
+      if (!tableContainer.isConnected || virtualListItemHorizontalOffsetComposited) return;
       const guard = getVirtualHorizontalPostCommitGuard();
       guard.update(committedOffset);
       guard.start();
-  }, [getVirtualHorizontalPostCommitGuard]);
+  }, [getVirtualHorizontalPostCommitGuard, virtualListItemHorizontalOffsetComposited]);
 
   const applyVirtualHorizontalOffset = useCallback((
       tableContainer: HTMLElement,
@@ -4602,11 +4632,28 @@ const DataGrid: React.FC<DataGridProps> = ({
           return true;
       }
 
+      // Windows keeps horizontal movement on the compositor, so the visual
+      // offset is already correct without touching rc-virtual-list. The column
+      // window is the exception: body rows resolve their visible column range
+      // from the list's own offsetLeft, so it must still be committed or the
+      // window stays frozen at the first columns while the user scrolls right.
       const tableInstance = tableRef.current;
+      if (isWindowsLike && virtualListItemHorizontalOffsetComposited && !virtualListItemColumnVirtual) {
+          lastCommittedVirtualHorizontalOffsetRef.current = clampedOffset;
+          return true;
+      }
       if (tableInstance && typeof tableInstance.scrollTo === 'function') {
-          // 更新 rc-virtual-list 内部 offsetLeft
+          // Update rc-virtual-list's internal offsetLeft, which is what body rows
+          // use to resolve their visible column range. This stays asynchronous on
+          // purpose: committing inside a scroll callback with flushSync re-renders
+          // the whole virtual table on the main thread mid-drag, which is what made
+          // horizontal dragging feel stuck. The column window's own overscan covers
+          // the one-frame lag instead.
           tableInstance.scrollTo({ left: clampedOffset });
-          commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset);
+
+          if (!virtualListItemHorizontalOffsetComposited) {
+              commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset, virtualHorizontalMaxScrollRef.current);
+          }
           lastCommittedVirtualHorizontalOffsetRef.current = clampedOffset;
           scheduleVirtualHorizontalPostCommit(tableContainer, clampedOffset);
           return true;
@@ -4619,11 +4666,13 @@ const DataGrid: React.FC<DataGridProps> = ({
           bubbles: true,
           cancelable: true,
       }));
-      commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset);
+      if (!virtualListItemHorizontalOffsetComposited) {
+          commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset, virtualHorizontalMaxScrollRef.current);
+      }
       lastCommittedVirtualHorizontalOffsetRef.current = clampedOffset;
       scheduleVirtualHorizontalPostCommit(tableContainer, clampedOffset);
       return true;
-  }, [scheduleVirtualHorizontalPostCommit, syncVirtualHorizontalVisualOffset]);
+  }, [isWindowsLike, scheduleVirtualHorizontalPostCommit, syncVirtualHorizontalVisualOffset, virtualListItemColumnVirtual, virtualListItemHorizontalOffsetComposited]);
 
   const scheduleVirtualHorizontalAlignment = useCallback((preferredLeft?: number) => {
       if (!enableVirtual || !isTableSurfaceActive) return;
@@ -4635,10 +4684,19 @@ const DataGrid: React.FC<DataGridProps> = ({
           const tableContainer = tableContainerRef.current;
           if (!(tableContainer instanceof HTMLElement)) return;
 
-          virtualHorizontalElementsRef.current = { tableContainer: null, holderEl: null, innerEl: null, headerEl: null };
+          virtualHorizontalElementsRef.current = {
+              tableContainer: null,
+              holderEl: null,
+              innerEl: null,
+              headerEl: null,
+          };
           const externalScroll = externalHorizontalScrollRef.current;
-          const nextLeft = Math.max(0, preferredLeft ?? externalScroll?.scrollLeft ?? lastTableScrollLeftRef.current);
-          const applied = applyVirtualHorizontalOffset(tableContainer, nextLeft, { forceInternalScroll: true });
+          const nextLeft = Math.max(0, preferredLeft ?? (
+              virtualListItemHorizontalOffsetComposited
+              ? readVirtualHorizontalOffset(tableContainer)
+              : externalScroll?.scrollLeft ?? lastTableScrollLeftRef.current
+          ));
+          const applied = applyVirtualHorizontalOffset(tableContainer, nextLeft, { forceInternalScroll: nextLeft !== 0 || lastCommittedVirtualHorizontalOffsetRef.current !== 0 });
           const resolvedLeft = applied ? readVirtualHorizontalOffset(tableContainer) : nextLeft;
           lastTableScrollLeftRef.current = resolvedLeft;
           if (externalScroll && Math.abs(externalScroll.scrollLeft - resolvedLeft) > 1) {
@@ -4646,7 +4704,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
           lastExternalScrollLeftRef.current = externalScroll?.scrollLeft ?? resolvedLeft;
       });
-  }, [applyVirtualHorizontalOffset, enableVirtual, isTableSurfaceActive, readVirtualHorizontalOffset]);
+  }, [applyVirtualHorizontalOffset, enableVirtual, isTableSurfaceActive, readVirtualHorizontalOffset, virtualListItemHorizontalOffsetComposited]);
 
 
   const flushVirtualHorizontalWheel = useCallback((tableContainer: HTMLElement) => {
@@ -4675,8 +4733,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       externalScrollInteractionUntilRef.current = Date.now() + EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS;
       if (
           virtualListItemColumnVirtual
-          && Math.abs(nextScrollLeft - lastCommittedVirtualHorizontalOffsetRef.current)
-              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
+          && shouldCommitVirtualHorizontalRange({
+              nextOffset: nextScrollLeft,
+              lastCommittedOffset: lastCommittedVirtualHorizontalOffsetRef.current,
+              thresholdPx: VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX,
+          })
       ) {
           applyVirtualHorizontalOffset(tableContainer, nextScrollLeft, { forceInternalScroll: true });
       }
@@ -4688,6 +4749,45 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (tableHorizontalWheelRafRef.current !== null) return;
       tableHorizontalWheelRafRef.current = requestAnimationFrame(() => flushVirtualHorizontalWheel(tableContainer));
   }, [flushVirtualHorizontalWheel]);
+
+  const flushNativeVirtualHorizontalScroll = useCallback((tableContainer: HTMLElement) => {
+      nativeHorizontalSyncRafRef.current = null;
+      if (!virtualListItemHorizontalOffsetComposited) return;
+
+      const { holderEl } = resolveVirtualHorizontalElements(tableContainer);
+      if (!(holderEl instanceof HTMLElement)) return;
+
+      // Native list commits its own column window before this visual pass.
+      horizontalSyncSourceRef.current = 'table';
+      const visual = syncVirtualHorizontalVisualOffset(tableContainer, holderEl.scrollLeft);
+      if (!visual) {
+          return;
+      }
+      lastTableScrollLeftRef.current = visual.clampedOffset;
+      if (!isWindowsLike) {
+          const externalScroll = externalHorizontalScrollRef.current;
+          if (externalScroll && Math.abs(externalScroll.scrollLeft - visual.clampedOffset) > 1) externalScroll.scrollLeft = visual.clampedOffset;
+          lastExternalScrollLeftRef.current = externalScroll?.scrollLeft ?? visual.clampedOffset;
+      }
+      const syncSequence = ++externalScrollSequenceRef.current;
+      externalScrollInteractionUntilRef.current = Date.now() + EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS;
+      externalIdleCommitSchedulerRef.current?.schedule(syncSequence);
+      horizontalSyncSourceRef.current = '';
+  }, [
+      applyVirtualHorizontalOffset,
+      isWindowsLike,
+      resolveVirtualHorizontalElements,
+      syncVirtualHorizontalVisualOffset,
+      virtualListItemColumnVirtual,
+      virtualListItemHorizontalOffsetComposited,
+  ]);
+
+  const scheduleNativeVirtualHorizontalScroll = useCallback((tableContainer: HTMLElement) => {
+      if (nativeHorizontalSyncRafRef.current !== null) return;
+      nativeHorizontalSyncRafRef.current = requestAnimationFrame(() => {
+          flushNativeVirtualHorizontalScroll(tableContainer);
+      });
+  }, [flushNativeVirtualHorizontalScroll]);
 
   const pickHorizontalScrollTargets = useCallback((tableContainer: HTMLElement): HTMLElement[] => {
       const virtualBody = tableContainer.querySelector('.ant-table-tbody-virtual-holder');
@@ -4704,6 +4804,10 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const pickTableToExternalSyncTargets = useCallback((tableContainer: HTMLElement): HTMLElement[] => {
       if (enableVirtual) {
+          const holderEl = tableContainer.querySelector('.ant-table-tbody-virtual-holder') as HTMLElement | null;
+          if (virtualListItemHorizontalOffsetComposited && holderEl) {
+              return [holderEl];
+          }
           const headerEl = tableContainer.querySelector('.ant-table-header') as HTMLElement | null;
           const contentEl = tableContainer.querySelector('.ant-table-content') as HTMLElement | null;
           const candidates = [headerEl, contentEl].filter((node): node is HTMLElement => node instanceof HTMLElement);
@@ -4713,7 +4817,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
       }
       return pickHorizontalScrollTargets(tableContainer);
-  }, [enableVirtual, pickHorizontalScrollTargets]);
+  }, [enableVirtual, pickHorizontalScrollTargets, virtualListItemHorizontalOffsetComposited]);
 
   const pickVerticalScrollTarget = useCallback((tableContainer: HTMLElement): HTMLElement | null => {
       const virtualHolder = tableContainer.querySelector('.ant-table-tbody-virtual-holder') as HTMLElement | null;
@@ -4947,7 +5051,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, []);
 
   const syncExternalScrollFromTargets = useCallback((targets?: HTMLElement[], source?: HTMLElement | null) => {
-      const externalScroll = externalHorizontalScrollRef.current;
+      const externalScroll = horizontalScrollVisible ? externalHorizontalScrollRef.current : null;
       if (
           !(externalScroll instanceof HTMLDivElement)
           || horizontalSyncSourceRef.current === 'external'
@@ -4985,7 +5089,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           externalScroll.scrollLeft = nextScrollLeft;
           lastExternalScrollLeftRef.current = nextScrollLeft;
       }
-  }, [enableVirtual, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset]);
+  }, [enableVirtual, horizontalScrollVisible, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset]);
 
   const scheduleSyncExternalScrollFromTargets = useCallback((source?: HTMLElement | null) => {
       if (isExternalScrollbarInteractionActive()) {
@@ -5048,10 +5152,10 @@ const DataGrid: React.FC<DataGridProps> = ({
               // rc-virtual-list 内部 offsetLeft，避免大结果集每帧触发行渲染。
               const alreadyCommitted = virtualListItemColumnVirtual
                   && Math.abs(lastCommittedVirtualHorizontalOffsetRef.current - resolvedScrollLeft) < 0.5;
-              if (alreadyCommitted) {
+              if (alreadyCommitted && !virtualListItemHorizontalOffsetComposited) {
                   const { innerEl } = resolveVirtualHorizontalElements(tableContainer);
                   if (innerEl instanceof HTMLElement) {
-                      commitDataGridFixedCellOffset(tableContainer, innerEl, resolvedScrollLeft);
+                      commitDataGridFixedCellOffset(tableContainer, innerEl, resolvedScrollLeft, virtualHorizontalMaxScrollRef.current);
                   }
               }
               const applied = alreadyCommitted
@@ -5076,7 +5180,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
           horizontalSyncSourceRef.current = '';
       });
-  }, [applyVirtualHorizontalOffset, enableVirtual, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset, resolveVirtualHorizontalElements, syncVirtualHorizontalVisualOffset, virtualListItemColumnVirtual]);
+  }, [applyVirtualHorizontalOffset, enableVirtual, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset, resolveVirtualHorizontalElements, syncVirtualHorizontalVisualOffset, virtualListItemColumnVirtual, virtualListItemHorizontalOffsetComposited]);
 
   externalIdleCommitHandlerRef.current = (syncSequence) => {
       externalScrollInteractionUntilRef.current = 0;
@@ -5090,7 +5194,10 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const applyExternalScrollToTableTargets = useCallback(() => {
       const externalScroll = externalHorizontalScrollRef.current;
-      if (!(externalScroll instanceof HTMLDivElement)) {
+      if (
+          !(externalScroll instanceof HTMLDivElement)
+          || horizontalSyncSourceRef.current === 'table'
+      ) {
           return;
       }
 
@@ -5125,7 +5232,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           const requestedExternalScrollLeft = pendingExternalScrollLeftRef.current ?? latestExternalScroll.scrollLeft;
           pendingExternalScrollLeftRef.current = null;
           const tableContainer = tableContainerRef.current;
-          // 用户连续拖动/滚动时，只写平台对应的横移属性、header.scrollLeft 和一个固定列变量。
+          // 用户连续拖动/滚动时，只写平台对应的横移属性和当前固定单元格。
           // 不在每一帧调用 Table.scrollTo，否则 rc-virtual-list 会随数据量放大渲染开销。
           if (enableVirtual && tableContainer instanceof HTMLElement) {
               if (isExternalScrollbarInteractionActive()) {
@@ -5134,8 +5241,11 @@ const DataGrid: React.FC<DataGridProps> = ({
                       lastTableScrollLeftRef.current = visual.clampedOffset;
                       if (
                           virtualListItemColumnVirtual
-                          && Math.abs(visual.clampedOffset - lastCommittedVirtualHorizontalOffsetRef.current)
-                              >= VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX
+                          && shouldCommitVirtualHorizontalRange({
+                              nextOffset: visual.clampedOffset,
+                              lastCommittedOffset: lastCommittedVirtualHorizontalOffsetRef.current,
+                              thresholdPx: VIRTUAL_HORIZONTAL_RANGE_COMMIT_THRESHOLD_PX,
+                          })
                       ) {
                           applyVirtualHorizontalOffset(tableContainer, visual.clampedOffset, { forceInternalScroll: true });
                       }
@@ -5399,13 +5509,12 @@ const DataGrid: React.FC<DataGridProps> = ({
           if (!isTableDataAreaTarget(event.target)) return;
 
           if (enableVirtual) {
-              event.preventDefault();
-              event.stopPropagation();
-              horizontalSyncSourceRef.current = 'table';
-
               // 空数据回退：virtual-holder 不存在时，手动滚动表头
               const virtualHolder = container.querySelector('.ant-table-tbody-virtual-holder') as HTMLElement | null;
               if (!virtualHolder) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  horizontalSyncSourceRef.current = 'table';
                   const headerEl = container.querySelector('.ant-table-header') as HTMLElement | null;
                   const contentEl = container.querySelector('.ant-table-content') as HTMLElement | null;
                   const fallbackTargets = [headerEl, contentEl].filter((el): el is HTMLElement => el instanceof HTMLElement && el.scrollWidth > el.clientWidth + 1);
@@ -5424,6 +5533,44 @@ const DataGrid: React.FC<DataGridProps> = ({
                   horizontalSyncSourceRef.current = '';
                   return;
               }
+
+              const nativeHorizontalEnabled = virtualListItemHorizontalOffsetComposited
+                  && virtualHolder.contains(event.target as Node);
+              const nativeHorizontalScroll = shouldLetNativeHorizontalWheelPass({
+                  deltaX: event.deltaX,
+                  deltaY: event.deltaY,
+                  shiftKey: event.shiftKey,
+                  nativeHorizontalEnabled,
+              });
+              if (nativeHorizontalScroll) {
+                  const maxScrollLeft = Math.max(0, virtualHolder.scrollWidth - virtualHolder.clientWidth);
+                  const nextScrollLeft = resolveNativeHorizontalWheelScrollLeft({
+                      delta: horizontalDelta,
+                      currentScrollLeft: virtualHolder.scrollLeft,
+                      maxScrollLeft,
+                  });
+                  if (Math.abs(nextScrollLeft - virtualHolder.scrollLeft) >= 0.5) {
+                      // Do not preventDefault: WebKit can move the native scroll layer
+                      // immediately, while the passive scroll listener synchronizes
+                      // the header, external thumb, and virtual column window later.
+                      return;
+                  }
+              }
+              if (isWindowsLike && nativeHorizontalEnabled) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const maxScrollLeft = Math.max(0, virtualHolder.scrollWidth - virtualHolder.clientWidth);
+                  virtualHolder.scrollLeft = resolveNativeHorizontalWheelScrollLeft({
+                      delta: horizontalDelta,
+                      currentScrollLeft: virtualHolder.scrollLeft,
+                      maxScrollLeft,
+                  });
+                  return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              horizontalSyncSourceRef.current = 'table';
 
               // 有数据：合并同一帧内的横向滚轮增量，再驱动 rc-virtual-list。
               scheduleVirtualHorizontalWheel(container, horizontalDelta);
@@ -5471,16 +5618,23 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
           pendingTableHorizontalDeltaRef.current = 0;
       };
-  }, [enableVirtual, isTableSurfaceActive, pickHorizontalScrollTargets, scheduleVirtualHorizontalWheel]);
+  }, [
+      enableVirtual,
+      isTableSurfaceActive,
+      isWindowsLike,
+      pickHorizontalScrollTargets,
+      scheduleVirtualHorizontalWheel,
+      virtualListItemHorizontalOffsetComposited,
+  ]);
 
-  useEffect(() => {
+  useDataGridLayoutEffect(() => {
       if (!isTableSurfaceActive) return;
       const rafId = requestAnimationFrame(() => recalculateTableMetrics(containerRef.current));
       return () => cancelAnimationFrame(rafId);
   }, [isTableSurfaceActive, totalWidth, mergedDisplayData.length, pagination?.total, pagination?.pageSize, recalculateTableMetrics]);
 
   useEffect(() => {
-      if (!horizontalScrollVisible) return;
+      if (!isTableSurfaceActive || (!horizontalScrollVisible && !virtualListItemHorizontalOffsetComposited)) return;
       scheduleVirtualHorizontalAlignment();
       return () => {
           if (virtualHorizontalAlignmentRafRef.current !== null) {
@@ -5488,7 +5642,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               virtualHorizontalAlignmentRafRef.current = null;
           }
       };
-  }, [horizontalScrollVisible, scheduleVirtualHorizontalAlignment, tableRenderData, tableScrollX, virtualEditingCellForRender]);
+  }, [horizontalScrollVisible, isTableSurfaceActive, scheduleVirtualHorizontalAlignment, tableRenderData, tableScrollX, virtualEditingCellForRender, virtualListItemHorizontalOffsetComposited]);
 
   // 虚拟表列对齐：antd 虚拟表 body 使用 <div>+<td>（非 <table>），
   // 不会自动拉伸列宽到视口。而 header <table> 会被 antd 的 CSS 或 JS
@@ -5501,8 +5655,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       const syncHeaderWidth = () => {
           const headerTable = container.querySelector('.ant-table-header > table') as HTMLElement;
           if (headerTable) {
-              headerTable.style.removeProperty('margin-left');
-              headerTable.style.removeProperty('transform');
+              if (!headerTable.style.translate) {
+                  headerTable.style.removeProperty('margin-left');
+                  headerTable.style.removeProperty('transform');
+              }
               headerTable.style.setProperty('width', `${tableScrollX}px`, 'important');
               headerTable.style.setProperty('min-width', `${tableScrollX}px`, 'important');
               headerTable.style.setProperty('max-width', 'none', 'important');
@@ -5521,7 +5677,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       let rafId: number | null = null;
       let boundVerticalTarget: HTMLElement | null = null;
       let boundHorizontalTargets: HTMLElement[] = [];
-      const externalScroll = externalHorizontalScrollRef.current;
+      const externalScroll = horizontalScrollVisible ? externalHorizontalScrollRef.current : null;
       const hasStoredScroll = !!scrollSnapshot && (Math.abs(scrollSnapshot.top) > 0.5 || Math.abs(scrollSnapshot.left) > 0.5);
 
       const emitSnapshotNow = () => {
@@ -5574,7 +5730,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           boundHorizontalTargets.forEach(target => target.removeEventListener('scroll', emitSnapshot));
           externalScroll?.removeEventListener('scroll', emitSnapshot);
       };
-  }, [isTableSurfaceActive, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, scrollSnapshot]);
+  }, [horizontalScrollVisible, isTableSurfaceActive, mergedDisplayData.length, onScrollSnapshotChange, pickHorizontalScrollTargets, pickVerticalScrollTarget, scrollSnapshot]);
 
   useEffect(() => {
       if (!isTableSurfaceActive) return;
@@ -5641,18 +5797,41 @@ const DataGrid: React.FC<DataGridProps> = ({
 
       const handleTargetScroll = (event: Event) => {
           const source = event.target as HTMLElement | null;
+          if (
+              virtualListItemHorizontalOffsetComposited
+              && source?.classList.contains('ant-table-header')
+          ) {
+              const { holderEl } = resolveVirtualHorizontalElements(tableContainer);
+              if (holderEl) syncVirtualHorizontalVisualOffset(tableContainer, holderEl.scrollLeft);
+              return;
+          }
+          if (
+              virtualListItemHorizontalOffsetComposited
+              && source?.classList.contains('ant-table-tbody-virtual-holder')
+          ) {
+              if (horizontalSyncSourceRef.current === 'external') return;
+              lastTableScrollLeftRef.current = source.scrollLeft;
+              scheduleNativeVirtualHorizontalScroll(tableContainer);
+              return;
+          }
           if (horizontalSyncSourceRef.current) return;
           scheduleSyncExternalScrollFromTargets(source);
       };
 
       const bindCurrentTableTargets = () => {
           // Unbind previous targets
-          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll));
+          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll, true));
           const nextTargets = pickTableToExternalSyncTargets(tableContainer);
           tableScrollTargetsRef.current = nextTargets;
-          boundTargets = nextTargets;
+          const headerEl = tableContainer.querySelector('.ant-table-header') as HTMLElement | null;
+          const nextBoundTargets = virtualListItemHorizontalOffsetComposited
+              && headerEl
+              && !nextTargets.includes(headerEl)
+              ? [...nextTargets, headerEl]
+              : nextTargets;
+          boundTargets = nextBoundTargets;
           // Bind scroll listener on new targets
-          nextTargets.forEach(t => t.addEventListener('scroll', handleTargetScroll, { passive: true }));
+          nextBoundTargets.forEach(t => t.addEventListener('scroll', handleTargetScroll, { passive: true, capture: true }));
           syncExternalScrollFromTargets(nextTargets);
       };
 
@@ -5670,7 +5849,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
       return () => {
           window.removeEventListener('resize', scheduleBind);
-          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll));
+          boundTargets.forEach(t => t.removeEventListener('scroll', handleTargetScroll, true));
           tableScrollTargetsRef.current = [];
           if (rafId !== null) {
               cancelAnimationFrame(rafId);
@@ -5681,7 +5860,19 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
           pendingTableTargetSyncSourceRef.current = null;
       };
-  }, [isTableSurfaceActive, tableScrollX, mergedDisplayData.length, pickTableToExternalSyncTargets, scheduleSyncExternalScrollFromTargets, syncExternalScrollFromTargets]);
+  }, [
+      isTableSurfaceActive,
+      tableScrollX,
+      mergedDisplayData.length,
+      pickTableToExternalSyncTargets,
+      isWindowsLike,
+      resolveVirtualHorizontalElements,
+      scheduleNativeVirtualHorizontalScroll,
+      scheduleSyncExternalScrollFromTargets,
+      syncVirtualHorizontalVisualOffset,
+      syncExternalScrollFromTargets,
+      virtualListItemHorizontalOffsetComposited,
+  ]);
 
   const paginationControlTotal = useMemo(() => {
       if (!pagination) return 0;
@@ -6056,6 +6247,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         showColumnComment,
         showColumnType,
         showFilter,
+        appliedFilterConditions,
         sortInfo,
         stopQuickWhereClipboardPropagation,
         supportsCopyInsert,

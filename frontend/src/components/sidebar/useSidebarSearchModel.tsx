@@ -10,6 +10,7 @@ import {
   EyeOutlined,
   FilterOutlined,
   KeyOutlined,
+  LinkOutlined,
   PlusOutlined,
   RobotOutlined,
   TableOutlined,
@@ -21,12 +22,12 @@ import { type SqlLog, useStore } from '../../store';
 import type { SavedConnection } from '../../types';
 import { getCurrentLanguage, t } from '../../i18n';
 import { resolveShortcutDisplay } from '../../utils/shortcuts';
-import type { SidebarTableMetadataField } from '../../utils/sidebarTableMetadata';
 import { resolveConnectionHostSummary, resolveConnectionHostTokens } from '../../utils/tabDisplay';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../utils/connectionVisual';
 import { getDbIcon } from '../DatabaseIcons';
 import {
   isV2SidebarObjectNode,
+  matchesSidebarSearchText,
   parseV2CommandSearchQuery,
   type V2ExplorerFilter,
 } from './sidebarHelpers';
@@ -34,7 +35,6 @@ import type { SearchScope } from '../sidebarCoreUtils';
 import {
   buildV2CommandSearchTreeIndex,
   dedupeSidebarTreeNodesByKey,
-  estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
   resolveSidebarNodeConnectionId,
@@ -74,11 +74,8 @@ type SidebarSearchModelArgs = {
   v2CommandSearchValue: string;
   setV2CommandActiveIndex: Dispatch<SetStateAction<number>>;
   v2ExplorerFilter: V2ExplorerFilter;
-  sidebarTableMetadataFields: SidebarTableMetadataField[];
   treeData: TreeNode[];
-  treeViewportWidth: number;
   treeHeight: number;
-  expandedKeys: React.Key[];
   isV2CommandSearchOpen: boolean;
   connections: SavedConnection[];
   connectionIds: string[];
@@ -113,11 +110,8 @@ export const useSidebarSearchModel = ({
   v2CommandSearchValue,
   setV2CommandActiveIndex,
   v2ExplorerFilter,
-  sidebarTableMetadataFields,
   treeData,
-  treeViewportWidth,
   treeHeight,
-  expandedKeys,
   isV2CommandSearchOpen,
   connections,
   connectionIds,
@@ -304,34 +298,42 @@ export const useSidebarSearchModel = ({
   const getConnectionNameSearchText = (node: TreeNode): string => {
     if (node.type !== 'connection') return '';
     const name = node.dataRef?.name ?? node.title;
-    return String(name || '').toLowerCase();
+    return String(name || '');
   };
 
+  // Table comments live on dataRef regardless of whether the user displays
+  // them, so the keyword should match them in both smart and object scopes.
+  const getObjectCommentSearchText = (node: TreeNode): string => (
+    isV2SidebarObjectNode(node)
+      ? String(node?.dataRef?.tableComment || '')
+      : ''
+  );
+
   const matchByScopes = (node: TreeNode, keyword: string, scopes: SearchScope[]): boolean => {
-    const title = String(node.title || '').toLowerCase();
+    const title = String(node.title || '');
     if (
       scopes.includes('database')
       && (node.type === 'database' || node.type === 'message-namespace')
-      && title.includes(keyword)
+      && matchesSidebarSearchText(title, keyword)
     ) {
       return true;
     }
-    if (scopes.includes('tag') && node.type === 'tag' && title.includes(keyword)) {
+    if (scopes.includes('tag') && node.type === 'tag' && matchesSidebarSearchText(title, keyword)) {
       return true;
     }
-    if (scopes.includes('host') && node.type === 'connection' && getConnectionHostSearchText(node).includes(keyword)) {
+    if (scopes.includes('host') && node.type === 'connection' && matchesSidebarSearchText(getConnectionHostSearchText(node), keyword)) {
       return true;
     }
     if (
       scopes.includes('object')
       && (isV2SidebarObjectNode(node) || node.type === 'object-group' || node.type === 'message-object-group')
-      && title.includes(keyword)
+      && (matchesSidebarSearchText(title, keyword) || matchesSidebarSearchText(getObjectCommentSearchText(node), keyword))
     ) {
       return true;
     }
     if (node.type === 'external-sql-root' || node.type === 'external-sql-directory' || node.type === 'external-sql-folder' || node.type === 'external-sql-file') {
-      const pathText = String(node?.dataRef?.path || '').toLowerCase();
-      return title.includes(keyword) || pathText.includes(keyword);
+      const pathText = String(node?.dataRef?.path || '');
+      return matchesSidebarSearchText(title, keyword) || matchesSidebarSearchText(pathText, keyword);
     }
     return false;
   };
@@ -348,10 +350,11 @@ export const useSidebarSearchModel = ({
     const isSmartMode = searchScopes.includes('smart');
     const result: TreeNode[] = [];
     data.forEach((item) => {
-      const titleMatch = String(item.title || '').toLowerCase().includes(keyword);
+      const titleMatch = matchesSidebarSearchText(item.title, keyword);
       const smartMatch = item.type === 'connection'
-        ? getConnectionNameSearchText(item).includes(keyword) || getConnectionHostSearchText(item).includes(keyword)
-        : titleMatch;
+        ? matchesSidebarSearchText(getConnectionNameSearchText(item), keyword)
+          || matchesSidebarSearchText(getConnectionHostSearchText(item), keyword)
+        : titleMatch || matchesSidebarSearchText(getObjectCommentSearchText(item), keyword);
       const scopedMatch = matchByScopes(item, keyword, searchScopes);
       const selfMatch = isSmartMode ? smartMatch : scopedMatch;
       const filteredChildren = item.children ? loop(item.children, keyword) : [];
@@ -383,7 +386,7 @@ export const useSidebarSearchModel = ({
   };
 
   const displayTreeData = useMemo(() => {
-    const keyword = deferredSearchValue.trim().toLowerCase();
+    const keyword = String(deferredSearchValue || '').trim();
     if (!keyword) return normalizedTreeData;
     return loop(normalizedTreeData, keyword);
   }, [deferredSearchValue, normalizedTreeData, searchScopes]);
@@ -430,20 +433,29 @@ export const useSidebarSearchModel = ({
             || dataRef.eventName
             || dataRef.routineName
             || dataRef.packageName
+            || dataRef.databaseLinkName
             || node.title
             || '',
           ).trim();
           const displayName = String(node.title || extractObjectName(objectName) || objectName).trim();
+          const tableComment = String(dataRef.tableComment || '').trim();
           result.push({
             key: `node-${node.key}`,
             kind: 'node',
             title: displayName,
-            meta: [conn?.name || dataRef.id, dataRef.dbName].filter(Boolean).join(' · '),
+            meta: [
+              [conn?.name || dataRef.id, dataRef.dbName].filter(Boolean).join(' · '),
+              tableComment,
+            ].filter(Boolean).join(' — '),
             icon: node.type === 'table'
               ? <TableOutlined />
-              : (node.type === 'sequence'
+              : node.type === 'sequence'
                 ? <KeyOutlined />
-                : (node.type === 'db-event' ? <ClockCircleOutlined /> : ((node.type === 'routine' || node.type === 'package') ? <CodeOutlined /> : <EyeOutlined />))),
+                : node.type === 'database-link'
+                  ? <LinkOutlined />
+                  : node.type === 'db-event'
+                    ? <ClockCircleOutlined />
+                    : ((node.type === 'routine' || node.type === 'package') ? <CodeOutlined /> : <EyeOutlined />),
             node,
           });
         }
@@ -526,8 +538,8 @@ export const useSidebarSearchModel = ({
     if (v2CommandSearchObjectMode || v2CommandSearchAiMode) return [];
     if (!normalizedV2CommandSearchValue) return commandSearchActionItems;
     return commandSearchActionItems.filter((item) => {
-      const haystack = `${item.title} ${item.meta}`.toLowerCase();
-      return haystack.includes(normalizedV2CommandSearchValue);
+      const haystack = `${item.title} ${item.meta}`;
+      return matchesSidebarSearchText(haystack, normalizedV2CommandSearchValue);
     });
   }, [commandSearchActionItems, normalizedV2CommandSearchValue, v2CommandSearchAiMode, v2CommandSearchObjectMode]);
 
@@ -535,8 +547,8 @@ export const useSidebarSearchModel = ({
     if (v2CommandSearchObjectMode || v2CommandSearchAiMode) return [];
     if (!normalizedV2CommandSearchValue) return commandSearchRecentItems;
     return commandSearchRecentItems.filter((item) => {
-      const haystack = `${item.title} ${item.meta}`.toLowerCase();
-      return haystack.includes(normalizedV2CommandSearchValue);
+      const haystack = `${item.title} ${item.meta}`;
+      return matchesSidebarSearchText(haystack, normalizedV2CommandSearchValue);
     });
   }, [commandSearchRecentItems, normalizedV2CommandSearchValue, v2CommandSearchAiMode, v2CommandSearchObjectMode]);
 
@@ -635,15 +647,6 @@ export const useSidebarSearchModel = ({
     }
     return filterV2ExplorerTreeByKind(activeConnectionTreeData, v2ExplorerFilter);
   }, [activeConnectionTreeData, displayTreeData, v2ExplorerFilter]);
-  const v2TreeHorizontalScrollWidth = useMemo(
-    () => estimateV2TreeHorizontalScrollWidth(
-      v2VisibleTreeData,
-      treeViewportWidth,
-      sidebarTableMetadataFields,
-      expandedKeys,
-    ),
-    [expandedKeys, sidebarTableMetadataFields, treeViewportWidth, v2VisibleTreeData],
-  );
   const effectiveTreeHeight = resolveSidebarTreeVirtualHeight(treeHeight);
   const v2TreeMetrics = useMemo(() => {
     const databaseTableCounts = new Map<React.Key, number>();
@@ -712,7 +715,6 @@ export const useSidebarSearchModel = ({
     activeDatabaseDisplayName,
     activeConnectionTreeData,
     v2VisibleTreeData,
-    v2TreeHorizontalScrollWidth,
     effectiveTreeHeight,
     v2TreeMetrics,
     activeConnectionObjectCount: v2TreeMetrics.activeObjectCount,

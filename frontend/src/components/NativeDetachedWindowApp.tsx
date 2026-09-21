@@ -50,6 +50,7 @@ import {
 } from '../utils/queryEditorResultSessionCache';
 import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import { APP_OVERLAY_Z_INDEX_BASE } from '../utils/overlayZIndex';
+import { isWailsDevNativeContextMenu, shouldAllowNativeContextMenu } from '../utils/nativeContextMenu';
 import { resolveLiveQueryTab, resolveLiveQueryTabs } from '../utils/liveQueryTabs';
 import { subscribeQueryTabDraftChanges } from '../utils/sqlFileTabDrafts';
 import CustomThemeStyleHost, {
@@ -1359,6 +1360,11 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   const v2ControlActiveHoverBg = customThemeAntTokens.controlActiveHoverBg ?? (isDark ? 'rgba(34, 197, 94, 0.24)' : 'rgba(34, 197, 94, 0.16)');
   const v2ControlOutline = customThemeAntTokens.controlOutline ?? (isDark ? 'rgba(34, 197, 94, 0.42)' : 'rgba(22, 163, 74, 0.22)');
   const componentSize = uiScale <= 0.92 ? 'small' : (uiScale >= 1.12 ? 'large' : 'middle');
+  const allowDebugNativeContextMenu = isWailsDevNativeContextMenu(import.meta.env.DEV);
+  const handleWindowContextMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (event.defaultPrevented || shouldAllowNativeContextMenu(event.target, { allowDebugMenu: allowDebugNativeContextMenu })) return;
+    event.preventDefault();
+  }, [allowDebugNativeContextMenu]);
   return (
     <>
       <CustomThemeStyleHost
@@ -1417,6 +1423,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
       <div
         className="gn-native-detached-window"
         data-kind={bootstrap?.kind || 'loading'}
+        onContextMenu={handleWindowContextMenu}
       >
         <style>{`
         .gn-native-detached-window {

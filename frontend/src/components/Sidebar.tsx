@@ -1,9 +1,13 @@
 import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
 import Modal from './common/ResizableDraggableModal';
 import TitleBarQuickActions, { type TitleBarQuickAction } from './TitleBarQuickActions';
-import { type DataSyncEntryMode } from './dataSyncEntryMode';
+import { type DataSyncEntryModeAlias } from './dataSyncEntryMode';
 import type { DatabaseCharsetOption, DatabaseCollationOption } from '../utils/databaseCharset';
-import SidebarSearchPanel, { type SidebarSearchPanelProps } from './sidebar/SidebarSearchPanel';
+import SidebarSearchPanel, {
+  type SidebarSearchPanelProps,
+  type V2CommandSearchCopyAction,
+  type V2CommandSearchCopyOption,
+} from './sidebar/SidebarSearchPanel';
 import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
 import {
   getMetadataDialect,
@@ -18,7 +22,7 @@ import { SidebarEntityModals } from './sidebar/SidebarEntityModals';
 import { SavedQueryGroupModal } from './sidebar/SavedQueryGroupModal';
 import DatabaseSchemaVisibilityModal from './sidebar/DatabaseSchemaVisibilityModal';
 import type { DatabaseSchemaVisibilityDraft } from './sidebar/databaseSchemaVisibility';
-import { renderSidebarV2TreeTitle } from './sidebar/SidebarTreeTitle';
+import { renderSidebarV2TreeTitle, type SidebarTreeConnectionStatus } from './sidebar/SidebarTreeTitle';
 import {
   useSidebarV2ContextMenu,
 } from './sidebar/useSidebarV2ContextMenu';
@@ -26,7 +30,10 @@ import {
   useSidebarObjectActions,
   type SidebarMessagePublishTarget,
 } from './sidebar/useSidebarObjectActions';
+import { tryOpenSidebarObjectNode } from './sidebar/sidebarOpenObjectNode';
 import { useSidebarSearchModel } from './sidebar/useSidebarSearchModel';
+import { useV2ExplorerFilterReset } from './sidebar/useV2ExplorerFilterReset';
+import SidebarFilterSlot from './sidebar/SidebarFilterSlot';
 import { useSidebarFilterPersistence } from './sidebar/useSidebarFilterPersistence';
 import { useSidebarV2ActionHandlers } from './sidebar/useSidebarV2ActionHandlers';
 import { useSidebarCommandSearchRunner } from './sidebar/useSidebarCommandSearchRunner';
@@ -35,6 +42,7 @@ import {
   normalizeDriverType,
   useSidebarTreeLoaders,
 } from './sidebar/useSidebarTreeLoaders';
+import * as sidebarTreeDrag from './sidebar/sidebarTreeDragOrder';
 export { formatSidebarDriverAgentUpdateWarning } from './sidebar/useSidebarTreeLoaders';
 import {
   ExternalSQLBindingModal,
@@ -54,8 +62,12 @@ import {
   formatSidebarRowCount,
   hasSidebarLazyChildren,
   shouldLoadSidebarNodeOnExpand,
+  resolveSidebarDoubleClickExpandedKeys,
   getV2RailConnectionGroupBadgeText,
   resolveSidebarTitlebarObjectName,
+  resolveSidebarTableNameForCopy,
+  resolveSidebarDatabaseNameForCopy,
+  isV2SidebarObjectNode,
   clearSidebarHostConnectionState,
   shouldDeferSidebarTitlebarSelection,
   type V2ExplorerFilter,
@@ -130,11 +142,7 @@ import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLi
   SafetyCertificateOutlined,
   SkinOutlined,
 	} from '@ant-design/icons';
-import {
-    buildSidebarRootConnectionToken,
-    buildSidebarRootTagToken,
-    useStore,
-} from '../store';
+import { useStore } from '../store';
 import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import {
     selectRecentSidebarSqlLogs,
@@ -152,6 +160,7 @@ import FindInDatabaseModal from './FindInDatabaseModal';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { buildSqlAnalysisWorkbenchTab } from '../utils/sqlAnalysisTab';
 import { buildSqlAuditWorkbenchTab } from '../utils/sqlAuditTab';
+import { buildDMLSnapshotWorkbenchTab } from '../utils/dmlSnapshotTab';
 import {
     normalizeSidebarDatabaseListRefreshRequest,
     normalizeSidebarDatabaseRefreshRequest,
@@ -165,15 +174,29 @@ import {
   resolveSidebarRuntimeDatabase,
 } from '../utils/sidebarMetadata';
 import {
+  collectSidebarLocateExpandKeys,
   findSidebarNodePathByKey,
   findSidebarNodePathForLocate,
   SIDEBAR_LOCATE_CONNECTION_EVENT,
   normalizeSidebarLocateConnectionRequest,
   normalizeSidebarLocateObjectRequest,
-  normalizeSidebarLocateObjectRequestFromTab,
   resolveSidebarLocateTarget,
   type SidebarLocateTreeNodeLike,
 } from '../utils/sidebarLocate';
+import {
+  runSidebarLocateDatabaseObject,
+  waitForSidebarLocateLoadKey,
+} from './sidebar/sidebarLocateDatabaseObject';
+import {
+  canLocateSidebarActiveTab,
+  describeSidebarLocateFailure,
+  resolveSidebarActiveTabLocateAction,
+  SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT,
+} from './sidebar/sidebarLocateActiveTab';
+import {
+  runSidebarTreeScrollRequest,
+  type SidebarTreeScrollRequest,
+} from './sidebar/sidebarTreeScrollRequest';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../utils/connectionVisual';
 import {
   getSavedQueryGroupIdFromToken,
@@ -217,6 +240,7 @@ import {
   SIDEBAR_CONTEXT_MENU_FALLBACK_HEIGHT,
   SIDEBAR_CONTEXT_MENU_FALLBACK_WIDTH,
   resolveSidebarContextMenuPosition,
+  resolveSidebarTreeRowKey,
   type SearchScope,
 } from './sidebarCoreUtils';
 export { resolveSidebarContextMenuPosition } from './sidebarCoreUtils';
@@ -234,7 +258,6 @@ import {
   buildV2SidebarTableSectionedChildren,
   resolveSidebarTreeRowHeight,
   collectSidebarSubtreeKeys,
-  estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
   isSidebarDatabasePinned,
@@ -244,7 +267,6 @@ import {
   resolveSidebarConnectionIdFromKey,
   resolveSidebarConnectionRefreshKeys,
   resolveSidebarDropDomHit,
-  resolveSidebarHostGroupDropDestination,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
@@ -278,7 +300,6 @@ export {
   buildV2SidebarTableSectionedChildren,
   resolveSidebarTreeRowHeight,
   collectSidebarSubtreeKeys,
-  estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
   isSidebarDatabasePinned,
@@ -288,7 +309,6 @@ export {
   resolveSidebarConnectionIdFromKey,
   resolveSidebarConnectionRefreshKeys,
   resolveSidebarDropDomHit,
-  resolveSidebarHostGroupDropDestination,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
@@ -303,7 +323,10 @@ export {
   shouldRunV2CommandSearchEnter,
   sortSidebarTableEntries,
 };
-export { resolveSidebarTagDropInsertBefore } from './sidebarV2Utils';
+export {
+  resolveSidebarHostGroupDropDestination,
+  resolveSidebarTagDropInsertBefore,
+} from './sidebarV2Utils';
 export type { SidebarDropDomHit, SidebarTreeDropPlacement, V2CommandSearchItem, V2RailConnectionGroup } from './sidebarV2Utils';
 
 type SidebarTreeSwitcherNodeLike = {
@@ -356,107 +379,14 @@ export const shouldKeepSidebarSwitcherCollapsedWhileLoading = (
 };
 
 const { Search } = Input;
-const SIDEBAR_LOCATE_LOAD_WAIT_INTERVAL_MS = 50;
-const SIDEBAR_LOCATE_LOAD_WAIT_ATTEMPTS = 160;
 const SIDEBAR_CACHED_DATABASE_TREE_LIMIT = 12;
 const NACOS_SERVICES_CHANGED_EVENT = 'gonavi:nacos-services-changed';
 const SIDEBAR_GROUP_HOVER_EXPAND_DELAY_MS = 500;
 const SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS = 2000;
 
-type SidebarTreeHorizontalWheelInput = {
-  deltaX?: number;
-  deltaY?: number;
-  shiftKey?: boolean;
-};
-
-/**
- * Normalize wheel input to the horizontal intent used by the virtual tree.
- * On macOS, Shift+wheel commonly reports the vertical wheel amount in
- * `deltaY`, so relying on `deltaX` alone makes the gesture work only when the
- * browser happens to retarget it to a focused tree row.
- */
-export const resolveSidebarTreeHorizontalWheelDelta = ({
-  deltaX = 0,
-  deltaY = 0,
-  shiftKey = false,
-}: SidebarTreeHorizontalWheelInput): number => {
-  const safeDeltaX = Number.isFinite(deltaX) ? Number(deltaX) : 0;
-  const safeDeltaY = Number.isFinite(deltaY) ? Number(deltaY) : 0;
-
-  if (shiftKey) {
-    return safeDeltaX !== 0 ? safeDeltaX : safeDeltaY;
-  }
-
-  return Math.abs(safeDeltaX) > Math.abs(safeDeltaY) ? safeDeltaX : 0;
-};
-
-export const resolveSidebarTreeHorizontalScrollLeft = ({
-  currentLeft,
-  delta,
-  scrollWidth,
-  viewportWidth,
-}: {
-  currentLeft: number;
-  delta: number;
-  scrollWidth: number;
-  viewportWidth: number;
-}): number | null => {
-  const safeCurrentLeft = Number.isFinite(currentLeft) ? currentLeft : 0;
-  const safeDelta = Number.isFinite(delta) ? delta : 0;
-  const safeScrollWidth = Number.isFinite(scrollWidth) ? scrollWidth : 0;
-  const safeViewportWidth = Number.isFinite(viewportWidth) ? viewportWidth : 0;
-  const maxLeft = Math.max(0, safeScrollWidth - safeViewportWidth);
-  const nextLeft = Math.min(maxLeft, Math.max(0, safeCurrentLeft + safeDelta));
-
-  return Math.abs(nextLeft - safeCurrentLeft) > 0.5 ? nextLeft : null;
-};
-
 const buildOptionalSchemaContext = (value: unknown): { schemaName?: string } => {
   const schemaName = String(value ?? '').trim();
   return schemaName ? { schemaName } : {};
-};
-
-type SidebarTreeDragEventLike = {
-  dataTransfer?: DataTransfer | null;
-  target?: EventTarget | null;
-};
-
-const createSidebarTreeDragPreview = (
-  event: SidebarTreeDragEventLike,
-  node: Pick<TreeNode, 'title' | 'type'>,
-): HTMLElement | null => {
-  if (typeof document === 'undefined' || !document.body || !event.dataTransfer) return null;
-
-  const preview = document.createElement('div');
-  preview.className = 'gn-v2-sidebar-tree-drag-preview';
-  preview.setAttribute('aria-hidden', 'true');
-  preview.setAttribute('data-node-type', String(node.type || ''));
-
-  const sourceRow = event.target && typeof (event.target as Element).closest === 'function'
-    ? (event.target as Element).closest('.ant-tree-treenode')
-    : null;
-  const sourceIcon = sourceRow?.querySelector('.ant-tree-iconEle > *');
-  const icon = document.createElement('span');
-  icon.className = 'gn-v2-sidebar-tree-drag-preview-icon';
-  if (sourceIcon) {
-    icon.appendChild(sourceIcon.cloneNode(true));
-  }
-  preview.appendChild(icon);
-
-  const label = document.createElement('span');
-  label.className = 'gn-v2-sidebar-tree-drag-preview-label';
-  label.textContent = String(node.title || '');
-  preview.appendChild(label);
-  document.body.appendChild(preview);
-
-  try {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setDragImage(preview, 18, 15);
-  } catch {
-    preview.remove();
-    return null;
-  }
-  return preview;
 };
 
 type NacosServiceRefreshTreeNode = {
@@ -507,26 +437,6 @@ const buildConnectionRootRedisCommandTabTitle = (redisDbLabel = 'db0') =>
 
 const buildConnectionRootRedisMonitorTabTitle = (redisDbLabel = 'db0') =>
   t('sidebar.tab.redis_monitor', { database: redisDbLabel });
-
-const V2_EXPLORER_FILTER_OPTIONS: Array<{ key: V2ExplorerFilter; labelKey: string }> = [
-  { key: 'all', labelKey: 'sidebar.command_search.object_kind.all' },
-  { key: 'tables', labelKey: 'sidebar.command_search.object_kind.tables' },
-  { key: 'views', labelKey: 'sidebar.command_search.object_kind.views' },
-  { key: 'sequences', labelKey: 'sidebar.command_search.object_kind.sequences' },
-  { key: 'routines', labelKey: 'sidebar.command_search.object_kind.routines' },
-  { key: 'packages', labelKey: 'sidebar.command_search.object_kind.packages' },
-  { key: 'events', labelKey: 'sidebar.command_search.object_kind.events' },
-];
-
-const V2_EXPLORER_FILTER_ICONS: Record<V2ExplorerFilter, React.ReactNode> = {
-  all: <AppstoreOutlined />,
-  tables: <TableOutlined />,
-  views: <EyeOutlined />,
-  sequences: <KeyOutlined />,
-  routines: <CodeOutlined />,
-  packages: <SwitcherOutlined />,
-  events: <ClockCircleOutlined />,
-};
 
 const buildConnectionReloadSignature = (conn?: SavedConnection | null): string => {
   if (!conn) return '';
@@ -910,11 +820,11 @@ const Sidebar: React.FC<{
   onOpenSettingsNavigation?: (spec: {
     group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
     pane?: string;
-    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'drivers' | 'sql-audit';
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'compare' | 'sync' | 'drivers' | 'sql-audit';
   }) => void;
   /** Whether web-only settings entries (e.g. browser auth) should appear. */
   isWebRuntime?: boolean;
-  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryMode) => void;
+  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryModeAlias) => void;
   onToggleAI?: () => void;
   onToggleLogPanel?: () => void;
   v2ExplorerContext?: V2ExplorerContext;
@@ -994,6 +904,8 @@ const Sidebar: React.FC<{
   const pinnedSidebarDatabases = useStore(state => state.pinnedSidebarDatabases);
   const recordTableAccess = useStore(state => state.recordTableAccess);
   const setTableSortPreference = useStore(state => state.setTableSortPreference);
+  const sidebarTreeOrders = useStore(state => state.sidebarTreeOrders);
+  const updateSidebarTreeOrders = useStore(state => state.updateSidebarTreeOrders);
   const setSidebarTablePinned = useStore(state => state.setSidebarTablePinned);
   const setSidebarDatabasePinned = useStore(state => state.setSidebarDatabasePinned);
   const queryOptions = useStore(state => state.queryOptions);
@@ -1024,6 +936,10 @@ const Sidebar: React.FC<{
   const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
 
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
+  const sidebarTreeOrdersRef = useRef(sidebarTreeOrders);
+  const tableSortPreferenceRef = useRef(tableSortPreference);
+  sidebarTreeOrdersRef.current = sidebarTreeOrders;
+  tableSortPreferenceRef.current = tableSortPreference;
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId) || null, [tabs, activeTabId]);
   const activeTabHasConnection = useMemo(
     () => Boolean(
@@ -1032,11 +948,11 @@ const Sidebar: React.FC<{
     ),
     [activeTab?.connectionId, connections],
   );
-  const activeTabLocateRequest = useMemo(() => normalizeSidebarLocateObjectRequestFromTab(activeTab), [activeTab]);
-  const isActiveQueryTab = activeTab?.type === 'query' && !String(activeTab.filePath || '').trim();
-  const canLocateActiveTab = isActiveQueryTab
-    ? Boolean(activeTabHasConnection && String(activeTab?.dbName || '').trim())
-    : !!activeTabLocateRequest;
+  const activeTabLocateAction = useMemo(() => resolveSidebarActiveTabLocateAction({
+    tab: activeTab,
+    hasConnection: activeTabHasConnection,
+  }), [activeTab, activeTabHasConnection]);
+  const canLocateActiveTab = canLocateSidebarActiveTab(activeTabLocateAction);
 
   // Background Helper (Duplicate logic for now, ideally shared)
   const getBg = (darkHex: string) => {
@@ -1178,8 +1094,12 @@ const Sidebar: React.FC<{
       [connectionIdSet, savedQueries],
   );
   const allSavedQueriesNode = useMemo<TreeNode | null>(() => {
-      return buildAllSavedQueriesTreeNode(savedQueries, connections, savedQueryGroups);
-  }, [connections, savedQueries, savedQueryGroups]);
+      return sidebarTreeDrag.applySidebarTreeOrdersToNode(
+          buildAllSavedQueriesTreeNode(savedQueries, connections, savedQueryGroups),
+          sidebarTreeOrders,
+          tableSortPreference,
+      );
+  }, [connections, savedQueries, savedQueryGroups, sidebarTreeOrders, tableSortPreference]);
   const sidebarHiddenObjectGroups = appearance.sidebarHiddenObjectGroups;
   const visibleSidebarTreeData = useMemo(
       () => filterSidebarTreeByHiddenObjectGroups(treeData, sidebarHiddenObjectGroups),
@@ -1241,16 +1161,11 @@ const Sidebar: React.FC<{
 
   // Virtual Scroll State
   const [treeHeight, setTreeHeight] = useState(500);
-  const [treeViewportWidth, setTreeViewportWidth] = useState(0);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const treeScrollIdleTimerRef = useRef<number | null>(null);
   const treeRef = useRef<any>(null);
   const sidebarTreeScrollRequestIdRef = useRef(0);
-  const [sidebarTreeScrollRequest, setSidebarTreeScrollRequest] = useState<{
-      id: number;
-      key: React.Key;
-      scrollBlock: 'nearest' | 'center';
-  } | null>(null);
+  const [sidebarTreeScrollRequest, setSidebarTreeScrollRequest] = useState<SidebarTreeScrollRequest | null>(null);
   const treeDataRef = useRef<TreeNode[]>([]);
   const externalSQLDirectoryTreesRef = useRef<Record<string, ExternalSQLTreeEntry[]>>({});
   const findTreeNodeByKeyRef = useRef<(nodes: TreeNode[], targetKey: React.Key) => TreeNode | null>(() => null);
@@ -1290,7 +1205,6 @@ const Sidebar: React.FC<{
           if (!target) return;
           const rect = target.getBoundingClientRect();
           setTreeHeight((current) => current === rect.height ? current : rect.height);
-          setTreeViewportWidth((current) => current === rect.width ? current : rect.width);
       });
       const resizeObserver = new ResizeObserver(() => scheduler.schedule());
       resizeObserver.observe(treeContainerRef.current);
@@ -1438,6 +1352,7 @@ const Sidebar: React.FC<{
       handleExportSchemaSQL,
       openBatchTableWorkbench,
       openBatchDatabaseWorkbench,
+      openBatchConnectionWorkbench,
   } = useSidebarBatchExport({
       connections,
       selectedNodesRef,
@@ -1766,7 +1681,15 @@ const Sidebar: React.FC<{
     children: TreeNode[] | undefined,
     dataRef?: unknown,
   ): TreeNode[] => {
-      const nextTreeData = replaceSidebarTreeNodeChildren(treeDataRef.current, key, children, dataRef);
+      const orderedChildren = children
+          ? sidebarTreeDrag.applySidebarTreeOrders(
+              String(key),
+              children,
+              sidebarTreeOrdersRef.current,
+              tableSortPreferenceRef.current,
+          )
+          : undefined;
+      const nextTreeData = replaceSidebarTreeNodeChildren(treeDataRef.current, key, orderedChildren, dataRef);
       treeDataRef.current = nextTreeData;
       setTreeData(nextTreeData);
       return nextTreeData;
@@ -2021,12 +1944,9 @@ const Sidebar: React.FC<{
 
   const locateObjectInSidebarRef = useRef<(detail: unknown) => Promise<void>>(async () => {});
 
-  const waitForSidebarLoadKey = async (loadKey: string): Promise<boolean> => {
-      for (let attempt = 0; attempt < SIDEBAR_LOCATE_LOAD_WAIT_ATTEMPTS && loadingNodesRef.current.has(loadKey); attempt += 1) {
-          await new Promise(resolve => window.setTimeout(resolve, SIDEBAR_LOCATE_LOAD_WAIT_INTERVAL_MS));
-      }
-      return !loadingNodesRef.current.has(loadKey);
-  };
+  const waitForSidebarLoadKey = async (loadKey: string): Promise<boolean> => (
+      waitForSidebarLocateLoadKey(loadKey, (key) => loadingNodesRef.current.has(key))
+  );
 
   const locateObjectInSidebar = async (detail: unknown) => {
       const request = normalizeSidebarLocateObjectRequest(detail);
@@ -2123,94 +2043,66 @@ const Sidebar: React.FC<{
                       ? t('sidebar.locate.object.routine')
                       : t('sidebar.locate.object.table');
 
-      let path = findSidebarNodePathForLocate(treeDataRef.current as SidebarLocateTreeNodeLike[], target);
-      const dbLoadKey = `dbs-${request.connectionId}`;
-      const tableLoadKey = `tables-${request.connectionId}-${request.dbName}`;
-
-      if (!path && !findSidebarNodePathByKey(treeDataRef.current as SidebarLocateTreeNodeLike[], target.databaseKey)) {
-          const connectionNode = findTreeNodeByKey(treeDataRef.current, target.connectionKey);
-          if (!connectionNode) {
-              message.warning(t('sidebar.message.locate_connection_not_in_tree'));
-              return;
-          }
-          if (loadingNodesRef.current.has(dbLoadKey)) {
-              const loaded = await waitForSidebarLoadKey(dbLoadKey);
-              if (!loaded) {
-                  message.info(t('sidebar.message.locate_database_loading', { database: request.dbName }));
-                  return;
-              }
-          } else {
-              await loadDatabases(connectionNode);
-          }
-      }
-
-      const dbNode = findTreeNodeByKey(treeDataRef.current, target.databaseKey);
-      if (!dbNode) {
-          message.warning(t('sidebar.message.locate_database_not_found', { database: request.dbName }));
-          return;
-      }
-
-      path = findSidebarNodePathForLocate(treeDataRef.current as SidebarLocateTreeNodeLike[], target);
-      if (!path) {
-          if (loadingNodesRef.current.has(tableLoadKey)) {
-              const loaded = await waitForSidebarLoadKey(tableLoadKey);
-              if (!loaded) {
-                  message.info(t('sidebar.message.locate_object_loading', {
-                      object: objectLabel,
-                      database: request.dbName,
-                  }));
-                  return;
-              }
-          } else {
-              await loadTables(dbNode);
-          }
-          path = findSidebarNodePathForLocate(treeDataRef.current as SidebarLocateTreeNodeLike[], target);
-      }
-
-      if (!path) {
-          message.warning(t('sidebar.message.locate_object_not_found', {
-              object: objectLabel,
-              name: request.tableName,
-          }));
-          return;
-      }
-
-      const targetKey = path[path.length - 1];
-      const targetNode = findTreeNodeByKey(treeDataRef.current, targetKey);
       setSearchValue('');
       setV2ExplorerFilter('all');
-      mergeExpandedTreeKeys(path.slice(0, -1));
-      setSidebarSelectedKeys([targetKey]);
-      selectedNodesRef.current = targetNode ? [targetNode] : [];
-      setActiveContext({
-          connectionId: request.connectionId,
-          dbName: request.dbName,
-          tableName: resolveSidebarTitlebarObjectName(targetNode) || request.tableName,
-          ...buildOptionalSchemaContext(targetNode?.dataRef?.schemaName || request.schemaName),
-      });
-      publishTitlebarSelection(
-          resolveSidebarSelectionContext(targetNode)
-          || {
-              connectionId: request.connectionId,
-              dbName: request.dbName,
-              tableName: request.tableName,
-              sidebarStateKey: request.connectionId,
+      const outcome = await runSidebarLocateDatabaseObject({
+          request,
+          target,
+          objectLabel,
+          getTree: () => treeDataRef.current as SidebarLocateTreeNodeLike[],
+          findNode: (key) => findTreeNodeByKey(treeDataRef.current, key),
+          mergeExpandedTreeKeys,
+          revealNode: (key, node, stage) => {
+              setSidebarSelectedKeys([key]);
+              selectedNodesRef.current = node ? [node] : [];
+              if (stage === 'connection') {
+                  clearStaleHostStateOnSelection(node);
+              }
+              setActiveContext({
+                  connectionId: request.connectionId,
+                  dbName: request.dbName,
+                  ...(stage === 'object'
+                      ? {
+                          tableName: resolveSidebarTitlebarObjectName(node) || request.tableName,
+                          ...buildOptionalSchemaContext(node?.dataRef?.schemaName || request.schemaName),
+                      }
+                      : {}),
+              });
+              publishTitlebarSelection(
+                  resolveSidebarSelectionContext(node)
+                  || {
+                      connectionId: request.connectionId,
+                      dbName: request.dbName,
+                      ...(stage === 'object' ? { tableName: request.tableName } : {}),
+                      sidebarStateKey: request.connectionId,
+                  },
+                  key,
+              );
+              scrollSidebarTreeToKey(key, stage === 'object' ? 'center' : 'nearest');
           },
-          targetKey,
-      );
-      scrollSidebarTreeToKey(targetKey, 'center');
+          loadDatabases,
+          loadTables,
+          isLoadPending: (loadKey) => loadingNodesRef.current.has(loadKey),
+      });
+      if (outcome.status === 'failed') {
+          const notify = outcome.message.level === 'info' ? message.info : message.warning;
+          notify(t(outcome.message.key, outcome.message.params));
+      }
   };
 
   const handleLocateActiveTabInSidebar = () => {
-      if (isActiveQueryTab) {
-          window.dispatchEvent(new CustomEvent('gonavi:locate-active-query-table'));
+      if (activeTabLocateAction.kind === 'object') {
+          void locateObjectInSidebar(activeTabLocateAction.request).catch((error: unknown) => {
+              console.error('GoNavi sidebar locate failed', error);
+              message.error(t('sidebar.message.locate_failed', { detail: describeSidebarLocateFailure(error) }));
+          });
           return;
       }
-      if (!activeTabLocateRequest) {
-          message.warning(t('sidebar.message.locate_current_table_unavailable'));
+      if (activeTabLocateAction.kind === 'query-line-table') {
+          window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT));
           return;
       }
-      void locateObjectInSidebar(activeTabLocateRequest);
+      message.warning(t('sidebar.message.locate_current_table_unavailable'));
   };
 
   useEffect(() => {
@@ -2396,66 +2288,14 @@ const Sidebar: React.FC<{
       });
   };
 
-  const openSidebarObjectNode = (node: any): boolean => {
-      if (node.type === 'view' || node.type === 'materialized-view') {
-          const { viewName, dbName, id, schemaName } = node.dataRef;
-          addTab({
-              id: node.key,
-              title: viewName,
-              type: 'table',
-              connectionId: id,
-              dbName,
-              tableName: viewName,
-              objectType: node.type === 'materialized-view' ? 'materialized-view' : 'view',
-              schemaName,
-              sidebarLocateKey: String(node.key || ''),
-          });
-          return true;
-      }
-      if (node.type === 'db-trigger') {
-          const { triggerName, triggerTableName, schemaName, dbName, id } = node.dataRef;
-          addTab({
-              id: `trigger-${node.key}`,
-              title: t('sidebar.tab.trigger', { name: triggerName }),
-              type: 'trigger',
-              connectionId: id,
-              dbName,
-              triggerName,
-              triggerTableName,
-              schemaName,
-              sidebarLocateKey: String(node.key || ''),
-          });
-          return true;
-      }
-      if (node.type === 'db-event') {
-          openEventDefinition(node);
-          return true;
-      }
-      if (node.type === 'routine') {
-          const { routineName, routineType, dbName, id, schemaName } = node.dataRef;
-          const typeLabel = t(routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function');
-          addTab({
-              id: `routine-def-${node.key}`,
-              title: t('sidebar.tab.routine_definition', { type: typeLabel, name: routineName }),
-              type: 'routine-def',
-              connectionId: id,
-              dbName,
-              routineName,
-              routineType,
-              ...buildOptionalSchemaContext(schemaName),
-          });
-          return true;
-      }
-      if (node.type === 'sequence') {
-          openSequenceDefinition(node);
-          return true;
-      }
-      if (node.type === 'package') {
-          openPackageDefinition(node);
-          return true;
-      }
-      return false;
-  };
+  const openSidebarObjectNode = (node: any): boolean => tryOpenSidebarObjectNode(node, {
+      addTab,
+      openEventDefinition,
+      openSequenceDefinition,
+      openPackageDefinition,
+      t,
+      buildOptionalSchemaContext,
+  });
 
   const openMessageObjectNode = (node: any): boolean => {
       if (node?.type !== 'message-object') return false;
@@ -2528,17 +2368,7 @@ const Sidebar: React.FC<{
               dbName: dataRef.dbName,
               ...buildOptionalSchemaContext(dataRef.schemaName),
           });
-      } else if (
-          type === 'table'
-          || type === 'message-object'
-          || type === 'view'
-          || type === 'materialized-view'
-          || type === 'sequence'
-          || type === 'package'
-          || type === 'db-trigger'
-          || type === 'db-event'
-          || type === 'routine'
-      ) {
+      } else if (isV2SidebarObjectNode(info.node)) {
           setActiveContext({
               connectionId: nodeConnectionId || dataRef.id,
               dbName: dataRef.dbName,
@@ -2598,7 +2428,7 @@ const Sidebar: React.FC<{
     // unexpectedly open and move the target under the pointer.
     if (
         isTreeDragging
-        && sidebarTreeDragNodeRef.current?.type === 'connection'
+        && sidebarTreeDrag.isSidebarHostTreeNode(sidebarTreeDragNodeRef.current)
     ) {
         return;
     }
@@ -2622,7 +2452,7 @@ const Sidebar: React.FC<{
   };
 
   const onDoubleClick = (e: any, node: any) => {
-      // 双击时取消单击延迟动作（如表概览打开），让双击只触发展开/折叠
+      // 双击时取消单击延迟动作（如表概览打开）。连接节点只展开不折叠，其它目录仍切换展开。
       if (clickTimerRef.current) {
           clearTimeout(clickTimerRef.current);
           clickTimerRef.current = null;
@@ -2657,7 +2487,7 @@ const Sidebar: React.FC<{
           });
       } else if (type === 'jvm-mode' || type === 'jvm-resource' || type === 'jvm-diagnostic' || type === 'jvm-monitoring') {
           setActiveContext({ connectionId: nodeConnectionId || dataRef.id, dbName: '' });
-      } else if (type === 'table' || type === 'message-object' || type === 'view' || type === 'materialized-view' || type === 'sequence' || type === 'package' || type === 'db-trigger' || type === 'db-event' || type === 'routine') {
+      } else if (isV2SidebarObjectNode(node)) {
           setActiveContext({
               connectionId: nodeConnectionId || dataRef.id,
               dbName: dataRef.dbName,
@@ -2693,6 +2523,8 @@ const Sidebar: React.FC<{
       }
       if (openMessageObjectNode(node)) {
           return;
+      } else if (openSidebarObjectNode(node)) {
+          return;
       } else if (node.type === 'table') {
           const { tableName, dbName, id, schemaName } = node.dataRef;
           // 记录表访问
@@ -2708,20 +2540,6 @@ const Sidebar: React.FC<{
               initialViewMode: tableDoubleClickAction === 'open-design' ? 'fields' : undefined,
               initialViewModeRequestId: tableDoubleClickAction === 'open-design' ? String(Date.now()) : undefined,
               objectType: 'table',
-          });
-          return;
-      } else if (node.type === 'view' || node.type === 'materialized-view') {
-          const { viewName, dbName, id, schemaName } = node.dataRef;
-          addTab({
-              id: node.key,
-              title: viewName,
-              type: 'table',
-              connectionId: id,
-              dbName,
-              tableName: viewName,
-              objectType: node.type === 'materialized-view' ? 'materialized-view' : 'view',
-              schemaName,
-              sidebarLocateKey: String(node.key || ''),
           });
           return;
       } else if (node.type === 'saved-query') {
@@ -2782,43 +2600,6 @@ const Sidebar: React.FC<{
               return;
           }
           // Service explorer entry is a folder: fall through to expand/collapse + lazy load groups.
-      } else if (node.type === 'db-trigger') {
-          const { triggerName, triggerTableName, schemaName, dbName, id } = node.dataRef;
-          addTab({
-              id: `trigger-${node.key}`,
-              title: t('sidebar.tab.trigger', { name: triggerName }),
-              type: 'trigger',
-              connectionId: id,
-              dbName,
-              triggerName,
-              triggerTableName,
-              schemaName,
-              sidebarLocateKey: String(node.key || ''),
-          });
-          return;
-      } else if (node.type === 'db-event') {
-          openEventDefinition(node);
-          return;
-      } else if (node.type === 'routine') {
-          const { routineName, routineType, dbName, id, schemaName } = node.dataRef;
-          const typeLabel = t(routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function');
-          addTab({
-              id: `routine-def-${node.key}`,
-              title: t('sidebar.tab.routine_definition', { type: typeLabel, name: routineName }),
-              type: 'routine-def',
-              connectionId: id,
-              dbName,
-              routineName,
-              routineType,
-              ...buildOptionalSchemaContext(schemaName),
-          });
-          return;
-      } else if (node.type === 'sequence') {
-          openSequenceDefinition(node);
-          return;
-      } else if (node.type === 'package') {
-          openPackageDefinition(node);
-          return;
       } else if (node.type === 'jvm-mode') {
           const { providerMode, id } = node.dataRef;
           const conn = (connections.find((item) => item.id === id) || node.dataRef) as SavedConnection;
@@ -2841,13 +2622,15 @@ const Sidebar: React.FC<{
       }
 
       const key = node.key;
-      const isExpanded = expandedKeys.includes(key);
-      const newExpandedKeys = isExpanded
-          ? expandedKeys.filter(k => k !== key)
-          : [...expandedKeys, key];
-
-      setExpandedKeys(newExpandedKeys);
-      if (!isExpanded) {
+      const { expandedKeys: nextExpandedKeys, didExpand } = resolveSidebarDoubleClickExpandedKeys({
+          nodeType: type,
+          nodeKey: key,
+          expandedKeys,
+      });
+      setExpandedKeys(nextExpandedKeys);
+      // 连接节点双击只展开：工作台定位已经展开后，再双击同一 Host 保持库树打开。
+      // 若已展开但子节点尚未加载，继续走懒加载，而不是把树收起来。
+      if (didExpand || (type === 'connection' && shouldLoadSidebarNodeOnExpand(node))) {
           setAutoExpandParent(false);
           if (shouldLoadSidebarNodeOnExpand(node)) {
               void onLoadData(node);
@@ -3608,6 +3391,7 @@ const Sidebar: React.FC<{
       handleExportDatabaseSQL,
       openBatchTableWorkbench,
       openBatchDatabaseWorkbench,
+      openBatchConnectionWorkbench,
       handleRunSQLFile,
       handleDeleteDatabase,
       onCreateConnectionInGroup,
@@ -3644,7 +3428,6 @@ const Sidebar: React.FC<{
       flattenConnectionNodes,
       activeConnection,
       v2VisibleTreeData,
-      v2TreeHorizontalScrollWidth,
       effectiveTreeHeight,
       v2TreeMetrics,
   } = useSidebarSearchModel({
@@ -3656,11 +3439,8 @@ const Sidebar: React.FC<{
       v2CommandSearchValue,
       setV2CommandActiveIndex,
       v2ExplorerFilter,
-      sidebarTableMetadataFields,
       treeData: visibleSidebarTreeData,
-      treeViewportWidth,
       treeHeight,
-      expandedKeys,
       isV2CommandSearchOpen,
       connections,
       connectionIds,
@@ -3679,89 +3459,13 @@ const Sidebar: React.FC<{
       setAIPanelVisible,
       extractObjectName,
   });
-
+  // The tree never scrolls horizontally: long labels ellipsize and the user
+  // widens the sidebar to read them. Wheel input only drives vertical scroll.
   const handleTreeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-      const horizontalDelta = resolveSidebarTreeHorizontalWheelDelta(event);
-      if (horizontalDelta !== 0 && v2TreeHorizontalScrollWidth) {
-          const shell = event.currentTarget;
-          const holder = shell.querySelector<HTMLElement>('.ant-tree-list-holder');
-          const holderInner = shell.querySelector<HTMLElement>('.ant-tree-list-holder-inner');
-          const viewportWidth = holder?.clientWidth || treeViewportWidth;
-          const currentLeft = holderInner
-              ? Math.max(0, -(Number.parseFloat(holderInner.style.marginLeft || '0') || 0))
-              : 0;
-          const nextLeft = resolveSidebarTreeHorizontalScrollLeft({
-              currentLeft,
-              delta: horizontalDelta,
-              scrollWidth: v2TreeHorizontalScrollWidth,
-              viewportWidth,
-          });
-
-          if (nextLeft !== null && treeRef.current?.scrollTo) {
-              // The rc-virtual-list listener is attached to the holder only.
-              // Stop propagation here so blank tree space and the scrollbar
-              // reserve use the same virtual offset without double-applying
-              // the wheel delta when the event target is inside the holder.
-              event.preventDefault();
-              event.stopPropagation();
-              treeRef.current.scrollTo({ left: nextLeft });
-              return;
-          }
-      }
-
       if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
           markTreeScrollActivity();
       }
-  }, [
-      true,
-      markTreeScrollActivity,
-      treeViewportWidth,
-      v2TreeHorizontalScrollWidth,
-  ]);
-
-  useEffect(() => {
-
-      const shell = treeContainerRef.current;
-      const holderInner = shell?.querySelector<HTMLElement>('.ant-tree-list-holder-inner');
-      if (!shell || !holderInner) return;
-
-      const syncHorizontalViewportOffset = () => {
-          const marginLeft = Number.parseFloat(holderInner.style.marginLeft || '0');
-          const horizontalOffset = Number.isFinite(marginLeft)
-              ? Math.max(0, -marginLeft)
-              : 0;
-          shell.style.setProperty('--gn-v2-tree-horizontal-offset', `${horizontalOffset}px`);
-      };
-
-      syncHorizontalViewportOffset();
-      const observer = new MutationObserver(syncHorizontalViewportOffset);
-      observer.observe(holderInner, {
-          attributes: true,
-          attributeFilter: ['style'],
-      });
-
-      return () => {
-          observer.disconnect();
-          shell.style.removeProperty('--gn-v2-tree-horizontal-offset');
-      };
-  }, [
-      true,
-      sidebarObjectVisibilitySignature,
-      v2ExplorerFilter,
-      v2TreeHorizontalScrollWidth,
-  ]);
-
-  // 侧栏改宽时复位虚拟列表横滚（offsetLeft / marginLeft），避免左侧被拉空。
-  // rc-virtual-list 不用 DOM scrollLeft，必须走 Tree.scrollTo({ left })。
-  useEffect(() => {
-
-      const resetHorizontalScroll = () => {
-          treeRef.current?.scrollTo?.({ left: 0 });
-      };
-      resetHorizontalScroll();
-      const raf = window.requestAnimationFrame(resetHorizontalScroll);
-      return () => window.cancelAnimationFrame(raf);
-  }, [treeViewportWidth, v2TreeHorizontalScrollWidth]);
+  }, [markTreeScrollActivity]);
 
   useSidebarLayoutEffect(() => {
       if (!sidebarTreeScrollRequest) return;
@@ -3780,68 +3484,32 @@ const Sidebar: React.FC<{
       if (!visibleAncestorsExpanded) return;
 
       const request = sidebarTreeScrollRequest;
-      let cancelled = false;
-      let attempt = 0;
-      let frameId: number | null = null;
-      const requestFrame = typeof window.requestAnimationFrame === 'function'
-          ? window.requestAnimationFrame.bind(window)
-          : (callback: FrameRequestCallback) => window.setTimeout(() => callback(Date.now()), 0);
-      const cancelFrame = typeof window.cancelAnimationFrame === 'function'
-          ? window.cancelAnimationFrame.bind(window)
-          : window.clearTimeout.bind(window);
-
       const findExactTreeRow = (): HTMLElement | null => {
           const nodeTitles = treeContainerRef.current
               ?.querySelectorAll<HTMLElement>('[data-sidebar-node-key]');
           const targetTitle = Array.from(nodeTitles || [])
               .find((element) => element.dataset.sidebarNodeKey === String(request.key));
-          const exactRow = targetTitle?.closest('.ant-tree-treenode') as HTMLElement | null;
-          if (exactRow) return exactRow;
-          return null;
+          return (targetTitle?.closest('.ant-tree-treenode') as HTMLElement | null) ?? null;
       };
-
-      const attemptScroll = () => {
-          if (cancelled || sidebarTreeScrollRequestIdRef.current !== request.id) return;
-          treeRef.current?.scrollTo?.({ key: request.key, align: 'auto' });
-          frameId = requestFrame(() => {
-              if (cancelled || sidebarTreeScrollRequestIdRef.current !== request.id) return;
-              const targetRow = findExactTreeRow();
-              if (targetRow) {
-                  targetRow.scrollIntoView?.({
-                      block: request.scrollBlock,
-                      inline: 'nearest',
-                      behavior: 'auto',
-                  });
-                  setSidebarTreeScrollRequest((current) => current?.id === request.id ? null : current);
-                  return;
-              }
-              attempt += 1;
-              if (attempt < 6) {
-                  frameId = requestFrame(attemptScroll);
-              } else {
-                  setSidebarTreeScrollRequest((current) => current?.id === request.id ? null : current);
-              }
-          });
-      };
-
-      frameId = requestFrame(attemptScroll);
-      return () => {
-          cancelled = true;
-          if (frameId !== null) cancelFrame(frameId);
-      };
+      return runSidebarTreeScrollRequest({
+          request,
+          isCurrent: () => sidebarTreeScrollRequestIdRef.current === request.id,
+          scrollTreeToKey: (key, align) => treeRef.current?.scrollTo?.({ key, align }),
+          findRow: findExactTreeRow,
+          onSettled: (outcome) => {
+              if (outcome === 'cancelled') return;
+              setSidebarTreeScrollRequest((current) => current?.id === request.id ? null : current);
+          },
+      });
   }, [displayTreeData, expandedKeys, true, sidebarTreeScrollRequest, v2VisibleTreeData]);
 
   const hasRelationalObjectKindFilterConnection = connections.some(
       (connection) => getDataSourceCapabilities(connection.config).supportsRelationalObjectKindFilter,
   );
-  const showV2ObjectKindFilters = activeConnection
-          ? getDataSourceCapabilities(activeConnection.config).supportsRelationalObjectKindFilter
-          : hasRelationalObjectKindFilterConnection;
-  useEffect(() => {
-      if (!showV2ObjectKindFilters && v2ExplorerFilter !== 'all') {
-          setV2ExplorerFilter('all');
-      }
-  }, [showV2ObjectKindFilters, v2ExplorerFilter]);
+  // Drops a filter belonging to another workbench family, so a stale one cannot
+  // empty the tree. The slot derives the same family from the same connection, so
+  // the two cannot disagree. See the hook for the reasoning.
+  useV2ExplorerFilterReset(activeConnection, v2ExplorerFilter, setV2ExplorerFilter);
 
 
   const {
@@ -3885,26 +3553,18 @@ const Sidebar: React.FC<{
   const getV2TreeMetaTextRef = useRef(getV2TreeMetaText);
   getV2TreeMetaTextRef.current = getV2TreeMetaText;
 
-  const renderV2TreeTitle = useCallback((node: any, hoverTitle: string, statusBadge: React.ReactNode) => renderSidebarV2TreeTitle({
+  const renderV2TreeTitle = useCallback((node: any, hoverTitle: string, connectionStatus: SidebarTreeConnectionStatus) => renderSidebarV2TreeTitle({
       node,
       hoverTitle,
-      statusBadge,
+      connectionStatus,
       getV2TreeMetaText: getV2TreeMetaTextRef.current,
       sidebarTableMetadataFields,
-      snapshotTreeSelectionBeforeDrag,
-      restoreTreeSelectionAfterDrag,
-      treeDragSelectSuppressUntilRef,
-      setIsTreeDragging,
       sidebarDropPlacement: sidebarTreeDropPreview?.nodeKey === String(node.key || '')
           ? sidebarTreeDropPreview.placement
           : null,
   }), [
-      restoreTreeSelectionAfterDrag,
-      setIsTreeDragging,
       sidebarTreeDropPreview,
       sidebarTableMetadataFields,
-      snapshotTreeSelectionBeforeDrag,
-      treeDragSelectSuppressUntilRef,
   ]);
 
   const revealCommandSearchNode = useCallback((node: TreeNode) => {
@@ -3965,6 +3625,11 @@ const Sidebar: React.FC<{
 
       onEnsureSidebarExpanded?.();
       setSearchValue('');
+      setV2ExplorerFilter('all');
+      mergeExpandedTreeKeys(collectSidebarLocateExpandKeys(
+          treeDataRef.current as SidebarLocateTreeNodeLike[],
+          connection.id,
+      ));
       await selectConnectionFromRail(connection);
 
       if (!request.dbName) {
@@ -3988,7 +3653,21 @@ const Sidebar: React.FC<{
       setActiveContext({ connectionId: connection.id, dbName });
       publishTitlebarSelectionForNode(databaseNode);
       scrollSidebarTreeToKey(databaseNode.key);
-  }, [connections, findTreeNodeByKeyRef, onEnsureSidebarExpanded, publishTitlebarSelectionForNode, scrollSidebarTreeToKey, selectConnectionFromRail, selectedNodesRef, setActiveContext, setSearchValue, setSidebarSelectedKeys, treeDataRef]);
+  }, [
+      connections,
+      findTreeNodeByKeyRef,
+      mergeExpandedTreeKeys,
+      onEnsureSidebarExpanded,
+      publishTitlebarSelectionForNode,
+      scrollSidebarTreeToKey,
+      selectConnectionFromRail,
+      selectedNodesRef,
+      setActiveContext,
+      setSearchValue,
+      setSidebarSelectedKeys,
+      setV2ExplorerFilter,
+      treeDataRef,
+  ]);
 
   useEffect(() => {
       const handleLocateSidebarConnection = (event: Event) => {
@@ -4075,6 +3754,7 @@ const Sidebar: React.FC<{
     openExportDialog,
     openBatchTableWorkbench,
     openBatchDatabaseWorkbench,
+    openBatchConnectionWorkbench,
     isSavedQueryUnmatched,
     connections,
     handleRebindSavedQuery,
@@ -4115,34 +3795,6 @@ const Sidebar: React.FC<{
       () => buildV2RailConnectionGroups(connections, connectionTags, sidebarRootOrder, rootSortMode, rootConnectionSortMode),
       [connections, connectionTags, sidebarRootOrder, rootSortMode, rootConnectionSortMode],
   );
-  const getTagParentId = (tagId: unknown): string | null => {
-      const tag = connectionTags.find((candidate) => candidate.id === String(tagId || '').trim());
-      const parentTagId = String(tag?.parentTagId || '').trim();
-      return parentTagId || null;
-  };
-
-  const getConnectionParentTagId = (connectionId: unknown): string | null => (
-      connectionTags.find((tag) => tag.connectionIds.includes(String(connectionId || '').trim()))?.id || null
-  );
-
-  const getNodeParentTagId = (node: any): string | null => {
-      if (node?.type === 'tag') return getTagParentId(node?.dataRef?.id);
-      if (node?.type === 'connection') return getConnectionParentTagId(node?.key);
-      return null;
-  };
-
-  const getNodeOrderToken = (node: any): string | null => {
-      if (node?.type === 'tag') {
-          const tagId = String(node?.dataRef?.id || '').trim();
-          return tagId ? buildSidebarRootTagToken(tagId) : null;
-      }
-      if (node?.type === 'connection') {
-          const connectionId = String(node?.key || '').trim();
-          return connectionId ? buildSidebarRootConnectionToken(connectionId) : null;
-      }
-      return null;
-  };
-
   const clearSidebarGroupHoverExpandTimer = () => {
       if (sidebarGroupHoverExpandTimerRef.current === null) return;
       window.clearTimeout(sidebarGroupHoverExpandTimerRef.current);
@@ -4199,29 +3851,70 @@ const Sidebar: React.FC<{
       target?: EventTarget | null;
   }) => {
 
-      const dragNode = sidebarTreeDragNodeRef.current;
-      if (dragNode?.type !== 'connection') return null;
-      const hit = resolveSidebarDropDomHit(event);
-      if (!hit || hit.type !== 'tag') return null;
-      const dropNode = findTreeNodeByKeyRef.current(treeDataRef.current, hit.key);
-      if (!dropNode || dropNode.type !== 'tag') return null;
-      const placement = resolveSidebarTreeDropPlacement({
-          dragNodeType: dragNode.type,
-          dropNodeType: dropNode.type,
-          relativeDropPosition: 0,
-          dropToGap: undefined,
-          fallbackInsertBefore: false,
-          metrics: hit.metrics ? {
-              clientY: event.clientY,
-              top: hit.metrics.top,
-              height: hit.metrics.height,
-          } : null,
-      });
-      return { dragNode, dropNode, hit, placement };
+      const resolved = sidebarTreeDrag.resolveSidebarHostTreeDropAtEvent(
+          treeDataRef.current,
+          sidebarTreeDragNodeRef.current,
+          event,
+      );
+      if (!resolved) return null;
+      return sidebarTreeDrag.resolveSidebarHostTreeMove({
+          ...resolved,
+          connectionTags,
+      }) ? resolved : null;
   };
 
+  const applySidebarHostTreeDrop = (
+      dragNode: TreeNode,
+      dropNode: TreeNode,
+      placement: SidebarTreeDropPlacement,
+  ): boolean => {
+      if (
+          placement !== 'inside'
+          && sidebarTreeDrag.isSidebarTreeGapNoOp(treeDataRef.current, dragNode, dropNode, placement)
+      ) return false;
+      const move = sidebarTreeDrag.resolveSidebarHostTreeMove({
+          dragNode,
+          dropNode,
+          placement,
+          connectionTags,
+      });
+      if (!move) return false;
+      if (move.type === 'tag') {
+          moveConnectionTag(move.id, move.targetParentTagId, move.targetToken, move.insertBefore);
+      } else {
+          moveConnectionToTag(move.id, move.targetParentTagId, move.targetToken, move.insertBefore);
+      }
+      return true;
+  };
+
+  const applySidebarTreeOrderDrop = (
+      dragNode: TreeNode,
+      dropNode: TreeNode,
+      insertBefore: boolean,
+  ): boolean => sidebarTreeDrag.commitSidebarTreeOrderDrop({
+      treeData: treeDataRef.current, dragNode, dropNode, insertBefore,
+      treeOrders: sidebarTreeOrdersRef.current,
+      tableSortPreference: tableSortPreferenceRef.current,
+      callbacks: {
+          onTreeData: (next) => { treeDataRef.current = next; setTreeData(next); },
+          onTreeOrders: (parentKey, orderedKeys, next) => {
+              sidebarTreeOrdersRef.current = next;
+              updateSidebarTreeOrders({ [parentKey]: orderedKeys });
+          },
+          onTableSort: (connectionId, dbName, next) => {
+              tableSortPreferenceRef.current = next;
+              setTableSortPreference(connectionId, dbName, 'manual');
+          },
+      },
+  });
+
   const handleSidebarTreeDragOverCapture = (event: React.DragEvent<HTMLDivElement>) => {
-      const resolvedDrop = resolveSidebarHostGroupDropAtEvent(event);
+      const objectDrop = sidebarTreeDrag.resolveSidebarTreeOrderDropAtEvent(
+          treeDataRef.current,
+          sidebarTreeDragNodeRef.current,
+          event,
+      );
+      const resolvedDrop = objectDrop || resolveSidebarHostGroupDropAtEvent(event);
       if (!resolvedDrop) {
           updateSidebarTreeDropPreview(null);
           return;
@@ -4239,36 +3932,55 @@ const Sidebar: React.FC<{
   };
 
   const handleSidebarTreeDropCapture = (event: React.DragEvent<HTMLDivElement>) => {
-      const resolvedDrop = resolveSidebarHostGroupDropAtEvent(event);
-      if (!resolvedDrop) return;
+      const objectDrop = sidebarTreeDrag.resolveSidebarTreeOrderDropAtEvent(
+          treeDataRef.current,
+          sidebarTreeDragNodeRef.current,
+          event,
+      );
+      if (objectDrop) {
+          event.preventDefault();
+          event.stopPropagation();
+          applySidebarTreeOrderDrop(
+              objectDrop.dragNode,
+              objectDrop.dropNode,
+              objectDrop.placement === 'before',
+          );
+          restoreTreeSelectionAfterDrag();
+          clearSidebarTreeDragVisuals();
+          return;
+      }
+      const hostDrop = resolveSidebarHostGroupDropAtEvent(event);
+      if (!hostDrop) return;
 
       event.preventDefault();
       event.stopPropagation();
-      const connectionId = String(resolvedDrop.dragNode.key || '').trim();
-      const tagId = String(resolvedDrop.dropNode?.dataRef?.id || '').trim();
-      if (connectionId && tagId) {
-          const destination = resolveSidebarHostGroupDropDestination({
-              targetTagId: tagId,
-              targetTagParentId: getTagParentId(tagId),
-              targetTagToken: getNodeOrderToken(resolvedDrop.dropNode),
-              placement: resolvedDrop.placement,
-          });
-          moveConnectionToTag(
-              connectionId,
-              destination.targetParentTagId,
-              destination.targetToken,
-              destination.insertBefore,
-          );
-      }
+      applySidebarHostTreeDrop(hostDrop.dragNode, hostDrop.dropNode, hostDrop.placement);
       restoreTreeSelectionAfterDrag();
       clearSidebarTreeDragVisuals();
   };
 
   const allowSidebarTreeDrop = ({ dragNode, dropNode, dropPosition }: any): boolean => {
       if (!dragNode || !dropNode) return false;
+      if (sidebarTreeDrag.isSidebarTreeOrderNode(dragNode) || sidebarTreeDrag.isSidebarTreeOrderNode(dropNode)) {
+          return sidebarTreeDrag.canDropSidebarTreeOrderNode(
+              treeDataRef.current,
+              dragNode,
+              dropNode,
+              Number(dropPosition),
+          );
+      }
       if ((dragNode.type !== 'tag' && dragNode.type !== 'connection') || (dropNode.type !== 'tag' && dropNode.type !== 'connection')) {
           return false;
       }
+      const dropPlacement = Number(dropPosition) < 0
+          ? 'before'
+          : Number(dropPosition) > 0
+              ? 'after'
+              : 'inside';
+      if (
+          dropPlacement !== 'inside'
+          && sidebarTreeDrag.isSidebarTreeGapNoOp(treeDataRef.current, dragNode, dropNode, dropPlacement)
+      ) return false;
       // Connections cannot contain tree items. A group can contain a group only
       // when the pointer lands on its content, not on its before/after gap.
       const droppingIntoTag = dropNode.type === 'tag' && Number(dropPosition) === 0;
@@ -4278,7 +3990,7 @@ const Sidebar: React.FC<{
       const dragTagId = String(dragNode?.dataRef?.id || '').trim();
       const targetParentTagId = droppingIntoTag
           ? String(dropNode?.dataRef?.id || '').trim() || null
-          : getNodeParentTagId(dropNode);
+          : sidebarTreeDrag.getSidebarTreeNodeParentTagId(dropNode, connectionTags);
       return !!dragTagId && !isConnectionTagDescendant(dragTagId, targetParentTagId, connectionTags);
   };
 
@@ -4316,25 +4028,11 @@ const Sidebar: React.FC<{
                   height: dropTargetMetrics.height,
               } : null,
           });
-      const droppingIntoTag = dropNode.type === 'tag' && placement === 'inside';
-      const targetParentTagId = droppingIntoTag
-          ? String(dropNode?.dataRef?.id || '').trim() || null
-          : getNodeParentTagId(dropNode);
-      const targetToken = droppingIntoTag ? null : getNodeOrderToken(dropNode);
-      const targetInsertBefore = droppingIntoTag ? false : placement === 'before';
-
-      if (dragNode.type === 'tag') {
-          const dragTagId = String(dragNode?.dataRef?.id || '').trim();
-          if (!dragTagId || isConnectionTagDescendant(dragTagId, targetParentTagId, connectionTags)) return;
-          moveConnectionTag(dragTagId, targetParentTagId, targetToken, targetInsertBefore);
+      if (sidebarTreeDrag.isSidebarTreeOrderNode(dragNode) || sidebarTreeDrag.isSidebarTreeOrderNode(dropNode)) {
+          applySidebarTreeOrderDrop(dragNode, dropNode, placement === 'before');
           return;
       }
-
-      if (dragNode.type === 'connection') {
-          const connectionId = String(dragNode.key || '').trim();
-          if (!connectionId || connectionId === String(dropNode.key || '')) return;
-          moveConnectionToTag(connectionId, targetParentTagId, targetToken, targetInsertBefore);
-      }
+      applySidebarHostTreeDrop(dragNode, dropNode, placement);
   };
 
   const onRightClick = ({ event, node }: any) => {
@@ -4455,12 +4153,23 @@ const Sidebar: React.FC<{
       }
   };
 
+  const handleV2TreeContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented) return;
+      const nodeKey = resolveSidebarTreeRowKey(event.target);
+      if (!nodeKey) return;
+      const node = findTreeNodeByKeyRef.current(treeDataRef.current, nodeKey);
+      if (!node) return;
+      event.preventDefault();
+      onRightClick({ event, node });
+  };
+
   const v2RailObjectActionsLabel = t('sidebar.rail.object_actions');
   const v2RailSystemActionsLabel = t('sidebar.rail.system_actions');
   const v2NewGroupLabel = t('sidebar.action.new_group');
   const v2DataWorkflowLabel = t('app.tools.group.workflow.title');
   const v2BatchTablesLabel = t('sidebar.action.batch_tables');
   const v2BatchDatabasesLabel = t('sidebar.action.batch_databases');
+  const v2BatchConnectionsLabel = t('sidebar.action.batch_connections');
   const v2DataImportLabel = t('sidebar.action.data_import');
   const v2SqlToolsLabel = t('sidebar.action.sql_tools');
   const v2SlowQueryLabel = t('sql_analysis.slow_query.rail.aria_label');
@@ -4533,11 +4242,21 @@ const Sidebar: React.FC<{
     addTab(buildSqlAuditWorkbenchTab());
   }, [addTab]);
 
+  const handleOpenDMLSnapshotWorkbench = useCallback(() => {
+    addTab(buildDMLSnapshotWorkbenchTab());
+  }, [addTab]);
+
   const v2TitlebarQuickActions: TitleBarQuickAction[] = [
     {
       key: 'data-workflow',
       label: v2DataWorkflowLabel,
       menu: [
+        {
+          key: 'batch-connections',
+          label: v2BatchConnectionsLabel,
+          icon: <CloudOutlined aria-hidden="true" />,
+          onClick: openBatchConnectionWorkbench,
+        },
         {
           key: 'batch-tables',
           label: v2BatchTablesLabel,
@@ -4557,22 +4276,16 @@ const Sidebar: React.FC<{
           onClick: handleOpenDataImportWorkbench,
         },
         {
-          key: 'schema-compare',
-          label: t('app.tools.entry.schema_compare.title'),
-          icon: <AppstoreOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' }),
-        },
-        {
-          key: 'data-compare',
-          label: t('app.tools.entry.data_compare.title'),
-          icon: <SwitcherOutlined aria-hidden="true" />,
-          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' }),
-        },
-        {
           key: 'sync',
           label: t('app.tools.entry.sync.title'),
           icon: <UploadOutlined rotate={90} aria-hidden="true" />,
           onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' }),
+        },
+        {
+          key: 'compare',
+          label: t('app.tools.entry.compare.title'),
+          icon: <SwitcherOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'compare' }),
         },
       ],
     },
@@ -4593,6 +4306,12 @@ const Sidebar: React.FC<{
           icon: <AuditOutlined aria-hidden="true" />,
           onClick: handleOpenSqlAuditWorkbench,
         },
+        {
+          key: 'dml-snapshot',
+          label: t('dml_snapshot.workbench.title'),
+          icon: <SafetyCertificateOutlined aria-hidden="true" />,
+          onClick: handleOpenDMLSnapshotWorkbench,
+        },
       ],
     },
     {
@@ -4612,6 +4331,105 @@ const Sidebar: React.FC<{
   const v2TitlebarQuickActionsTarget = typeof document !== 'undefined'
     ? document.getElementById('gonavi-titlebar-quick-actions')
     : null;
+
+  const getCommandSearchCopyOptions = useCallback((item: V2CommandSearchItem): V2CommandSearchCopyOption[] => {
+    if (item.kind === 'action') return [];
+
+    if (item.kind === 'recent') {
+      const options: V2CommandSearchCopyOption[] = [];
+      if (String(item.sql || '').trim()) {
+        options.push({
+          action: 'sql',
+          label: t('sidebar.command_search.context_menu.copy_sql'),
+        });
+      }
+      if (String(item.dbName || '').trim()) {
+        options.push({
+          action: 'database-name',
+          label: t('sidebar.command_search.context_menu.copy_database_name'),
+        });
+      }
+      const connectionId = String(item.connectionId || '').trim();
+      const connectionName = connections.find((connection) => connection.id === connectionId)?.name?.trim() || '';
+      if (connectionName) {
+        options.push({
+          action: 'connection-name',
+          label: t('sidebar.command_search.context_menu.copy_connection_name'),
+        });
+      }
+      return options;
+    }
+
+    const node = item.node;
+    const nodeType = String(node?.type || '');
+    const options: V2CommandSearchCopyOption[] = [];
+    if (isV2SidebarObjectNode(node)) {
+      options.push({
+        action: 'object-name',
+        label: t('sidebar.command_search.context_menu.copy_object_name'),
+      });
+    }
+    if (nodeType !== 'connection') {
+      options.push({
+        action: 'database-name',
+        label: t('sidebar.command_search.context_menu.copy_database_name'),
+      });
+    }
+    const connectionId = resolveSidebarNodeConnectionId(node, connectionIds);
+    const connectionName = connections.find((connection) => connection.id === connectionId)?.name?.trim() || '';
+    if (connectionName) {
+      options.push({
+        action: 'connection-name',
+        label: t('sidebar.command_search.context_menu.copy_connection_name'),
+      });
+    }
+    return options.filter((option) => {
+      if (option.action === 'object-name') return Boolean(resolveSidebarTableNameForCopy(node));
+      if (option.action === 'database-name') return Boolean(resolveSidebarDatabaseNameForCopy(node));
+      return true;
+    });
+  }, [connectionIds, connections]);
+
+  const handleCopyCommandSearchItem = useCallback(async (
+    item: V2CommandSearchItem,
+    action: V2CommandSearchCopyAction,
+  ): Promise<void> => {
+    let value = '';
+    if (item.kind === 'recent') {
+      if (action === 'sql') value = item.sql;
+      if (action === 'database-name') value = String(item.dbName || '');
+      if (action === 'connection-name') {
+        const connectionId = String(item.connectionId || '').trim();
+        value = connections.find((connection) => connection.id === connectionId)?.name || '';
+      }
+    } else if (item.kind === 'node') {
+      if (action === 'object-name') value = resolveSidebarTableNameForCopy(item.node);
+      if (action === 'database-name') value = resolveSidebarDatabaseNameForCopy(item.node);
+      if (action === 'connection-name') {
+        const connectionId = resolveSidebarNodeConnectionId(item.node, connectionIds);
+        value = connections.find((connection) => connection.id === connectionId)?.name || '';
+      }
+    }
+
+    const normalizedValue = String(value || '').trim();
+    if (!normalizedValue) {
+      message.warning(t('sidebar.copy_object_name.empty', {
+        label: t(`sidebar.command_search.context_menu.copy_${action.replace('-', '_')}`),
+      }));
+      return;
+    }
+
+    try {
+      const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+      if (!clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await clipboard.writeText(value);
+      message.success(t('sidebar.command_search.copy_success'));
+    } catch (error: any) {
+      message.error(t('sidebar.command_search.copy_failed', {
+        error: error?.message || String(error),
+      }));
+    }
+  }, [connectionIds, connections]);
 
   const v2CommandSearchPanelProps: SidebarSearchPanelProps<V2CommandSearchItem> = {
     isOpen: isV2CommandSearchOpen,
@@ -4639,6 +4457,8 @@ const Sidebar: React.FC<{
         if (item.kind === 'recent') hideSqlLogFromRecent(item.logId);
       },
       onClearRecentItems: clearRecentSqlLogs,
+      getCopyOptions: getCommandSearchCopyOptions,
+      onCopyCommandSearchItem: handleCopyCommandSearchItem,
     },
   };
 
@@ -4753,33 +4573,20 @@ const Sidebar: React.FC<{
         </div>
         )}
 
-        {showV2ObjectKindFilters && (
-            <div className="gn-v2-explorer-filter-tabs" aria-label={t('sidebar.command_search.object_kind.filter_aria')}>
-                {V2_EXPLORER_FILTER_OPTIONS.map((item) => {
-                    const label = t(item.labelKey);
-                    return (
-                    <Tooltip key={item.key} title={label} mouseEnterDelay={0.25}>
-                    <button
-                        type="button"
-                        className={v2ExplorerFilter === item.key ? 'is-active' : undefined}
-                        aria-label={label}
-                        aria-pressed={v2ExplorerFilter === item.key}
-                        data-object-kind-filter={item.key}
-                        onClick={() => setV2ExplorerFilter(item.key)}
-                    >
-                        {V2_EXPLORER_FILTER_ICONS[item.key]}
-                    </button>
-                    </Tooltip>
-                    );
-                })}
-            </div>
-        )}
+        <SidebarFilterSlot
+            activeConnection={activeConnection}
+            treeData={displayTreeData}
+            hasRelationalFilterConnection={hasRelationalObjectKindFilterConnection}
+            activeFilter={v2ExplorerFilter}
+            onFilterChange={setV2ExplorerFilter}
+        />
 
         <div
             ref={treeContainerRef}
-            className={`sidebar-tree-scroll-shell gn-v2-explorer-tree-shell${sidebarTreeDragNodeType === 'connection' ? ' is-host-tree-dragging' : ''}${sidebarTreeDropPreview ? ' has-host-group-drop-preview' : ''}`}
+            className={`sidebar-tree-scroll-shell gn-v2-explorer-tree-shell${sidebarTreeDrag.isSidebarHostTreeNode({ type: sidebarTreeDragNodeType } as TreeNode) ? ' is-host-tree-dragging' : ''}${sidebarTreeDrag.isSidebarTreeOrderNode({ type: sidebarTreeDragNodeType } as TreeNode) ? ' is-object-tree-dragging' : ''}${sidebarTreeDropPreview ? ' has-host-group-drop-preview' : ''}`}
             onWheelCapture={handleTreeWheel}
             onTouchMoveCapture={markTreeScrollActivity}
+            onMouseDownCapture={sidebarTreeDrag.markSidebarTreeMouseDownHandled}
             onDragEnterCapture={handleSidebarTreeDragOverCapture}
             onDragOverCapture={handleSidebarTreeDragOverCapture}
             onDropCapture={handleSidebarTreeDropCapture}
@@ -4802,7 +4609,9 @@ const Sidebar: React.FC<{
                     showIcon
                     draggable={{
                         icon: false,
-                        nodeDraggable: (node: any) => node.type === 'connection' || node.type === 'tag'
+                        nodeDraggable: (node: any) => node.type === 'connection'
+                            || node.type === 'tag'
+                            || sidebarTreeDrag.isSidebarTreeOrderNode(node)
                     }}
                     allowDrop={allowSidebarTreeDrop}
                     onDragStart={({ event, node }: any) => {
@@ -4812,7 +4621,8 @@ const Sidebar: React.FC<{
                         setSidebarTreeDragNodeType(String(node?.type || '') || null);
                         updateSidebarTreeDropPreview(null);
                         sidebarTreeDragPreviewElementRef.current?.remove();
-                        sidebarTreeDragPreviewElementRef.current = createSidebarTreeDragPreview(event, node);
+                        sidebarTreeDragPreviewElementRef.current = sidebarTreeDrag.createSidebarTreeDragPreview(event, node);
+                        sidebarTreeDrag.setSidebarTreeSqlDragData(event, node);
                         setIsTreeDragging(true);
                     }}
                     onDragEnter={() => {
@@ -4837,10 +4647,14 @@ const Sidebar: React.FC<{
                     autoExpandParent={autoExpandParent}
                     selectedKeys={selectedKeys}
                     blockNode
+                    // Expand/collapse animation re-renders the newly revealed rows on every
+                    // frame (each with a Tooltip) and blocks scroll-to-key until it ends; on
+                    // large databases that added ~0.7s to locating a table in WebKit.
+                    motion={false}
                     height={effectiveTreeHeight}
                     itemHeight={30}
                     itemHeightResolver={resolveSidebarTreeRowHeight}
-                    scrollWidth={v2TreeHorizontalScrollWidth}
+                    onContextMenu={handleV2TreeContextMenu}
                     onRightClick={onRightClick}
                 />
             </div>

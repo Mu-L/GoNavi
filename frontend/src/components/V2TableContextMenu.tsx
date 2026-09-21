@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SidebarTableSortPreference } from '../utils/sidebarTreeOrder';
 import {
   CodeOutlined,
   ConsoleSqlOutlined,
@@ -64,6 +65,7 @@ export type V2TableContextMenuActionKey =
   | 'ai-explain'
   | 'ai-generate-query'
   | 'truncate-table'
+  | 'clear-table'
   | 'drop-table';
 
 export type V2TableContextMenuStats = {
@@ -173,6 +175,7 @@ export const V2TableContextMenuView: React.FC<{
   stats?: V2TableContextMenuStats;
   isPinned?: boolean;
   supportsTruncate?: boolean;
+  supportsClear?: boolean;
   supportsCopyTable?: boolean;
   supportsStarRocksRollup?: boolean;
   supportsMessagePublish?: boolean;
@@ -184,6 +187,7 @@ export const V2TableContextMenuView: React.FC<{
   stats,
   isPinned = false,
   supportsTruncate = true,
+  supportsClear = false,
   supportsCopyTable = false,
   supportsStarRocksRollup = false,
   supportsMessagePublish = false,
@@ -207,6 +211,12 @@ export const V2TableContextMenuView: React.FC<{
       action: 'truncate-table' as const,
       icon: <DeleteOutlined />,
       title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.v2_table_menu.truncate_table'), suffix: 'TRUNCATE' }),
+      tone: 'danger' as const,
+    }] : []),
+    ...(supportsClear ? [{
+      action: 'clear-table' as const,
+      icon: <ClearOutlined />,
+      title: t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.clear_table'), suffix: 'DELETE' }),
       tone: 'danger' as const,
     }] : []),
     {
@@ -288,7 +298,7 @@ export const V2TableGroupContextMenuView: React.FC<{
   shortcutPlatform?: ShortcutPlatform;
   dbName?: string;
   count?: number;
-  currentSort?: 'name' | 'frequency';
+  currentSort?: SidebarTableSortPreference;
   onAction?: (action: V2TableGroupContextMenuActionKey) => void;
 }> = ({
   title,
@@ -298,9 +308,11 @@ export const V2TableGroupContextMenuView: React.FC<{
   currentSort = 'name',
   onAction,
 }) => {
-  const sortLabel = currentSort === 'frequency'
-    ? t('sidebar.v2_table_group_menu.sort_frequency')
-    : t('sidebar.v2_table_group_menu.sort_name');
+  const sortLabel = currentSort === 'manual'
+    ? t('sidebar.v2_table_group_menu.sort_manual')
+    : currentSort === 'frequency'
+      ? t('sidebar.v2_table_group_menu.sort_frequency')
+      : t('sidebar.v2_table_group_menu.sort_name');
   const databaseLabel = dbName || t('sidebar.v2_table_group_menu.current_database');
   const tableCountLabel = Math.max(0, count ?? 0).toLocaleString(getCurrentLanguage());
   const renderItems = (items: V2TableContextMenuItemConfig[]) => renderV2ContextMenuItems(
@@ -533,6 +545,7 @@ export type V2ConnectionContextMenuActionKey =
   | 'open-monitor'
   | 'edit'
   | 'copy-connection'
+  | 'batch-connections'
   | 'disconnect'
   | 'delete'
   | 'move-to-ungrouped'
@@ -664,6 +677,7 @@ export const V2ConnectionContextMenuView: React.FC<{
           ...(supportsVisibility ? [{ action: 'visibility' as const, icon: <EyeInvisibleOutlined />, title: t('sidebar.database_schema_visibility.menu.manage') }] : []),
           { action: 'edit', icon: <EditOutlined />, title: t('sidebar.menu.edit_connection'), kbd: 'F2' },
           { action: 'copy-connection', icon: <CopyOutlined />, title: t('connection.sidebar.menu.copy') },
+          { action: 'batch-connections', icon: <AppstoreOutlined />, title: t('sidebar.action.batch_connections') },
           { action: 'disconnect', icon: <DisconnectOutlined />, title: t('connection.sidebar.menu.disconnect') },
         ])}
 

@@ -22,11 +22,11 @@ vi.mock('./DataSyncWorkbench', () => ({
 describe('WorkbenchTabContent data sync routing', () => {
   it('renders data-sync tabs through the data sync workbench', async () => {
     const tab: TabData = {
-      id: 'data-sync-workbench-data-compare',
-      title: '数据比对',
+      id: 'data-sync-workbench-compare',
+      title: '数据对比',
       type: 'data-sync',
       connectionId: '',
-      dataSyncEntryMode: 'dataCompare',
+      dataSyncEntryMode: 'compare',
     };
     let renderer: TestRenderer.ReactTestRenderer;
 
@@ -42,6 +42,6 @@ describe('WorkbenchTabContent data sync routing', () => {
       'data-routed-data-sync-workbench': 'true',
     });
     expect(workbench.props['data-tab-id']).toBe(tab.id);
-    expect(workbench.props['data-entry-mode']).toBe('dataCompare');
+    expect(workbench.props['data-entry-mode']).toBe('compare');
   });
 });

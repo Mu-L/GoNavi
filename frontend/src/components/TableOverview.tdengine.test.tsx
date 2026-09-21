@@ -7,6 +7,7 @@ import TableOverview from './TableOverview';
 const storeSubscribers = vi.hoisted(() => new Set<() => void>());
 const renderedDropdownMenus = vi.hoisted(() => [] as Array<{ items?: any[] }>);
 const countdownConfirm = vi.hoisted(() => vi.fn());
+const modalConfirm = vi.hoisted(() => vi.fn());
 
 const storeState = vi.hoisted(() => ({
   theme: 'light',
@@ -50,11 +51,13 @@ const backendApp = vi.hoisted(() => ({
   ExportTable: vi.fn(),
   DropTable: vi.fn(),
   RenameTable: vi.fn(),
+  ClearTables: vi.fn(),
 }));
 
 const messageApi = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
+  loading: vi.fn(() => vi.fn()),
 }));
 
 vi.mock('../store', async () => {
@@ -91,11 +94,21 @@ vi.mock('./ExportProgressModal', () => ({
   }),
 }));
 vi.mock('./V2TableContextMenu', () => ({
-  V2TableContextMenuView: ({ onAction }: { onAction?: (action: string) => void }) => (
-    <button type="button" data-overview-menu-action="drop-table" onClick={() => onAction?.('drop-table')}>
-      drop table
-    </button>
+  V2TableContextMenuView: ({ onAction, supportsClear }: { onAction?: (action: string) => void; supportsClear?: boolean }) => (
+    <>
+      <button type="button" data-overview-menu-action="drop-table" onClick={() => onAction?.('drop-table')}>
+        drop table
+      </button>
+      {supportsClear ? (
+        <button type="button" data-overview-menu-action="clear-table" onClick={() => onAction?.('clear-table')}>
+          clear table
+        </button>
+      ) : null}
+    </>
   ),
+}));
+vi.mock('./common/ResizableDraggableModal', () => ({
+  default: { confirm: modalConfirm },
 }));
 vi.mock('./common/countdownDangerConfirm', () => ({
   showCountdownDangerConfirm: countdownConfirm,
@@ -196,6 +209,14 @@ describe('TableOverview metadata compatibility', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       body: {},
+    });
+    vi.stubGlobal('window', {
+      go: { app: { App: backendApp } },
+      innerWidth: 1280,
+      innerHeight: 800,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
     });
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -347,6 +368,63 @@ describe('TableOverview metadata compatibility', () => {
     const renderedAfterStaleResponse = collectText(renderer!.toJSON());
     renderer!.unmount();
     expect(renderedAfterStaleResponse).not.toContain('meters');
+  });
+
+  it('routes the overview clear action through confirmation and the existing ClearTables RPC', async () => {
+    storeState.connections = [{
+      id: 'conn-1',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        password: 'secret',
+        database: 'app_db',
+        useSSH: false,
+        ssh: { host: '', port: 22, user: '', password: '', keyPath: '' },
+      },
+    }];
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{ TABLE_NAME: 'orders', TABLE_ROWS: 8 }],
+    });
+    backendApp.ClearTables.mockResolvedValue({
+      success: true,
+      data: { executedSQLs: ['DELETE FROM `orders`'], count: 1 },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableOverview tab={{
+        id: 'tab-1',
+        title: '表概览 - app_db',
+        type: 'table-overview',
+        connectionId: 'conn-1',
+        dbName: 'app_db',
+      } as any} />);
+    });
+    await flushPromises();
+
+    act(() => {
+      renderer!.root.findByProps({ 'data-table-overview-card': 'orders' }).props.onContextMenu({
+        clientX: 100,
+        clientY: 100,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+    act(() => {
+      renderer!.root.findByProps({ 'data-overview-menu-action': 'clear-table' }).props.onClick();
+    });
+
+    expect(modalConfirm).toHaveBeenCalledOnce();
+    await act(async () => {
+      await modalConfirm.mock.calls[0][0].onOk();
+    });
+
+    expect(backendApp.ClearTables).toHaveBeenCalledWith(expect.any(Object), 'app_db', ['orders']);
+    expect(backendApp.DBQuery).toHaveBeenCalledTimes(2);
+    expect(messageApi.success).toHaveBeenCalled();
   });
 
   it('loads tdengine overview rows through DBGetTables instead of direct metadata SQL', async () => {

@@ -111,6 +111,65 @@ describe('connectionReadOnly', () => {
     )).toEqual(["UPDATE users SET name = 'next'"]);
   });
 
+  it('does not treat literals, comments, or quoted identifiers as SELECT INTO', () => {
+    const config = { type: 'postgres' } as any;
+    const sql = [
+      "SELECT 'into' AS marker",
+      'SELECT 1 /* INTO should stay a comment */',
+      'SELECT [into] FROM records',
+    ].join(';');
+
+    expect(findPotentiallyMutatingConnectionStatements(config, sql)).toEqual([]);
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      'SELECT value INTO archive FROM records',
+    )).toEqual(['SELECT value INTO archive FROM records']);
+  });
+
+  it('does not treat text in a CTE literal or comment as a mutating keyword', () => {
+    const config = { type: 'postgres' } as any;
+
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      "WITH probe AS (SELECT 'update' AS operation /* delete */) SELECT * FROM probe",
+    )).toEqual([]);
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      'WITH changed AS (UPDATE accounts SET active = true RETURNING *) SELECT * FROM changed',
+    )).toEqual([
+      'WITH changed AS (UPDATE accounts SET active = true RETURNING *) SELECT * FROM changed',
+    ]);
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      'WITH source AS (SELECT id FROM accounts) SELECT id INTO archived_accounts FROM source',
+    )).toEqual([
+      'WITH source AS (SELECT id FROM accounts) SELECT id INTO archived_accounts FROM source',
+    ]);
+  });
+
+  it('does not treat SQL Server REPLACE functions in a read-only CTE as writes', () => {
+    const config = { type: 'sqlserver' } as any;
+    const sql = `WITH OracleData_CTE AS (
+      SELECT
+        T.c.value('c[1]', 'INT') AS ID,
+        T.c.value('c[2]', 'DATE') AS OrderDate,
+        T.c.value('c[3]', 'DECIMAL(18,2)') AS Amount,
+        T.c.value('c[4]', 'NVARCHAR(2)') AS rn
+      FROM (
+        SELECT CAST(
+          '<root><r><c>' +
+          REPLACE(REPLACE('101|2026-01-01|500|1', '||', '</c></r><r><c>'), '|', '</c><c>') +
+          '</c></r></root>' AS XML
+        ) AS XmlData
+      ) x
+      CROSS APPLY x.XmlData.nodes('/root/r') AS T(c)
+    )
+    SELECT O.ID, O.OrderDate, O.Amount, O.rn
+    FROM OracleData_CTE O`;
+
+    expect(findPotentiallyMutatingConnectionStatements(config, sql)).toEqual([]);
+  });
+
   it('uses the connection dialect when filtering comment-only statements', () => {
     expect(findConnectionMutatingStatements({
       type: 'postgres',
@@ -151,5 +210,86 @@ describe('connectionReadOnly', () => {
       config,
       'db.users.aggregate([{ $match: {} }, { $merge: { into: "archive" } }])',
     )).toEqual(['db.users.aggregate([{ $match: {} }, { $merge: { into: "archive" } }])']);
+  });
+
+  // issue #1308：ORDER BY 与 DELETE 之间缺少分号，切分器切不出语句边界，
+  // 整段曾被当成一条只读查询，导致生产保护与只读保护同时被绕过。
+  it('treats a semicolon-less statement as mutating when it embeds a write (issue #1308)', () => {
+    const config = {
+      type: 'mysql',
+      protection: { restrictScriptExecution: true, restrictDataEdit: true },
+    };
+    const incidentSql = [
+      'SELECT',
+      '    *',
+      'FROM',
+      '    t_bank_payment',
+      'WHERE',
+      "    f_bank_name = '安徽农商银行'",
+      "    AND f_create_time >= '2026-09-20 00:00:00'",
+      'ORDER BY',
+      '    id DESC',
+      'DELETE FROM t_bank_payment',
+      'WHERE',
+      "    f_bank_name = '安徽农商银行'",
+      "    AND f_create_time >= '2026-09-20 00:00:00'",
+    ].join('\n');
+
+    expect(findPotentiallyMutatingConnectionStatements(config, incidentSql)).toEqual([
+      incidentSql,
+    ]);
+    expect(findConnectionMutatingStatements(config, incidentSql)).toEqual([incidentSql]);
+    expect(isSingleReadOnlyConnectionQuery(config, incidentSql)).toBe(false);
+  });
+
+  it('detects embedded writes without a semicolon across dialects', () => {
+    const cases: Array<[string, string]> = [
+      ['mysql', 'SELECT * FROM t ORDER BY id DESC\nDELETE FROM t WHERE id = 1'],
+      ['mysql', 'SELECT * FROM t\nUPDATE t SET a = 1'],
+      ['mysql', 'SELECT * FROM t\nINSERT INTO t VALUES (1)'],
+      ['mysql', 'SELECT * FROM t\nDROP TABLE t'],
+      ['mysql', 'SELECT * FROM t\nTRUNCATE TABLE t'],
+      ['mysql', 'SELECT * FROM t\nALTER TABLE t ADD COLUMN c INT'],
+      ['mysql', 'SELECT * FROM t FOR UPDATE DELETE FROM t'],
+      ['postgres', 'SELECT * FROM t\nGRANT SELECT ON t TO demo'],
+    ];
+
+    for (const [type, sql] of cases) {
+      const config = { type, protection: { restrictScriptExecution: true } };
+      expect(
+        findPotentiallyMutatingConnectionStatements(config, sql),
+        `${type}: ${sql}`,
+      ).not.toEqual([]);
+    }
+  });
+
+  // 防误杀：这些输入的"写关键字"只出现在标识符、字面量或注释中，必须保持只读。
+  it('keeps read-only statements read-only when write keywords are not executable (issue #1308)', () => {
+    const cases: Array<[string, string]> = [
+      ['mysql', 'SELECT * FROM delete_log'],
+      ['mysql', 'SELECT drop_count FROM t'],
+      ['mysql', "SELECT 'DELETE FROM t' AS note"],
+      ['mysql', 'SELECT 1 -- DELETE FROM t'],
+      ['mysql', 'SELECT 1 # DELETE FROM t'],
+      ['mysql', 'SELECT 1 /* DELETE FROM t */'],
+      ['mysql', 'SELECT `delete` FROM t'],
+      ['postgres', 'SELECT "delete" FROM t'],
+      ['postgres', 'SELECT $$ DELETE FROM t $$'],
+      ['postgres', 'WITH x AS (SELECT 1) SELECT * FROM x'],
+      ['mysql', 'SELECT id, name FROM users WHERE status = 1'],
+      ['mysql', 'SHOW CREATE TABLE users'],
+      ['mysql', 'SHOW CREATE VIEW v_users'],
+      ['mysql', 'EXPLAIN SELECT * FROM t'],
+      ['mysql', 'EXPLAIN DELETE FROM t'],
+      ['mysql', 'SELECT * FROM t WHERE id = 1 FOR UPDATE'],
+    ];
+
+    for (const [type, sql] of cases) {
+      const config = { type, protection: { restrictScriptExecution: true } };
+      expect(
+        findPotentiallyMutatingConnectionStatements(config, sql),
+        `${type}: ${sql}`,
+      ).toEqual([]);
+    }
   });
 });

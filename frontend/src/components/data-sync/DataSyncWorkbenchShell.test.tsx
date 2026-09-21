@@ -22,9 +22,11 @@ import {
 import {
   mergeDataSyncInitialTasks,
   createSchemaSyncTaskFromCompare,
+  createSyncTaskFromCompare,
   DataSyncWorkbenchShell,
   resolveDataSyncSidebarRefreshes,
 } from './DataSyncWorkbenchShell';
+import { setDataSyncHandoff } from '../../utils/dataSyncHandoff';
 import { getDirtyWorkbenchTabCloseGuards } from '../../utils/workbenchTabCloseProtection';
 
 const dataSyncWorkbenchCss = readFileSync(
@@ -85,18 +87,54 @@ describe('DataSyncWorkbenchShell', () => {
     vi.unstubAllGlobals();
   });
 
-  it('masks step connectors behind stage labels', () => {
+  it('keeps step connectors out of stage labels', () => {
     expect(dataSyncWorkbenchCss).toMatch(
-      /\.gn-data-sync-stage-nav button\s*\{[^}]*z-index:\s*0;[^}]*isolation:\s*isolate;/s,
+      /\.gn-data-sync-stage-nav\s*\{[^}]*grid-auto-flow:\s*column;[^}]*grid-auto-columns:\s*minmax\(0, 1fr\);/s,
+    );
+    expect(dataSyncWorkbenchCss).not.toMatch(
+      /\.gn-data-sync-stage-nav\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s,
     );
     expect(dataSyncWorkbenchCss).toMatch(
-      /\.gn-data-sync-stage-nav button:not\(:last-child\)::after\s*\{[^}]*z-index:\s*-1;/s,
+      /\.gn-data-sync-stage-nav button\s*\{[^}]*grid-template-columns:\s*minmax\(8px, 1fr\) auto auto minmax\(8px, 1fr\);/s,
     );
     expect(dataSyncWorkbenchCss).toMatch(
-      /\.gn-data-sync-stage-nav__label\s*\{[^}]*background:\s*var\(--gn-bg-panel,[^;]+;[^}]*padding-inline:/s,
+      /\.gn-data-sync-stage-nav button:not\(:first-child\)::before\s*\{[^}]*grid-column:\s*1;/s,
     );
     expect(dataSyncWorkbenchCss).toMatch(
-      /\.gn-data-sync-stage-nav button:hover \.gn-data-sync-stage-nav__label,[\s\S]*button\[data-active='true'\] \.gn-data-sync-stage-nav__label\s*\{[^}]*background:\s*var\(--gn-bg-hover,/,
+      /\.gn-data-sync-stage-nav button:not\(:last-child\)::after\s*\{[^}]*grid-column:\s*4;/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-stage-nav__label\s*\{[^}]*grid-column:\s*3;/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-workbench__header\s*\{[^}]*background:\s*var\(--gn-bg-titlebar, var\(--gn-bg-app,/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-workbench\s*\{[^}]*--gn-ds-page-inline:\s*24px;/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-workbench__header\s*\{[^}]*padding:\s*0 var\(--gn-ds-page-inline\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-operational-view\s*\{[^}]*padding:\s*24px var\(--gn-ds-page-inline\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-history-table th\s*\{[^}]*font-size:\s*var\(--gn-font-size,/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-history-table td\s*\{[^}]*font-size:\s*var\(--gn-font-size,/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-state-label\s*\{[^}]*font-size:\s*var\(--gn-font-size,\s*14px\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-link-button\s*\{[^}]*font-size:\s*var\(--gn-font-size,\s*14px\);/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-compare-row\[data-status='same'\]\s*\{[^}]*display:\s*flex;/s,
+    );
+    expect(dataSyncWorkbenchCss).toMatch(
+      /\.gn-data-sync-compare-panel \{ order: 1; \}/,
     );
   });
 
@@ -751,6 +789,148 @@ describe('DataSyncWorkbenchShell', () => {
     ).toBe(false);
   });
 
+  it('hides write and run-mode stages for schema compare', async () => {
+    const compareTask = createDataSyncTaskDraft({
+      id: 'schema-compare-nav',
+      kind: 'compare',
+      compareMode: 'schema',
+      name: '表结构比对',
+      now: '2026-08-08T00:00:00.000Z',
+    });
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[compareTask]}
+        gateway={createStaticDataSyncWorkbenchGateway({ tasks: [] })}
+        locale="zh-CN"
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const labels = renderer.root
+      .findAllByProps({ className: 'gn-data-sync-stage-nav__label-full' })
+      .map((node) =>
+        node.children.filter((child): child is string => typeof child === 'string').join(''),
+      );
+    expect(labels).toEqual(['选择源和目标', '选择比对对象']);
+    expect(labels.join()).not.toContain('目标写入');
+    expect(labels.join()).not.toContain('选择同步数据');
+    const title = renderer.root.findByProps({
+      className: 'gn-data-sync-workbench__title-full',
+    });
+    expect(title.children).toContain('表结构比对');
+    const guideContinue = renderer.root.findByProps({ 'data-guide-continue': 'true' });
+    const guideLabel = guideContinue.findAll(
+      (node) =>
+        typeof node.children[0] === 'string' &&
+        String(node.children[0]).includes('下一步'),
+    )[0]?.children[0];
+    expect(guideLabel).toBe('下一步：选择比对对象');
+    act(() => {
+      renderer.root.findByProps({ 'data-stage': 'mappings' }).props.onClick();
+    });
+    const footerLabels = renderer.root
+      .findAllByType('button')
+      .flatMap((button) =>
+        button.children.filter((child): child is string => typeof child === 'string'),
+      );
+    expect(footerLabels).toContain('开始比对');
+    expect(footerLabels).not.toContain('运行预检');
+    expect(footerLabels).not.toContain('检查并比对');
+    act(() => renderer.unmount());
+  });
+
+  it('keeps compare workbench new-task kinds on schema and data compare', async () => {
+    const compareTask = createDataSyncTaskDraft({
+      id: 'compare-family-task',
+      kind: 'compare',
+      compareMode: 'data',
+      name: '线上数据比对',
+      now: '2026-08-08T00:00:00.000Z',
+    });
+    const syncTask = createDataSyncTaskDraft({
+      id: 'sync-family-task',
+      kind: 'migration',
+      name: '一次性迁移',
+      now: '2026-08-08T00:00:00.000Z',
+    });
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [compareTask, syncTask],
+    });
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[]}
+        gateway={gateway}
+        locale="zh-CN"
+        workbenchFamily="compare"
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(renderer.root.findByProps({ 'data-workbench-family': 'compare' })).toBeTruthy();
+    expect(renderer.root.findByProps({ 'data-task-id': compareTask.id })).toBeTruthy();
+    expect(renderer.root.findAllByProps({ 'data-task-id': syncTask.id })).toHaveLength(0);
+    const title = renderer.root.findByProps({
+      className: 'gn-data-sync-workbench__title-full',
+    });
+    expect(title.children).toContain('数据对比');
+
+    act(() => {
+      renderer.root.findByProps({ 'aria-label': '新建任务' }).props.onClick();
+    });
+    const kinds = renderer.root
+      .findAllByProps({ className: 'gn-data-sync-kind-row' })
+      .map((node) => ({
+        kind: node.props['data-task-kind'],
+        compareMode: node.props['data-compare-mode'],
+      }));
+    expect(kinds).toEqual([
+      { kind: 'compare', compareMode: 'schema' },
+      { kind: 'compare', compareMode: 'data' },
+    ]);
+    const navLabels = renderer.root
+      .findByProps({ className: 'gn-data-sync-global-nav' })
+      .findAllByType('button')
+      .map((button) =>
+        button.children.filter((child): child is string => typeof child === 'string').join(''),
+      );
+    expect(navLabels).toEqual(['任务', '运行记录']);
+    act(() => renderer.unmount());
+  });
+
+  it('keeps sync workbench new-task kinds off compare', async () => {
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[buildTask()]}
+        locale="zh-CN"
+        workbenchFamily="sync"
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root.findByProps({ 'aria-label': '新建任务' }).props.onClick();
+    });
+    const kinds = renderer.root
+      .findAllByProps({ className: 'gn-data-sync-kind-row' })
+      .map((node) => node.props['data-task-kind']);
+    expect(kinds).toEqual(['migration', 'reconcile', 'querySink', 'cdc']);
+    const navLabels = renderer.root
+      .findByProps({ className: 'gn-data-sync-global-nav' })
+      .findAllByType('button')
+      .map((button) =>
+        button.children.filter((child): child is string => typeof child === 'string').join(''),
+      );
+    expect(navLabels).toEqual(['任务', '运行记录', '调度', '持续同步']);
+    act(() => renderer.unmount());
+  });
+
   it('converts a schema compare into an explicit schema-only task from the UI', async () => {
     const compareBase = createDataSyncTaskDraft({
       id: 'schema-compare-task',
@@ -834,6 +1014,7 @@ describe('DataSyncWorkbenchShell', () => {
         initialTasks={[compareTask]}
         gateway={gateway}
         locale="zh-CN"
+        workbenchFamily="compare"
       />,
     );
     await act(async () => {
@@ -841,15 +1022,19 @@ describe('DataSyncWorkbenchShell', () => {
       await Promise.resolve();
     });
 
-    act(() => {
-      renderer.root
-        .findByProps({ 'data-data-sync-action': 'create-schema-sync' })
-        .props.onClick();
-    });
-
-    expect(renderer.root.findByProps({ 'data-schema-only-task': 'true' })).toBeTruthy();
+    const menuLabels = renderer.root
+      .findByProps({ className: 'gn-data-sync-task-menu__panel' })
+      .findAllByType('button')
+      .flatMap((button) =>
+        button.children.filter((child): child is string => typeof child === 'string'),
+      );
+    expect(menuLabels).toContain('开始比对');
+    expect(menuLabels).toContain('归档');
+    expect(menuLabels).toContain('删除任务');
+    expect(menuLabels).not.toContain('创建结构同步任务');
+    expect(menuLabels).not.toContain('运行预检');
     expect(renderer.root.findAllByProps({ 'data-data-sync-action': 'create-schema-sync' })).toHaveLength(0);
-    expect(renderer.root.findByProps({ 'data-dirty': 'true' })).toBeTruthy();
+    act(() => renderer.unmount());
   });
 
   it('edits mappings and marks the task revision as dirty', async () => {
@@ -1033,7 +1218,7 @@ describe('DataSyncWorkbenchShell', () => {
       latestConfirmation(),
     ).toMatchObject({
       title: 'Delete run record',
-      content: 'Delete this run record and its error rows and event details? The checkpoint is retained.',
+      content: 'Delete this run record and its error rows and event details? Sync progress is kept.',
       okText: 'Delete record',
       centered: true,
       closable: true,
@@ -1052,7 +1237,7 @@ describe('DataSyncWorkbenchShell', () => {
       latestConfirmation(),
     ).toMatchObject({
       title: 'Clear completed records',
-      content: 'Clear all completed run records and their error rows and event details? Checkpoints are retained.',
+      content: 'Clear all completed run records and their error rows and event details? Sync progress is kept.',
       okText: 'Clear completed records',
     });
   });
@@ -2263,7 +2448,7 @@ describe('DataSyncWorkbenchShell', () => {
     const resetButton = () =>
       renderer.root
         .findAllByType('button')
-        .find((button) => button.children.includes('Reset checkpoint'))!;
+        .find((button) => button.children.includes('Reset sync progress'))!;
     expect(resetButton().props.disabled).toBe(false);
 
     await act(async () => {
@@ -2273,8 +2458,8 @@ describe('DataSyncWorkbenchShell', () => {
     expect(
       latestConfirmation(),
     ).toMatchObject({
-      title: 'Reset checkpoint',
-      okText: 'Reset checkpoint',
+      title: 'Reset sync progress',
+      okText: 'Reset sync progress',
       centered: true,
       closable: true,
       maskClosable: true,
@@ -2292,5 +2477,77 @@ describe('DataSyncWorkbenchShell', () => {
     });
     expect(resetCheckpoint).toHaveBeenCalledWith(task.id, task.revision);
     expect(resetButton().props.disabled).toBe(true);
+  });
+
+  it('opens a handed-off sync task on the mapping stage with source and target filled', async () => {
+    const compareTask = reviseDataSyncTask(
+      createDataSyncTaskDraft({
+        id: 'compare-handoff',
+        kind: 'compare',
+        compareMode: 'schema',
+        name: '结构比对',
+      }),
+      {
+        source: {
+          connectionId: 'src-1',
+          connectionName: '开发240',
+          type: 'mysql',
+          database: 'mkefu_ai_dev',
+          schema: '',
+        },
+        target: {
+          connectionId: 'tgt-1',
+          connectionName: '本地',
+          type: 'mysql',
+          database: 'mkefu_ai_dev',
+          schema: '',
+        },
+        mappings: [
+          createDataSyncTableMapping('m1', 'mkefu_env_info', 'mkefu_env_info'),
+        ],
+      },
+    );
+    const handed = createSyncTaskFromCompare({
+      compareTask,
+      id: 'sync-from-compare',
+      name: '结构比对 · 差异同步',
+      tables: ['mkefu_env_info'],
+    });
+    expect(handed?.source.connectionId).toBe('src-1');
+    expect(handed?.target.database).toBe('mkefu_ai_dev');
+    expect(handed?.mappings.map((mapping) => mapping.sourceObject)).toEqual([
+      'mkefu_env_info',
+    ]);
+    setDataSyncHandoff({
+      task: handed!,
+      stage: 'mappings',
+      requestId: 'req-1',
+    });
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell
+        initialTasks={[]}
+        locale="zh-CN"
+        workbenchFamily="sync"
+        focusTaskId={handed!.id}
+        focusStage="mappings"
+        focusRequestId="req-1"
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ 'data-task-id': handed!.id })).toBeTruthy();
+    expect(
+      renderer.root.findByProps({ 'data-stage': 'mappings' }).props['data-active'],
+    ).toBe('true');
+    const collect = (node: TestRenderer.ReactTestInstance): string[] =>
+      node.children.flatMap((child) =>
+        typeof child === 'string' ? [child] : collect(child),
+      );
+    const labels = collect(renderer.root);
+    expect(labels.some((label) => label.includes('开发240'))).toBe(true);
+    expect(labels.some((label) => label.includes('本地'))).toBe(true);
+    act(() => renderer.unmount());
   });
 });

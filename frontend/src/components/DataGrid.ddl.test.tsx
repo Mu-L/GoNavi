@@ -679,6 +679,9 @@ describe('DataGrid commit change set', () => {
         inserts: [{ display_name: '' }],
         updates: [],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'primary-key',
+        locatorColumns: [{ key: 'id' }],
       },
     });
   });
@@ -722,8 +725,15 @@ describe('DataGrid commit change set', () => {
       ok: true,
       changes: {
         inserts: [],
-        updates: [{ keys: { EMAIL: 'a@example.com' }, values: { NAME: 'new-name' } }],
+        updates: [{
+          keys: { EMAIL: 'a@example.com' },
+          values: { NAME: 'new-name' },
+          previousValues: { NAME: 'old-name' },
+        }],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'unique-key',
+        locatorColumns: [{ key: 'EMAIL' }],
       },
     });
   });
@@ -753,8 +763,16 @@ describe('DataGrid commit change set', () => {
       ok: true,
       changes: {
         inserts: [],
-        updates: [{ keys: { ROWID: 'AAAA' }, values: { NAME: 'new-name' } }],
+        updates: [{
+          keys: { ROWID: 'AAAA' },
+          values: { NAME: 'new-name' },
+          previousValues: { NAME: 'old-name' },
+        }],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'oracle-rowid',
+        // ROWID 是伪列，值被投影到隐藏别名列：反向语句需要两者才能拼出 WHERE ROWID = <值>。
+        locatorColumns: [{ key: 'ROWID', valueColumn: ORACLE_ROWID_LOCATOR_COLUMN }],
       },
     });
   });
@@ -784,8 +802,15 @@ describe('DataGrid commit change set', () => {
       ok: true,
       changes: {
         inserts: [],
-        updates: [{ keys: { rowid: 17 }, values: { NAME: 'new-name' } }],
+        updates: [{
+          keys: { rowid: 17 },
+          values: { NAME: 'new-name' },
+          previousValues: { NAME: 'old-name' },
+        }],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'duckdb-rowid',
+        locatorColumns: [{ key: 'rowid', valueColumn: DUCKDB_ROWID_LOCATOR_COLUMN }],
       },
     });
   });
@@ -826,8 +851,17 @@ describe('DataGrid commit change set', () => {
       ok: true,
       changes: {
         inserts: [],
-        updates: [{ keys: { ID: 7 }, values: { NAME: 'new-name' } }],
+        updates: [{
+          keys: { ID: 7 },
+          values: { NAME: 'new-name' },
+          // 变更前值同样映射回表列名：DISPLAY_NAME 的旧值归到 NAME 下，
+          // 否则反向 UPDATE 会写到不存在的结果集列上。
+          previousValues: { NAME: 'old-name' },
+        }],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'primary-key',
+        locatorColumns: [{ key: 'ID' }],
       },
     });
   });
@@ -883,8 +917,16 @@ describe('DataGrid commit change set', () => {
       ok: true,
       changes: {
         inserts: [{ name: 'insert-name' }],
-        updates: [{ keys: { _id: { $oid: '507f1f77bcf86cd799439011' } }, values: { name: 'new-name' } }],
+        updates: [{
+          keys: { _id: { $oid: '507f1f77bcf86cd799439011' } },
+          values: { name: 'new-name' },
+          previousValues: { name: 'old-name' },
+        }],
         deletes: [{ _id: '507f1f77bcf86cd799439012' }],
+        // 删除行快照同样排除隐藏定位伪列，只保留可写回的表列。
+        previousDeletes: [{ name: 'to-delete' }],
+        locatorStrategy: 'primary-key',
+        locatorColumns: [{ key: '_id', valueColumn: '__gonavi_mongodb_id_locator__' }],
       },
     });
   });
@@ -926,6 +968,9 @@ describe('DataGrid commit change set', () => {
         }],
         updates: [],
         deletes: [],
+        previousDeletes: [],
+        locatorStrategy: 'primary-key',
+        locatorColumns: [{ key: '_id' }],
       },
     });
   });
@@ -1635,6 +1680,251 @@ describe('DataGrid DDL interactions', () => {
     });
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(event.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it('sends before-image hints to ApplyChanges so a commit stays restorable', async () => {
+
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Win32' });
+    backendApp.ApplyChanges.mockReset();
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { deletes: [], updates: [], inserts: [] },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+
+    const saveListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener)
+      .filter(Boolean);
+    const eventTarget = { closest: (selector: string) => selector === '.data-grid-root' ? {} : null };
+    const event = {
+      key: 's', code: 'KeyS', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false,
+      isComposing: false, target: eventTarget,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    await act(async () => {
+      saveListeners.forEach((listener) => listener(event));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    const payload = backendApp.ApplyChanges.mock.calls[0][3] as any;
+    // 只传 inserts/updates/deletes 会让后端拿不到定位列，快照生成静默失效 ——
+    // 提交照样成功，但事后无法还原。这两项必须随提交一起送达。
+    expect(payload).toHaveProperty('previousDeletes');
+    expect(payload).toHaveProperty('locatorColumns');
+    expect(payload.locatorColumns).toEqual([{ key: 'id' }]);
+    renderer!.unmount();
+  });
+
+  it('reloads authoritative rows and drops pending edits when ApplyChanges reports an unknown outcome', async () => {
+    storeState.dataEditTransactionOptions = {
+      commitMode: 'manual',
+      autoCommitDelayMs: 5000,
+    };
+    messageApi.error.mockClear();
+    messageApi.warning.mockClear();
+    storeState.addSqlLog.mockClear();
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: false,
+      outcomeUnknown: true,
+      message: 'response lost',
+      data: {
+        deletes: [],
+        updates: [],
+        inserts: ["INSERT INTO `users` (`id`, `name`) VALUES (NULL, NULL);"],
+      },
+    });
+    const onReload = vi.fn(async () => {
+      throw new Error('reload failed');
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+          onReload={onReload}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+    expect(renderer!.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(true);
+
+    await act(async () => {
+      await renderer!.root.findByType(DataGridToolbarFrame).props.onCommit();
+    });
+    await waitForEffects();
+
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(messageApi.warning).toHaveBeenCalledWith(t('data_grid.message.commit_outcome_unknown', { detail: 'response lost' }));
+    expect(messageApi.error).not.toHaveBeenCalled();
+    expect(renderer!.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(false);
+    expect(storeState.addSqlLog).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'error',
+      message: `response lost (${t('data_grid.message.transaction_outcome_unknown')})`,
+      sql: expect.stringContaining('-- COMMIT outcome is unknown; do not replay this batch.'),
+    }));
+    const lastSqlLog = storeState.addSqlLog.mock.calls[storeState.addSqlLog.mock.calls.length - 1]?.[0];
+    expect(String(lastSqlLog?.sql || '')).not.toContain(
+      '-- COMMIT was not issued because this batch failed.',
+    );
+
+    await act(async () => {
+      await renderer!.root.findByType(DataGridToolbarFrame).props.onCommit();
+    });
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it('keeps pending edits after a known ApplyChanges failure so the user can retry', async () => {
+    storeState.dataEditTransactionOptions = {
+      commitMode: 'manual',
+      autoCommitDelayMs: 5000,
+    };
+    messageApi.error.mockClear();
+    messageApi.warning.mockClear();
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: false,
+      message: 'constraint rejected',
+      data: { deletes: [], updates: [], inserts: [] },
+    });
+    const onReload = vi.fn(async () => undefined);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+          onReload={onReload}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+
+    await act(async () => {
+      await renderer!.root.findByType(DataGridToolbarFrame).props.onCommit();
+    });
+    await waitForEffects();
+
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    expect(onReload).not.toHaveBeenCalled();
+    expect(messageApi.error).toHaveBeenCalledWith(t('data_grid.message.commit_failed', { detail: 'constraint rejected' }));
+    expect(messageApi.warning).not.toHaveBeenCalled();
+    expect(renderer!.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(true);
+
+    await act(async () => {
+      await renderer!.root.findByType(DataGridToolbarFrame).props.onCommit();
+    });
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(2);
+    renderer!.unmount();
+  });
+
+  it('does not auto replay after an unknown auto-commit outcome', async () => {
+    vi.useFakeTimers();
+    storeState.dataEditTransactionOptions = {
+      commitMode: 'auto',
+      autoCommitDelayMs: 3000,
+    };
+    messageApi.error.mockClear();
+    messageApi.warning.mockClear();
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: false,
+      outcomeUnknown: true,
+      message: 'response lost',
+      data: {
+        deletes: [],
+        updates: [],
+        inserts: ["INSERT INTO `users` (`id`, `name`) VALUES (NULL, NULL);"],
+      },
+    });
+    const onReload = vi.fn(async () => undefined);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+          onReload={onReload}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+    expect(backendApp.ApplyChanges).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(messageApi.warning).toHaveBeenCalledWith(t('data_grid.message.auto_commit_outcome_unknown', { detail: 'response lost' }));
+    expect(renderer!.root.findByType(DataGridToolbarFrame).props.hasChanges).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
     renderer!.unmount();
   });

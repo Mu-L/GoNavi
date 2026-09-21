@@ -1,13 +1,13 @@
 import React from 'react';
 import { Button, Dropdown, Form, Input, Popconfirm, Select, Tooltip } from 'antd';
-import { CheckOutlined, CloseOutlined, DownOutlined, EditOutlined, EyeInvisibleOutlined, EyeOutlined, InfoCircleOutlined, LeftOutlined, LoadingOutlined, PlusOutlined, RightOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, DownOutlined, EditOutlined, EyeInvisibleOutlined, EyeOutlined, LeftOutlined, LoadingOutlined, PlusOutlined, RightOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons';
 import type { FormInstance } from 'antd/es/form';
 
 import type { AIProviderConfig } from '../../types';
 import { buildProviderModelOptions, filterProviders, parseCLIModelCatalog, type CLIModelCatalog, type ProviderCheckResult } from '../../utils/aiProviderManagement';
 import AIProviderModelSelect from './AIProviderModelSelect';
 import { readCachedCLIModelCatalog, writeCachedCLIModelCatalog } from './cliModelCatalogCache';
-import { applyPresetOrder, movePresetWithinGroup } from './providerPresetOrder';
+import { applyKeyOrder, applyPresetOrder, movePresetWithinGroup } from './providerPresetOrder';
 import { AIProviderSortableGroup, AIProviderSortableItem } from './AIProviderSortable';
 import { passThroughHintTooltip } from '../common/tooltipTiming';
 import { useAIProviderLayout, workspaceClassName } from './useAIProviderLayout';
@@ -26,10 +26,13 @@ import { isProviderSecretRequirementSatisfied } from '../../utils/providerSecret
 import { recordFromRows } from '../../utils/aiProviderKeyValue';
 import { AIGetCLICapabilities, AIGetCLIModelCatalog } from '../../../wailsjs/go/aiservice/Service';
 import { BrowserOpenURL } from '../../../wailsjs/runtime';
+import { applyCursorCLIModelEffort, parseCursorCLIModelID } from '../../utils/cursorCLIModelEffort';
 import type { ai } from '../../../wailsjs/go/models';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
+import AIProviderLogo from './AIProviderLogo';
 import AIProviderPresetSelect from './AIProviderPresetSelect';
 import AIProviderKeyValueRows from './AIProviderKeyValueRows';
+import AISettingsProviderTestResult from './AISettingsProviderTestResult';
 
 // A rejected add or save often marks a field below the fold, which reads as
 // "nothing happened". Both antd field errors and the standalone alerts are matched,
@@ -275,7 +278,11 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     if (duplicateCLI || testStatus === 'error') revealFirstError();
   }, [duplicateCLI, testStatus, revealFirstError]);
   const rowButtons = React.useRef(new Map<string, HTMLButtonElement>());
-  const visibleProviders = filterProviders(providers, search, (provider) => resolveProviderPreset(provider).label);
+  const orderedProviders = applyKeyOrder(providers, layout.preferences.providerOrder, (provider) => provider.id);
+  const visibleProviders = filterProviders(orderedProviders, search, (provider) => resolveProviderPreset(provider).label);
+  const savedSearching = Boolean(search.trim());
+  const moveProvider = (activeKey: string, overKey: string) =>
+    layout.setPreference('providerOrder', movePresetWithinGroup(orderedProviders.map((provider) => provider.id), visibleProviders.map((provider) => provider.id), activeKey, overKey));
   // 档位的合法值域由目标 CLI 决定；前端只做投影，不维护副本。
   const cliScope = `${editorScope}:${editorReady}:${usesLocalCLI}:${duplicateCLI}`;
   const [cliCapabilityResponse, setCLICapabilityResponse] = React.useState<{ scope: string; views: ai.CLICapabilityView[] }>({ scope: '', views: [] });
@@ -313,10 +320,8 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const hasCustomCLIExecution = watchedCLIPath !== '' || Boolean(watchedCLIEnv && Object.keys(watchedCLIEnv).length);
   const catalogScope = `${cliScope}:${watchedApiFormat || ''}:${cliExecutionScope}`;
   const [catalogRefresh, setCatalogRefresh] = React.useState(0);
-  // Set by the enabled-count button: the next effect run bypasses the cached
-  // catalog and shells out to the CLI again.
-  const catalogRefreshForced = React.useRef(false);
   const [catalogResponse, setCatalogResponse] = React.useState<{ scope: string; cliScope: string; catalog: CLIModelCatalog } | null>(null);
+  const [catalogNotice, setCatalogNotice] = React.useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   // A refresh keeps the current list until the new result lands, but only within
   // the same editor session; another provider's catalog must never show through.
   const modelCatalog = catalogResponse?.scope === catalogScope ? catalogResponse.catalog : null;
@@ -326,10 +331,12 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     setModelDiscoveryError(false);
     setModelsLoading(false);
     if (!editorReady || !usesLocalCLI || duplicateCLI || !watchedApiFormat) return;
-    const forced = catalogRefreshForced.current;
-    catalogRefreshForced.current = false;
-    // Entering the editor reuses the last usable catalog; only the count button refreshes.
-    const cached = forced || hasCustomCLIExecution ? null : readCachedCLIModelCatalog(watchedApiFormat);
+    // Entering the editor reuses the last usable catalog. catalogRefresh is
+    // incremented by Sync from CLI / the enabled-count control; that counter
+    // (not a ref) survives StrictMode's setup/cleanup/setup replay.
+    const requestedRefresh = catalogRefresh > 0;
+    if (requestedRefresh) setCatalogNotice(null);
+    const cached = requestedRefresh || hasCustomCLIExecution ? null : readCachedCLIModelCatalog(watchedApiFormat);
     if (cached) { setCatalogResponse({ scope: catalogScope, cliScope, catalog: cached }); return; }
     let cancelled = false;
     setModelsLoading(true);
@@ -340,15 +347,24 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       .then((value) => {
         if (cancelled) return;
         const catalog = parseCLIModelCatalog(value);
-        if (!catalog) throw new Error('Invalid model catalog');
+        if (!catalog) throw new Error(copy('ai_settings.models.sync_cli_failed'));
         if (!hasCustomCLIExecution) writeCachedCLIModelCatalog(watchedApiFormat, catalog);
         setCatalogResponse({ scope: catalogScope, cliScope, catalog });
         setModelDiscoveryError(catalog.stale || (catalog.source !== 'none' && !catalog.models.length));
+        if (requestedRefresh) {
+          setCatalogNotice(!catalog.models.length || catalog.stale
+            ? { tone: 'error', text: copy('ai_settings.models.sync_cli_empty') }
+            : { tone: 'success', text: copy('ai_settings.models.sync_cli_success', { count: catalog.models.length }) });
+        }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setModelDiscoveryError(true);
         setCatalogResponse((previous) => (previous?.scope === catalogScope ? previous : null));
+        if (requestedRefresh) {
+          const detail = String((error as { message?: string })?.message || error || '').trim();
+          setCatalogNotice({ tone: 'error', text: detail || copy('ai_settings.models.sync_cli_failed') });
+        }
       })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
@@ -377,6 +393,11 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   }, [upstreamScope]);
   const supportsUpstreamModelSync = Boolean(onSyncProviderModels && !usesLocalCLI && selectedEndpointType !== 'cli'
     && String(watchedApiFormat || '').trim().toLowerCase() !== 'codebuddy-cli');
+  const supportsCLIModelSync = Boolean(usesLocalCLI && !duplicateCLI && watchedApiFormat);
+  const refreshCLIModels = () => {
+    if (!supportsCLIModelSync || modelsLoading) return;
+    setCatalogRefresh((value) => value + 1);
+  };
   const syncUpstreamModels = async () => {
     if (!supportsUpstreamModelSync || upstreamModelsLoading || !onSyncProviderModels) return;
     const request = ++upstreamRequestRef.current;
@@ -410,12 +431,27 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const activeEffortValues = activeModelCapability?.effortValues?.length
     ? activeModelCapability.effortValues
     : (activeCLICapability?.effortValues || []);
+  const effortSelectable = activeEffortValues.length > 0;
+  const cursorCLIEffort = String(watchedApiFormat || '').trim().toLowerCase() === 'cursor-cli';
   React.useEffect(() => {
     const effort = String(watchedEffort || '').trim().toLowerCase();
-    if (!usesLocalCLI || !activeModelCapability || !effort || activeEffortValues.includes(effort)) return;
+    if (!usesLocalCLI || !effort) return;
+    if (activeModelCapability && activeEffortValues.includes(effort)) return;
+    if (!activeModelCapability && !cursorCLIEffort) return;
     form.setFieldValue('effort', undefined);
     onValuesChange?.({ effort: undefined });
-  }, [activeEffortValues, activeModelCapability, form, onValuesChange, usesLocalCLI, watchedEffort]);
+  }, [activeEffortValues, activeModelCapability, cursorCLIEffort, form, onValuesChange, usesLocalCLI, watchedEffort]);
+  React.useEffect(() => {
+    if (!usesLocalCLI || !cursorCLIEffort) return;
+    const model = String(watchedModel || '').trim();
+    if (!model) return;
+    const parsed = parseCursorCLIModelID(model);
+    const nextEffort = parsed.effort && activeEffortValues.includes(parsed.effort) ? parsed.effort : undefined;
+    const current = String(watchedEffort || '').trim().toLowerCase() || undefined;
+    if (nextEffort === current) return;
+    form.setFieldValue('effort', nextEffort);
+    onValuesChange?.({ effort: nextEffort });
+  }, [activeEffortValues, cursorCLIEffort, form, onValuesChange, usesLocalCLI, watchedEffort, watchedModel]);
   const patchModels = (patch: Record<string, string[]>) => { form.setFieldsValue(patch); onValuesChange?.(patch); };
   const modelSourceKey = modelCatalog?.stale ? 'ai_settings.form.model_catalog.stale'
     : modelDiscoveryError ? 'ai_settings.form.models_manual_fallback'
@@ -466,16 +502,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     || selectedEndpointType === 'anthropic'
     || (presetKeyFromForm === 'custom' && String(watchedApiFormat || '').toLowerCase() === 'anthropic')
   ));
-  const cliChipHint = (provider: AIProviderConfig) => {
-    const preset = resolveProviderPreset(provider);
-    const lines = [
-      copy('ai_settings.provider.local_cli_reuse'),
-      provider.apiFormat === 'cursor-cli' && copy('ai_settings.form.local_cli.cursor_boundary'),
-      copy(provider.apiFormat === 'codex-cli' ? 'ai_settings.form.local_cli.codex_hint' : preset.key === 'grok' ? 'ai_settings.form.local_cli.grok_hint' : provider.apiFormat === 'cursor-cli' ? 'ai_settings.form.local_cli.cursor_hint' : 'ai_settings.form.local_cli.claude_hint'),
-    ].filter(Boolean);
-    return <div className="gonavi-ai-provider-hint-body">{lines.map((line, index) => <div key={index}>{line}</div>)}</div>;
-  };
   const catalogSearching = Boolean(catalogSearch.trim());
+  const chipModelLabel = (provider: AIProviderConfig) => provider.model || (isLocalCLISubscriptionProvider(provider) || provider.apiFormat === 'codebuddy-cli' || provider.apiFormat === 'cursor-agent'
+    ? copy('ai_settings.provider.auto_model') : copy('ai_settings.provider.no_model'));
   // Floating copy shown under the pointer while a catalog card or hidden row is
   // dragged; the original stays in place as the faded placeholder.
   const presetDragOverlay = (variant: 'card' | 'row') => (key: string) => {
@@ -488,6 +517,25 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       : <div className="gonavi-ai-provider-hidden-row is-drag-overlay"><span className="gonavi-ai-provider-hidden-choose">
         <span className="gonavi-ai-provider-icon" aria-hidden="true">{preset.icon}</span>
         <span className="gonavi-ai-provider-hidden-label">{preset.label}</span></span></div>;
+  };
+  const providerDragOverlay = (id: string) => {
+    const provider = providers.find((item) => item.id === id);
+    if (!provider) return null;
+    const matchedPreset = resolveProviderPreset(provider);
+    const name = provider.name || matchedPreset.label;
+    const modelLabel = chipModelLabel(provider);
+    return <div className={`gonavi-ai-provider-row gonavi-ai-provider-chip is-drag-overlay${provider.id === activeProviderId ? ' is-active' : ''}`}>
+      <span className="gonavi-ai-provider-select">
+        <span className="gonavi-ai-provider-radio" aria-hidden="true">{provider.id === activeProviderId ? <CheckOutlined /> : null}</span>
+        {treeHostedView === 'connected' ? <span className="gonavi-ai-provider-icon" aria-hidden="true">
+          <AIProviderLogo presetKey={matchedPreset.key} label={matchedPreset.label} dark={darkMode} />
+        </span> : null}
+        <span className="gonavi-ai-provider-chip-content"><span className="gonavi-ai-provider-name">{name}</span>
+          {(treeHostedView === 'connected' || layout.preferences.density === 'normal') && <span className="gonavi-ai-provider-chip-model">{modelLabel}{provider.effort && ` · ${provider.effort}`}</span>}
+        </span>
+        {provider.id === activeProviderId && <span className="gonavi-ai-provider-current">{copy('ai_settings.provider.default')}</span>}
+      </span>
+    </div>;
   };
   const catalogEntry = (preset: AISettingsProviderPresetOption) => {
     const configured = providersByPreset.get(preset.key) || [];
@@ -570,17 +618,22 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
     </div>}
     {treeHostedView !== 'workspace' ? <div className="gonavi-ai-provider-list" data-density={layout.preferences.density}>
       <div className="gonavi-ai-provider-toolbar">
-        {treeHostedView === 'connected' ? null : <button type="button" className="gonavi-ai-provider-collapse" aria-expanded={!layout.preferences.savedCollapsed}
+        {treeHostedView === 'connected' ? <div className="gonavi-ai-provider-connected-title">
+          <strong>{copy('ai_settings.provider.configured')}</strong>
+          <small>{providers.length}</small>
+          <span className="gonavi-ai-provider-connected-hint">{copy('ai_settings.provider.configured_hint')}</span>
+        </div> : <button type="button" className="gonavi-ai-provider-collapse" aria-expanded={!layout.preferences.savedCollapsed}
           aria-controls="gonavi-ai-provider-chips" onClick={() => layout.setPreference('savedCollapsed', !layout.preferences.savedCollapsed)}>
           <span className="gonavi-ai-provider-caret" aria-hidden="true">{layout.preferences.savedCollapsed ? <RightOutlined /> : <DownOutlined />}</span>
           {copy('ai_settings.provider.configured')} <small>{providers.length}</small>
         </button>}
         {treeHostedView !== 'connected' && layout.preferences.savedCollapsed ? <span className="gonavi-ai-provider-collapsed-default">{currentName && `${copy('ai_settings.provider.default')}: ${currentName}`}</span> : <div className="gonavi-ai-provider-toolbar-end">
-          <div className="gonavi-ai-provider-density" role="group" aria-label={copy('ai_settings.provider.density')}>
+          {treeHostedView === 'connected' ? null : <div className="gonavi-ai-provider-density" role="group" aria-label={copy('ai_settings.provider.density')}>
             {(['compact', 'normal'] as const).map((density) => <button key={density} type="button"
               aria-pressed={layout.preferences.density === density} onClick={() => layout.setPreference('density', density)}>{copy(`ai_settings.provider.${density}`)}</button>)}
-          </div>
-          <Input className="gonavi-ai-provider-saved-search" aria-label={copy('ai_settings.provider.search')} placeholder={copy('ai_settings.provider.search_short')}
+          </div>}
+          <Input className="gonavi-ai-provider-saved-search" aria-label={copy('ai_settings.provider.search')}
+            placeholder={copy(treeHostedView === 'connected' ? 'ai_settings.provider.search' : 'ai_settings.provider.search_short')}
             prefix={<SearchOutlined />} allowClear value={search} onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'ArrowDown' && visibleProviders.length) { event.preventDefault(); rowButtons.current.get(visibleProviders[0].id)?.focus(); } }} />
         </div>}
@@ -588,21 +641,25 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
       {loadError && <div role="alert">{loadError} <Button type="link" onClick={onReloadProviders}>{copy('ai_settings.provider.retry')}</Button></div>}
       {providersLoading && <div role="status"><LoadingOutlined /> {copy('ai_settings.provider.loading')}</div>}
       <div id="gonavi-ai-provider-chips" className="gonavi-ai-provider-chips" role="radiogroup"
+        data-connected-list={treeHostedView === 'connected' ? 'true' : undefined}
         aria-label={copy('ai_settings.provider.default_label')} hidden={treeHostedView !== 'connected' && layout.preferences.savedCollapsed}>
         {!providersLoading && !loadError && providers.length === 0 && <span className="gonavi-ai-provider-empty">{copy('ai_settings.provider.empty.title')}</span>}
         {providers.length > 0 && visibleProviders.length === 0 && <span role="status">{copy('ai_settings.provider.no_matches')}</span>}
+        {visibleProviders.length > 0 && <AIProviderSortableGroup layout={treeHostedView === 'connected' ? 'list' : 'grid'}
+          items={visibleProviders.map((provider) => provider.id)} disabled={savedSearching} overlayStyle={rootStyle}
+          onMove={moveProvider} renderOverlay={providerDragOverlay}>
         {visibleProviders.map((provider, index) => {
           const matchedPreset = resolveProviderPreset(provider);
           const isActive = provider.id === activeProviderId;
           const isPending = provider.id === pendingProviderId;
           const name = provider.name || matchedPreset.label;
-          const modelLabel = provider.model || (isLocalCLISubscriptionProvider(provider) || provider.apiFormat === 'codebuddy-cli' || provider.apiFormat === 'cursor-agent'
-            ? copy('ai_settings.provider.auto_model') : copy('ai_settings.provider.no_model'));
+          const modelLabel = chipModelLabel(provider);
           const tooltip = <div><strong>{name}</strong><div>{matchedPreset.label}</div><div>{modelLabel}{provider.effort && ` · ${provider.effort}`}</div>
             {isActive && <div>{copy('ai_settings.provider.default_label')}</div>}
             {Boolean(provider.disabledModels?.length) && <div>{copy('ai_settings.models.disabled_count', { count: provider.disabledModels!.length })}</div>}
           </div>;
-          return <div className={`gonavi-ai-provider-row gonavi-ai-provider-chip${isActive ? ' is-active' : ''}`} key={provider.id}>
+          return <AIProviderSortableItem id={provider.id} className={`gonavi-ai-provider-row gonavi-ai-provider-chip${isActive ? ' is-active' : ''}`}
+            key={provider.id} disabled={savedSearching}>
             <Tooltip {...passThroughHintTooltip} title={tooltip} trigger={['hover', 'focus']}>
               <button className="gonavi-ai-provider-select" type="button" role="radio" aria-checked={isActive}
                 aria-label={`${copy('ai_settings.provider.set_default')}: ${name}`} aria-busy={isPending}
@@ -617,18 +674,15 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                   rowButtons.current.get(visibleProviders[next].id)?.focus(); onSetActiveProvider(visibleProviders[next].id);
                 }}>
                 <span className="gonavi-ai-provider-radio" aria-hidden="true">{isPending ? <LoadingOutlined /> : isActive ? <CheckOutlined /> : null}</span>
+                {treeHostedView === 'connected' ? <span className="gonavi-ai-provider-icon" aria-hidden="true">
+                  <AIProviderLogo presetKey={matchedPreset.key} label={matchedPreset.label} dark={darkMode} />
+                </span> : null}
                 <span className="gonavi-ai-provider-chip-content"><span className="gonavi-ai-provider-name">{name}</span>
-                  {layout.preferences.density === 'normal' && <span className="gonavi-ai-provider-chip-model">{modelLabel}{provider.effort && ` · ${provider.effort}`}</span>}
+                  {(treeHostedView === 'connected' || layout.preferences.density === 'normal') && <span className="gonavi-ai-provider-chip-model">{modelLabel}{provider.effort && ` · ${provider.effort}`}</span>}
                 </span>
                 {isActive && <span className="gonavi-ai-provider-current">{copy('ai_settings.provider.default')}</span>}
               </button>
             </Tooltip>
-            {isEditing && editingProvider?.id === provider.id && isLocalCLISubscriptionProvider(provider) && <Tooltip {...passThroughHintTooltip} title={cliChipHint(provider)}>
-              <button type="button" className="gonavi-ai-provider-chip-hint" aria-label={copy('ai_settings.form.local_cli.title')}
-                onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
-                <InfoCircleOutlined aria-hidden="true" />
-              </button>
-            </Tooltip>}
             <Tooltip {...passThroughHintTooltip} title={copy('ai_settings.provider.action.edit')}><Button type="text" size="small" icon={<EditOutlined />}
               aria-label={`${copy('ai_settings.provider.action.edit')}: ${name}`} onClick={() => openProviderInWorkspace(provider)} /></Tooltip>
             {/* Removing a configuration is destructive, so the corner control still
@@ -639,8 +693,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
               <button type="button" className="gonavi-ai-provider-chip-remove" disabled={Boolean(pendingProviderId) || loading}
                 aria-label={`${copy('ai_settings.provider.action.delete')}: ${name}`}><CloseOutlined aria-hidden="true" /></button>
             </Popconfirm>
-          </div>;
+          </AIProviderSortableItem>;
         })}
+        </AIProviderSortableGroup>}
       </div>
     </div> : null}
     {treeHostedView === 'connected' ? null : <>
@@ -736,7 +791,9 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
             </Form.Item>}
             <div className={`gonavi-ai-provider-field-grid gonavi-ai-provider-basic-fields${usesLocalCLI ? ' has-effort' : ''}`}>
               <Form.Item label={fieldLabel('ai_settings.form.display_name')} name="name"><Input placeholder={copy('ai_settings.form.provider_name_placeholder')} size="middle" /></Form.Item>
-              <Form.Item name="model" rules={[requiredModelRule]} label={<span className="gonavi-ai-provider-model-label">
+              <Form.Item name="model" rules={[requiredModelRule]} extra={catalogNotice ? (
+                <div role="status" className={`gonavi-ai-provider-cli-catalog-status is-${catalogNotice.tone}`}>{catalogNotice.text}</div>
+              ) : undefined} label={<span className="gonavi-ai-provider-model-label">
                 <span className="gonavi-ai-provider-model-title">{fieldLabel('ai_settings.form.default_model')}</span>
                 <span className="gonavi-ai-provider-model-meta">
                   {supportsUpstreamModelSync && <button type="button" className="gonavi-ai-provider-model-sync"
@@ -745,9 +802,15 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                     <SyncOutlined spin={upstreamModelsLoading} aria-hidden="true" />
                     <span>{copy('ai_settings.models.sync_upstream')}</span>
                   </button>}
+                  {supportsCLIModelSync && <button type="button" className="gonavi-ai-provider-model-sync"
+                    disabled={modelsLoading} aria-busy={modelsLoading}
+                    onClick={(event) => { event.preventDefault(); event.stopPropagation(); refreshCLIModels(); }}>
+                    <SyncOutlined spin={modelsLoading} aria-hidden="true" />
+                    <span>{copy('ai_settings.models.sync_cli')}</span>
+                  </button>}
                   <button type="button" className="gonavi-ai-provider-model-count" aria-haspopup="dialog" onClick={(event) => {
                     event.preventDefault(); event.stopPropagation();
-                    if (usesLocalCLI) { catalogRefreshForced.current = true; setCatalogRefresh((value) => value + 1); }
+                    if (usesLocalCLI) setCatalogRefresh((value) => value + 1);
                     setModelManagementRequest((previous) => ({ scope: editorScope, request: previous.request + 1 }));
                   }}
                     aria-label={copy('ai_settings.models.manage')}>{copy('ai_settings.models.enabled_count', { enabled: enabledModelOptions.length, total: modelOptions.length })}</button>
@@ -767,10 +830,18 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                   customLabel={copy('ai_settings.form.model_use_custom')} options={modelOptions} disabledModels={watchedDisabledModels} />
               </Form.Item>
               {usesLocalCLI && <Form.Item label={fieldLabel('ai_settings.form.effort')} name="effort">
-                {activeCLICapability?.supportsEffort ? <Select allowClear size="middle" placeholder={copy('ai_settings.form.effort_placeholder_empty')}
+                {effortSelectable ? <Select allowClear={Boolean(activeCLICapability?.supportsEffort)} size="middle" placeholder={copy('ai_settings.form.effort_placeholder_empty')}
                   popupMatchSelectWidth={false} classNames={{ popup: { root: 'gonavi-ai-provider-form-popup' } }}
-                  options={activeEffortValues.map((value) => ({ label: value, value }))} />
-                  : <Input size="middle" disabled placeholder={copy(activeCLICapability?.supportsEffort === false ? 'ai_settings.form.effort_unsupported' : 'ai_settings.form.effort_placeholder_empty')} />}
+                  options={activeEffortValues.map((value) => ({ label: value, value }))}
+                  onChange={(value) => {
+                    if (!cursorCLIEffort) return;
+                    const nextModel = applyCursorCLIModelEffort(String(watchedModel || ''), String(value || ''), modelCatalog?.models);
+                    if (nextModel && nextModel !== String(watchedModel || '').trim()) {
+                      form.setFieldValue('model', nextModel);
+                      onValuesChange?.({ model: nextModel });
+                    }
+                  }} />
+                  : <Input size="middle" disabled placeholder={copy(activeCLICapability?.supportsEffort === false || cursorCLIEffort ? 'ai_settings.form.effort_unsupported' : 'ai_settings.form.effort_placeholder_empty')} />}
               </Form.Item>}
             </div>
             {usesLocalCLI ? <>
@@ -840,13 +911,13 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
               </Form.Item>
               </>}
           </div>
-          <div className="gonavi-ai-provider-actions">
-            <div className="gonavi-ai-provider-check-action"><Button size="middle" onClick={handleTestProvider} loading={testing} disabled={duplicateCLI}>{copy('ai_settings.action.test')}</Button>
-              <small>{copy(dirty ? 'ai_settings.provider.unsaved' : 'ai_settings.provider.saved')}</small></div>
-            <div className="gonavi-ai-provider-test-result" role={testStatus === 'error' ? 'alert' : 'status'} data-error={testStatus === 'error'}>
-              {testResult && (testResult.success ? <><CheckOutlined /> {copy(`ai_settings.test.${testResult.checkKind}`)}</> : testResult.message)}
-            </div>
-            <div className="gonavi-ai-provider-save-actions">{canSaveAsCopy
+          <AISettingsProviderTestResult
+            testStatus={testStatus}
+            testResult={testResult}
+            copy={copy}
+            testAction={<div className="gonavi-ai-provider-check-action"><Button size="middle" onClick={handleTestProvider} loading={testing} disabled={duplicateCLI}>{copy('ai_settings.action.test')}</Button>
+              <small>{copy(dirty ? 'ai_settings.provider.unsaved' : 'ai_settings.provider.saved')}</small></div>}
+            saveAction={<div className="gonavi-ai-provider-save-actions">{canSaveAsCopy
               ? <Dropdown.Button size="middle" type="primary" onClick={handleSaveProvider} icon={<DownOutlined />}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}
                 placement="topRight" trigger={['click']} arrow overlayClassName="gonavi-ai-provider-save-as-menu"
@@ -857,8 +928,8 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
                 {saveActionLabel}</Dropdown.Button>
               : <Button size="middle" type="primary" onClick={handleSaveProvider}
                 loading={loading && saveMode === 'save'} disabled={duplicateCLI || loading && saveMode === 'copy'}>{saveActionLabel}</Button>}
-            </div>
-          </div>
+            </div>}
+          />
         </Form>}
       </div>
     </div>

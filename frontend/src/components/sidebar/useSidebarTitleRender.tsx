@@ -15,10 +15,11 @@ import {
   resolveV2ObjectGroupTitle,
 } from './sidebarHelpers';
 import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
+import type { SidebarTreeConnectionStatus } from './SidebarTreeTitle';
 
 type UseSidebarTitleRenderArgs = {
   connectionStates: Record<string, SidebarConnectionState>;
-  renderV2TreeTitle: (node: any, hoverTitle: string, statusBadge: React.ReactNode) => React.ReactNode;
+  renderV2TreeTitle: (node: any, hoverTitle: string, connectionStatus: SidebarTreeConnectionStatus) => React.ReactNode;
   handleAddExternalSQLDirectory: (node: any) => Promise<void>;
 };
 
@@ -31,22 +32,16 @@ export const useSidebarTitleRender = ({
   handleAddExternalSQLDirectoryRef.current = handleAddExternalSQLDirectory;
 
   return useCallback((node: any) => {
-  let status: 'loading' | 'success' | 'error' | 'default' = 'default';
+  let status: SidebarTreeConnectionStatus = 'default';
   if (node.type === 'connection' || node.type === 'database') {
     if (connectionStates[node.key] === 'loading') status = 'loading';
     else if (connectionStates[node.key] === 'success') status = 'success';
     else if (connectionStates[node.key] === 'error') status = 'error';
   }
-  const showV2Status = status === 'success' || status === 'loading' || status === 'error';
-  const statusBadge = node.type === 'connection' || node.type === 'database' ? (
-    showV2Status
-        ? <span className={`gn-v2-tree-status is-${status}`} aria-hidden="true" />
-        : null
-  ) : null;
 
   const displayTitle = resolveSidebarQueriesFolderTitle(node) ?? String(node.title ?? '');
   let hoverTitle = displayTitle;
-  if (node.type === 'message-object' || node.type === 'table' || node.type === 'view' || node.type === 'materialized-view' || node.type === 'sequence' || node.type === 'package' || node.type === 'db-event') {
+  if (node.type === 'message-object' || node.type === 'table' || node.type === 'view' || node.type === 'materialized-view' || node.type === 'sequence' || node.type === 'package' || node.type === 'database-link' || node.type === 'db-event') {
     const rawTableName = String(
       node?.dataRef?.messageObjectName
       || node?.dataRef?.topicName
@@ -56,6 +51,7 @@ export const useSidebarTitleRender = ({
       || node?.dataRef?.viewName
       || node?.dataRef?.sequenceName
       || node?.dataRef?.packageName
+      || node?.dataRef?.databaseLinkName
       || node?.dataRef?.eventName
       || '',
     ).trim();
@@ -116,7 +112,6 @@ export const useSidebarTitleRender = ({
           data-sidebar-node-type={String(node.type || '')}
         >
           <span className="gn-v2-tree-label">
-            {statusBadge}
             {externalSqlRootTitle}
           </span>
         </span>
@@ -137,7 +132,7 @@ export const useSidebarTitleRender = ({
     );
   }
 
-  return renderV2TreeTitle(node, hoverTitle, statusBadge);
+  return renderV2TreeTitle(node, hoverTitle, status);
 }, [
   connectionStates,
   renderV2TreeTitle,

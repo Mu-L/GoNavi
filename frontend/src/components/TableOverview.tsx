@@ -10,7 +10,7 @@ import type { TabData } from '../types';
 import { useAutoFetchVisibility } from '../utils/autoFetchVisibility';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
-import { supportsTableTruncateAction, type TableDataDangerActionKind } from './tableDataDangerActions';
+import { supportsTableClearAction, supportsTableTruncateAction, type TableDataDangerActionKind } from './tableDataDangerActions';
 import { resolveTableSelectQuery } from '../utils/objectQueryTemplates';
 import {
     TABLE_OVERVIEW_RENDER_BATCH_SIZE,
@@ -33,6 +33,7 @@ import { confirmCopyTable } from './tableCopyAction';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
 import { formatSidebarTableTimestamp } from './sidebar/sidebarHelpers';
 import { confirmProductionMutation } from '../utils/productionRiskConfirm';
+import { isConnectionDataEditRestricted } from '../utils/connectionReadOnly';
 import { stripSchemaFromTabObjectLabel } from '../utils/tabDisplay';
 
 interface TableOverviewProps {
@@ -203,21 +204,19 @@ WHERE c.relkind = 'r'
 ORDER BY c.relname`;
         }
         case 'sqlserver': {
-            const safeDB = `[${dbName.replace(/]/g, ']]')}]`;
             return `
 SELECT
     s.name + '.' + t.name AS table_name,
-    ep.value AS table_comment,
+    CONVERT(nvarchar(4000), ep.value) AS table_comment,
     SUM(p.rows) AS table_rows,
-    SUM(a.total_pages) * 8 * 1024 AS data_length,
-    SUM(a.used_pages) * 8 * 1024 AS index_length
-FROM ${safeDB}.sys.tables t
-JOIN ${safeDB}.sys.schemas s ON t.schema_id = s.schema_id
-LEFT JOIN ${safeDB}.sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
-LEFT JOIN ${safeDB}.sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
-LEFT JOIN ${safeDB}.sys.allocation_units a ON p.partition_id = a.container_id
+    CAST(NULL AS bigint) AS data_length,
+    CAST(NULL AS bigint) AS index_length
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
 WHERE t.type = 'U'
-GROUP BY s.name, t.name, ep.value
+GROUP BY s.name, t.name, CONVERT(nvarchar(4000), ep.value)
 ORDER BY s.name, t.name`;
         }
         case 'clickhouse':
@@ -310,8 +309,13 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const overviewSchemaName = isSchemaScopedTableOverviewDialect(metadataDialect)
         ? (schemaName || 'public')
         : '';
-    const supportsDesignWrite = !getDataSourceCapabilities(connection?.config).forceReadOnlyStructureDesigner;
-    const supportsCopyTable = getDataSourceCapabilities(connection?.config).supportsCopyTable;
+    const dataSourceCapabilities = getDataSourceCapabilities(connection?.config);
+    const supportsDesignWrite = !dataSourceCapabilities.forceReadOnlyStructureDesigner;
+    const supportsCopyTable = dataSourceCapabilities.supportsCopyTable;
+    const allowClear = supportsTableClearAction(
+        connection?.config?.type || '',
+        connection?.config?.driver,
+    ) && !isConnectionDataEditRestricted(connection?.config);
     const autoFetchVisible = useAutoFetchVisibility();
     const loadDataRequestIdRef = useRef(0);
 
@@ -737,6 +741,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     }, [buildConfig, connection, loadData, t, tab.dbName]);
 
     const handleTableDataDangerAction = useCallback((tableName: string, action: TableDataDangerActionKind) => {
+        if (action === 'clear' && !allowClear) return;
         const config = buildConfig();
         if (!config) return;
 
@@ -783,7 +788,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 }
             },
         });
-    }, [buildConfig, connection, loadData, t, tab.dbName]);
+    }, [allowClear, buildConfig, connection, loadData, t, tab.dbName]);
 
     const toggleOverviewTablePinned = useCallback((tableName: string, pinned?: boolean) => {
         if (!connection?.id || !tab.dbName || !tableName) return;
@@ -1034,6 +1039,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             case 'truncate-table':
                 void handleTableDataDangerAction(tableName, 'truncate');
                 return;
+            case 'clear-table':
+                void handleTableDataDangerAction(tableName, 'clear');
+                return;
             case 'drop-table':
                 handleDeleteTable(tableName);
                 return;
@@ -1074,6 +1082,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             }}
             isPinned={isOverviewTablePinned(pinnedSidebarTables, connection?.id, tab.dbName, schemaName, table.name)}
             supportsTruncate={allowTruncate}
+            supportsClear={allowClear}
             supportsCopyTable={supportsCopyTable}
             supportsStarRocksRollup={metadataDialect === 'starrocks'}
             onAction={(action) => {
@@ -1081,7 +1090,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 handleV2TableContextMenuAction(table, action);
             }}
         />
-    ), [activeShortcutPlatform, allowTruncate, connection?.id, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
+    ), [activeShortcutPlatform, allowClear, allowTruncate, connection?.id, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
 
     const renderOverviewSectionTitle = (section: OverviewTableSection) => {
         const sectionTitle = section.kind === 'pinned'

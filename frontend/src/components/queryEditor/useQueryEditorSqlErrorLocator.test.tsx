@@ -1,0 +1,141 @@
+import React from 'react';
+import { act, create } from 'react-test-renderer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useQueryEditorSqlErrorLocator } from './useQueryEditorSqlErrorLocator';
+
+const warning = vi.fn();
+
+vi.mock('antd', () => ({
+    message: {
+        warning: (...args: unknown[]) => warning(...args),
+    },
+}));
+
+type QueryEditorSqlErrorLocatorHarnessProps = {
+    editorRef: Parameters<typeof useQueryEditorSqlErrorLocator>[0];
+    onReady: (api: ReturnType<typeof useQueryEditorSqlErrorLocator>) => void;
+};
+
+const HookHarness: React.FC<QueryEditorSqlErrorLocatorHarnessProps> = ({ editorRef, onReady }) => {
+    const api = useQueryEditorSqlErrorLocator(editorRef);
+    onReady(api);
+    return null;
+};
+
+describe('useQueryEditorSqlErrorLocator', () => {
+    beforeEach(() => {
+        warning.mockReset();
+    });
+
+    it('records the executed SQL origin and jumps the editor to the reported offset', () => {
+        const sql = 'SELECT (id FROM users';
+        const setPosition = vi.fn();
+        const editorRef = {
+            current: {
+                getModel: () => ({ getValue: () => sql }),
+                setPosition,
+                setSelection: vi.fn(),
+                revealPositionInCenterIfOutsideViewport: vi.fn(),
+                focus: vi.fn(),
+            },
+        };
+        let api!: ReturnType<typeof useQueryEditorSqlErrorLocator>;
+        create(
+            <HookHarness
+                editorRef={editorRef}
+                onReady={(next) => {
+                    api = next;
+                }}
+            />,
+        );
+
+        act(() => {
+            api.recordExecutionOrigin(sql, sql, sql);
+        });
+        expect(api.locateExecutionError(
+            'ORA-00907: missing right parenthesis\nerror occur at position: 9',
+        )).toBe(true);
+        expect(setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 9 });
+        expect(warning).not.toHaveBeenCalled();
+    });
+
+    it('warns when the error has no locatable position', () => {
+        const editorRef = { current: { setPosition: vi.fn() } };
+        let api!: ReturnType<typeof useQueryEditorSqlErrorLocator>;
+        create(
+            <HookHarness
+                editorRef={editorRef}
+                onReady={(next) => {
+                    api = next;
+                }}
+            />,
+        );
+        expect(api.locateExecutionError('table not found')).toBe(false);
+        expect(warning).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the executed selection when the error has no location', () => {
+        const editorRef = { current: { getModel: () => ({ getValue: () => 'SELECT changed' }) } };
+        let api!: ReturnType<typeof useQueryEditorSqlErrorLocator>;
+        create(<HookHarness editorRef={editorRef} onReady={(next) => { api = next; }} />);
+        act(() => api.recordExecutionOrigin('SELECT first; SELECT broken', 'SELECT broken'));
+        expect(api.resolveExecutionErrorStatement(
+            'driver exploded',
+            'SELECT changed',
+        )).toBe('SELECT broken');
+    });
+
+    it('resolves located errors against the execution snapshot after the draft changes', () => {
+        const editorRef = { current: { getModel: () => ({ getValue: () => 'SELECT changed' }) } };
+        let api!: ReturnType<typeof useQueryEditorSqlErrorLocator>;
+        create(<HookHarness editorRef={editorRef} onReady={(next) => { api = next; }} />);
+        act(() => api.recordExecutionOrigin(
+            'SELECT first\n\nSELECT broken;',
+            'SELECT broken;',
+        ));
+        expect(api.resolveExecutionErrorStatement(
+            'You have an error in your SQL syntax at line 1',
+            'SELECT changed',
+            'mysql',
+        )).toBe('SELECT broken;');
+    });
+
+    it('locates a selected-fragment line error at the selection start, not the editor top (#1324)', () => {
+        const editorSql = 'SELECT id\nFROM users\nWHERE id = 1\n\n-- second copy\nSELECT id\nFROM users\nWHERE id = 1';
+        const fragment = 'SELECT id\nFROM users\nWHERE id = 1';
+        const selectionStart = editorSql.lastIndexOf(fragment);
+        const setPosition = vi.fn();
+        const editorRef = {
+            current: {
+                getModel: () => ({
+                    getValue: () => editorSql,
+                    getOffsetAt: (position: { lineNumber: number; column: number }) => {
+                        const lines = editorSql.split('\n');
+                        return lines.slice(0, position.lineNumber - 1).join('\n').length
+                            + (position.lineNumber > 1 ? 1 : 0)
+                            + position.column - 1;
+                    },
+                }),
+                getSelection: () => ({
+                    startLineNumber: 6,
+                    startColumn: 1,
+                    endLineNumber: 8,
+                    endColumn: 15,
+                }),
+                setPosition,
+                setSelection: vi.fn(),
+                revealPositionInCenterIfOutsideViewport: vi.fn(),
+                focus: vi.fn(),
+            },
+        };
+        let api!: ReturnType<typeof useQueryEditorSqlErrorLocator>;
+        create(<HookHarness editorRef={editorRef} onReady={(next) => { api = next; }} />);
+        expect(selectionStart).toBe(editorSql.indexOf('\n-- second copy') + '\n-- second copy\n'.length);
+        act(() => api.recordExecutionOrigin(editorSql, fragment));
+        // 第二处片段第 2 行 = 编辑器第 7 行；indexOf 首次命中会错到第 2 行
+        expect(api.locateExecutionError('LINE 2: FROM users')).toBe(true);
+        expect(setPosition).toHaveBeenCalledWith({ lineNumber: 7, column: 1 });
+        expect(warning).not.toHaveBeenCalled();
+    });
+});

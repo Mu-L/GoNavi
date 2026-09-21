@@ -3,11 +3,13 @@ import { DBGetColumns, DBGetForeignKeys, DBGetIndexes } from '../../wailsjs/go/a
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { resolveDataSourceType } from '../utils/dataSourceCapabilities';
 import { requestTableMetadata } from '../utils/tableMetadataRequestCache';
+import { GONAVI_ROW_KEY } from './DataGridCore';
+import { buildColumnMetaMap, hasUsableColumnMeta } from './dataGridColumnMeta';
 import {
-  buildColumnMetaMap,
-  GONAVI_ROW_KEY,
-  hasUsableColumnMeta,
-} from './DataGridCore';
+  applyIndexColumnKeysToColumnMetaMap,
+  resolveIndexColumnKeys,
+  type DataGridColumnIndexKey,
+} from './dataGridColumnTypeMarker';
 import { resolveUniqueKeyGroupsFromIndexes } from './dataGridCopyInsert';
 
 type UseDataGridMetadataContext = Record<string, any>;
@@ -22,7 +24,12 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     exportScope,
     visibleColumnNames,
     loading,
+    initialColumnMetaMap,
+    initialUniqueKeyGroups,
   } = ctx;
+
+  const hasInitialColumnMeta = hasUsableColumnMeta(initialColumnMetaMap || {});
+  const hasInitialUniqueKeyGroups = Array.isArray(initialUniqueKeyGroups);
 
   const [columnMetaMap, setColumnMetaMap] = useState<Record<string, any>>({});
   const [foreignKeyMap, setForeignKeyMap] = useState<Record<string, any>>({});
@@ -34,6 +41,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   const foreignKeySeqRef = useRef(0);
   const uniqueKeyGroupsCacheRef = useRef<Record<string, string[][]>>({});
   const uniqueKeyGroupsSeqRef = useRef(0);
+  const indexColumnKeysRef = useRef<Record<string, Record<string, DataGridColumnIndexKey>>>({});
   const metadataConnectionParams = useMemo(() => {
     if (connectionParamsOverride !== undefined) {
       return String(connectionParamsOverride || '');
@@ -57,24 +65,33 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
     if (!connectionId || !normalizedTableName) {
-      setColumnMetaMap({});
-      setForeignKeyMap({});
-      setUniqueKeyGroups([]);
+      setColumnMetaMap(current => Object.keys(current).length ? {} : current);
+      setForeignKeyMap(current => Object.keys(current).length ? {} : current);
+      setUniqueKeyGroups(current => current.length ? [] : current);
       return;
     }
     const cacheKey = metadataCacheKey;
     columnMetaSeqRef.current += 1;
-    setColumnMetaMap(columnMetaCacheRef.current[cacheKey] || {});
+    if (hasInitialColumnMeta) {
+      columnMetaCacheRef.current[cacheKey] = initialColumnMetaMap;
+    } else {
+      setColumnMetaMap(columnMetaCacheRef.current[cacheKey] || {});
+    }
     foreignKeySeqRef.current += 1;
-    setForeignKeyMap(exportScope === 'table' ? (foreignKeyCacheRef.current[cacheKey] || {}) : {});
+    const cachedForeignKeys = exportScope === 'table' ? foreignKeyCacheRef.current[cacheKey] : undefined;
+    setForeignKeyMap(current => cachedForeignKeys || (Object.keys(current).length ? {} : current));
     uniqueKeyGroupsSeqRef.current += 1;
-    setUniqueKeyGroups(uniqueKeyGroupsCacheRef.current[cacheKey] || []);
-  }, [connectionId, dbName, tableName, exportScope, metadataCacheKey]);
+    if (hasInitialUniqueKeyGroups) {
+      uniqueKeyGroupsCacheRef.current[cacheKey] = initialUniqueKeyGroups;
+    } else {
+      setUniqueKeyGroups(uniqueKeyGroupsCacheRef.current[cacheKey] || []);
+    }
+  }, [connectionId, dbName, tableName, exportScope, hasInitialColumnMeta, hasInitialUniqueKeyGroups, initialColumnMetaMap, initialUniqueKeyGroups, metadataCacheKey]);
 
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName || deferKingbaseMetadata) return;
+    if (!connectionId || !normalizedTableName || deferKingbaseMetadata || hasInitialColumnMeta) return;
 
     const cacheKey = metadataCacheKey;
     if (columnMetaCacheRef.current[cacheKey]) return;
@@ -114,7 +131,10 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
           if (!res.success || !Array.isArray(res.data)) {
             continue;
           }
-          const candidateMap = buildColumnMetaMap(res.data as any[]);
+          const candidateMap = applyIndexColumnKeysToColumnMetaMap(
+            buildColumnMetaMap(res.data as any[]),
+            indexColumnKeysRef.current[cacheKey],
+          );
           if (!hasUsableColumnMeta(candidateMap)) {
             continue;
           }
@@ -144,6 +164,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     deferKingbaseMetadata,
     metadataCacheKey,
     metadataConnectionParams,
+    hasInitialColumnMeta,
   ]);
 
   useEffect(() => {
@@ -221,7 +242,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName || deferKingbaseMetadata) return;
+    if (!connectionId || !normalizedTableName || deferKingbaseMetadata || hasInitialUniqueKeyGroups) return;
 
     const cacheKey = metadataCacheKey;
     if (uniqueKeyGroupsCacheRef.current[cacheKey]) return;
@@ -262,6 +283,15 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
         const nextGroups = resolveUniqueKeyGroupsFromIndexes(res.data as any[]);
         uniqueKeyGroupsCacheRef.current[cacheKey] = nextGroups;
         setUniqueKeyGroups(nextGroups);
+        const nextIndexKeys = resolveIndexColumnKeys(res.data as any[]);
+        indexColumnKeysRef.current[cacheKey] = nextIndexKeys;
+        setColumnMetaMap((prev) => {
+          const merged = applyIndexColumnKeysToColumnMetaMap(prev, nextIndexKeys);
+          if (Object.keys(prev).length > 0) {
+            columnMetaCacheRef.current[cacheKey] = merged;
+          }
+          return merged;
+        });
       })
       .catch(() => {
         if (seq !== uniqueKeyGroupsSeqRef.current) return;
@@ -276,17 +306,21 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     deferKingbaseMetadata,
     metadataCacheKey,
     metadataConnectionParams,
+    hasInitialUniqueKeyGroups,
   ]);
+
+  const resolvedColumnMetaMap = hasInitialColumnMeta ? initialColumnMetaMap : columnMetaMap;
+  const resolvedUniqueKeyGroups = hasInitialUniqueKeyGroups ? initialUniqueKeyGroups : uniqueKeyGroups;
 
   const columnMetaMapByLowerName = useMemo(() => {
     const next: Record<string, any> = {};
-    Object.entries(columnMetaMap).forEach(([name, meta]) => {
+    Object.entries(resolvedColumnMetaMap).forEach(([name, meta]) => {
       const lowerName = String(name || '').toLowerCase();
       if (!lowerName || next[lowerName]) return;
       next[lowerName] = meta;
     });
     return next;
-  }, [columnMetaMap]);
+  }, [resolvedColumnMetaMap]);
 
   const columnTypeMapByLowerName = useMemo(() => {
     const next: Record<string, string> = {};
@@ -311,11 +345,11 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   const getColumnFilterType = useCallback((columnName: string): string => {
     const normalizedName = String(columnName || '').trim();
     if (!normalizedName) return '';
-    return (columnMetaMap[normalizedName] || columnMetaMapByLowerName[normalizedName.toLowerCase()])?.type || '';
-  }, [columnMetaMap, columnMetaMapByLowerName]);
+    return (resolvedColumnMetaMap[normalizedName] || columnMetaMapByLowerName[normalizedName.toLowerCase()])?.type || '';
+  }, [resolvedColumnMetaMap, columnMetaMapByLowerName]);
 
   const allTableColumnNames = useMemo(() => {
-    const metaColumns = Object.keys(columnMetaMap);
+    const metaColumns = Object.keys(resolvedColumnMetaMap);
     if (metaColumns.length > 0) {
       return metaColumns;
     }
@@ -323,12 +357,12 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
       return visibleColumnNames.filter((columnName: string) => columnName !== GONAVI_ROW_KEY);
     }
     return [];
-  }, [columnMetaMap, exportScope, visibleColumnNames]);
+  }, [resolvedColumnMetaMap, exportScope, visibleColumnNames]);
 
   return {
     allTableColumnNames,
     columnMetaCacheRef,
-    columnMetaMap,
+    columnMetaMap: resolvedColumnMetaMap,
     columnMetaMapByLowerName,
     columnTypeMapByLowerName,
     foreignKeyCacheRef,
@@ -338,7 +372,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     metadataCacheKey,
     metadataReloadVersion,
     setMetadataReloadVersion,
-    uniqueKeyGroups,
+    uniqueKeyGroups: resolvedUniqueKeyGroups,
     uniqueKeyGroupsCacheRef,
   };
 };

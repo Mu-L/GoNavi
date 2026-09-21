@@ -11,6 +11,22 @@ html, body, #root {
   background-color: transparent !important; /* CRITICAL: Allow Wails window transparency */
 }
 
+/* Windows uses an opaque HWND. Transparent pixels here fall through to the
+   native white client area and look like a blank window, including the gap
+   while React hydrates and around an undersized WebView2 controller. */
+html[data-gonavi-windows="true"],
+html[data-gonavi-windows="true"] body,
+html[data-gonavi-windows="true"] #root {
+  background-color: var(--gn-bg-app, #f4f6f8) !important;
+}
+html[data-gonavi-windows="true"][data-theme="dark"],
+html[data-gonavi-windows="true"] body[data-theme="dark"],
+html[data-gonavi-windows="true"][data-theme="dark"] body,
+html[data-gonavi-windows="true"][data-theme="dark"] #root,
+html[data-gonavi-windows="true"] body[data-theme="dark"] #root {
+  background-color: var(--gn-bg-app, #14161a) !important;
+}
+
 /* Native detached WebViews use the same transparent window composition as the
    main macOS surface. Paint the resolved app token behind any child content so
    loading gaps and transparent component pixels never fall back to white. */
@@ -237,43 +253,43 @@ samp {
 }
 
 /* Scrollbar styling for dark mode */
-body[data-theme='dark'] ::-webkit-scrollbar {
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar {
     width: 10px;
     height: 10px;
 }
-body[data-theme='dark'] ::-webkit-scrollbar-track {
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-track {
     background: #1f1f1f;
 }
-body[data-theme='dark'] ::-webkit-scrollbar-corner {
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-corner {
     background: #1f1f1f;
 }
-body[data-theme='dark'] ::-webkit-scrollbar-thumb {
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb {
     background: #424242;
     border-radius: 4px;
     border: 2px solid #1f1f1f;
 }
-body[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+body[data-theme='dark']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb:hover {
     background: #666;
 }
 
 /* Scrollbar styling for light mode (transparent-friendly) */
-body[data-theme='light'] ::-webkit-scrollbar {
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar {
     width: 10px;
     height: 10px;
 }
-body[data-theme='light'] ::-webkit-scrollbar-track {
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-track {
     background: transparent;
 }
-body[data-theme='light'] ::-webkit-scrollbar-corner {
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-corner {
     background: transparent;
 }
-body[data-theme='light'] ::-webkit-scrollbar-thumb {
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.18);
     border-radius: 4px;
     border: 2px solid transparent;
     background-clip: content-box;
 }
-body[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+body[data-theme='light']:not([data-platform='windows']) :not(:is(.gn-v2-explorer-tree-shell .ant-tree-list-holder))::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.30);
     border: 2px solid transparent;
     background-clip: content-box;
@@ -285,6 +301,19 @@ body[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    /* Wails 原生文件拖放的投放目标标记。CSS 自定义属性会继承到 Monaco
+       内部层，Wails 用 elementFromPoint 命中的元素读取该值判定可投放。 */
+    --wails-drop-target: drop;
+}
+
+.gn-query-monaco-stage.wails-drop-target-active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    border: 1.5px dashed rgba(22, 119, 255, 0.65);
+    background: rgba(22, 119, 255, 0.06);
 }
 
 .gn-query-monaco-shell {
@@ -2842,6 +2871,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
 }
 
 .driver-manager-shell {
+    --driver-manager-font-body: var(--gn-settings-font-body, var(--gn-font-size, 14px));
+    --driver-manager-font-secondary: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -2852,7 +2883,7 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.
 
 .driver-manager-page-sub {
     color: var(--ant-color-text-secondary, rgba(5, 5, 5, 0.62));
-    font-size: 12px;
+    font-size: var(--driver-manager-font-secondary);
     line-height: 1.5;
 }
 
@@ -3005,6 +3036,32 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 .driver-manager-mirror-chip .ant-btn,
 .gonavi-about-download-source .ant-btn {
     color: var(--ant-color-primary, #1677ff);
+}
+
+/* Keep the mirror chip content-driven while allowing safe truncation in narrow toolbars. */
+.driver-manager-mirror-chip-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
+.driver-manager-mirror-chip-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.driver-manager-mirror-chip-source {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-mirror-chip-switch.ant-btn {
+    flex-shrink: 0;
 }
 
 .driver-manager-mirror-chip.is-compact > .ant-btn,
@@ -3395,7 +3452,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 }
 
 .driver-manager-detail-path {
-    font-size: 12px;
+    font-size: var(--driver-manager-font-body) !important;
 }
 
 .driver-manager-title-row,
@@ -3458,7 +3515,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 
 .driver-manager-progress-value {
     flex: 0 0 auto;
-    font-size: 12px;
+    font-size: var(--driver-manager-font-secondary);
     font-variant-numeric: tabular-nums;
 }
 
@@ -3471,7 +3528,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 
 .driver-manager-control-label,
 .driver-manager-small-text {
-    font-size: 12px;
+    font-size: var(--driver-manager-font-body);
 }
 
 .driver-manager-version-control {
@@ -3490,6 +3547,14 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 
 .driver-manager-card-actions .ant-btn {
     min-width: 88px;
+}
+
+body[data-ui-version] .driver-manager-card-actions .ant-btn,
+body[data-ui-version] .gonavi-settings-center-modal .driver-manager-card-actions .ant-btn-sm {
+    min-height: var(--gn-control-height, 32px);
+    height: var(--gn-control-height, 32px) !important;
+    padding-inline: 12px !important;
+    font-size: var(--driver-manager-font-body, var(--gn-font-size, 14px)) !important;
 }
 
 .driver-manager-footer-actions {
@@ -3561,7 +3626,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 }
 
 .driver-manager-progress-error {
-  font-size: 12px;
+  font-size: var(--driver-manager-font-body) !important;
   line-height: 1.4;
 }
 
@@ -3734,7 +3799,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
 }
 
 .driver-manager-log-empty {
-    font-size: 12px;
+    font-size: var(--driver-manager-font-body);
 }
 
 .driver-manager-log-list {
@@ -3748,7 +3813,7 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     background: rgba(5, 5, 5, 0.03);
     border-radius: 8px;
     font-family: var(--gn-font-mono, monospace);
-    font-size: 12px;
+    font-size: var(--driver-manager-font-body);
     line-height: 1.8;
 }
 
@@ -5285,16 +5350,6 @@ body .gonavi-about-link-grid {
   gap: 8px;
 }
 
-body .gonavi-about-project-entry-logo {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-  flex-shrink: 0;
-  display: block;
-  border-radius: 6px;
-  background: #fff;
-}
-
 @media (max-width: 920px) {
   body .gonavi-about-link-grid {
     grid-template-columns: 1fr;
@@ -6150,11 +6205,10 @@ body .gonavi-theme-settings .gonavi-settings-row.is-control-only .gonavi-setting
 }
 
 
-/* Settings center workbench: flush scrollbar + refined thumb */
+/* Settings center: same 8px thin bar as the connection-tree overlay. */
 .gonavi-settings-center-workbench-host,
 .gonavi-settings-center-modal {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--gn-fg-4, #6b7280) 55%, transparent) transparent;
 }
 .gonavi-settings-center-workbench-host .gonavi-settings-center-pane-scroll,
 .gonavi-settings-center-modal .gonavi-settings-center-pane-scroll,

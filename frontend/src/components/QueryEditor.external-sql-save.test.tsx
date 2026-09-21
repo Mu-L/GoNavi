@@ -14,6 +14,7 @@ import { resolveNewQueryContext } from '../utils/newQueryContext';
 import { QUERY_TAB_RENAME_REQUEST_EVENT } from '../utils/queryTabTitle';
 import { clearQueryTabDraft, clearSQLFileTabDraft, getQueryTabDraft, getSQLFileTabDraft } from '../utils/sqlFileTabDrafts';
 import { clearQueryEditorInlineRuntimeReadinessCache } from './queryEditor/QueryEditorAiAssist';
+import { resetDatabaseServerVersionCache } from './queryEditor/queryEditorServerVersion';
 import QueryEditor, {
   collectQueryEditorObjectDecorationCandidates,
   resolveQueryEditorNavigationDecorations,
@@ -240,6 +241,7 @@ const backendApp = vi.hoisted(() => ({
   DBGetIndexes: vi.fn(),
   DBGetTriggers: vi.fn(),
   DBShowCreateTable: vi.fn(),
+  DBGetServerVersion: vi.fn(),
   CancelQuery: vi.fn(),
   GenerateQueryID: vi.fn(),
   WriteSQLFile: vi.fn(),
@@ -601,6 +603,7 @@ vi.mock('./LogPanel', () => ({
 vi.mock('@ant-design/icons', () => {
   const Icon = () => <span />;
   return {
+    ApiOutlined: Icon,
     ArrowLeftOutlined: Icon,
     ArrowRightOutlined: Icon,
     BugOutlined: Icon,
@@ -624,9 +627,11 @@ vi.mock('@ant-design/icons', () => {
     FormatPainterOutlined: Icon,
     HistoryOutlined: Icon,
     KeyOutlined: Icon,
+    LoadingOutlined: Icon,
     PlayCircleOutlined: Icon,
     PushpinOutlined: Icon,
     RobotOutlined: Icon,
+    AimOutlined: Icon,
     SaveOutlined: Icon,
     SearchOutlined: Icon,
     SettingOutlined: Icon,
@@ -710,6 +715,15 @@ vi.mock('antd', () => {
     Space,
     Table,
     Tag: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    Checkbox: ({ children, checked, onChange }: any) => (
+      <label>
+        <input type="checkbox" checked={!!checked} onChange={(event) => onChange?.({ target: { checked: event.target.checked } })} />
+        {children}
+      </label>
+    ),
+    DatePicker: ({ value }: any) => <input data-mock="datepicker" value={value || ''} />,
+    InputNumber: ({ value }: any) => <input data-mock="inputnumber" value={value ?? ''} />,
+    Spin: () => <div className="mock-spin" />,
     Empty,
     message: messageApi,
     Modal,
@@ -909,6 +923,7 @@ const createQueryEditorSplitNodeMock = (element: any) => {
 
 describe('QueryEditor external SQL save', () => {
   beforeEach(() => {
+    resetDatabaseServerVersionCache();
     clearQueryEditorInlineRuntimeReadinessCache();
     const completionState = (globalThis as any).__gonaviSqlCompletionState;
     if (completionState) {
@@ -1072,6 +1087,7 @@ describe('QueryEditor external SQL save', () => {
     backendApp.DBGetTables.mockResolvedValue({ success: true, data: [] });
     backendApp.DBTableExists.mockResolvedValue({ success: true, data: { exists: true } });
     backendApp.DBShowCreateTable.mockResolvedValue({ success: false, data: '' });
+    backendApp.DBGetServerVersion.mockResolvedValue({ success: false });
     backendApp.GenerateQueryID.mockResolvedValue('query-1');
     backendApp.InspectElasticsearchConsole.mockResolvedValue({
       success: true,
@@ -4025,7 +4041,7 @@ describe('QueryEditor external SQL save', () => {
     });
   });
 
-  it('matches table names by prefix and substring in FROM completion', async () => {
+  it('matches table names by prefix, substring, and ordered characters in FROM completion', async () => {
     let renderer!: ReactTestRenderer;
     autoFetchState.visible = true;
     storeState.connections[0].config.database = '';
@@ -4069,10 +4085,10 @@ describe('QueryEditor external SQL save', () => {
     const labels = result.suggestions.map((item: any) => item.label);
 
     expect(labels).toContain('hrmresource');
-    // 子串匹配（#822/#939）：包含 hrmres 的表名候选保留，且排在精确/前缀命中之后
+    // 连续子串和有序字符匹配均保留，且排在精确/前缀命中之后。
     expect(labels).toContain('archive_hrmresource');
     expect(labels.indexOf('archive_hrmresource')).toBeGreaterThan(labels.indexOf('hrmresource'));
-    expect(labels).not.toContain('hrm_resource_export_template');
+    expect(labels).toContain('hrm_resource_export_template');
     expect(labels).not.toContain('hrmresult');
 
     editorState.value = 'SELECT * FROM users u, hrmres';
@@ -4402,7 +4418,8 @@ describe('QueryEditor external SQL save', () => {
       { lineNumber: 1, column: editorState.value.length + 1 },
       { triggerKind: 2 },
     );
-    expect(retriggeredResult.suggestions.map((item: any) => item.label)).toEqual(['hrmresource']);
+    expect(retriggeredResult.suggestions).toHaveLength(200);
+    expect(retriggeredResult.suggestions.map((item: any) => item.label)).toContain('hrmresource');
     expect(retriggeredResult.incomplete).toBe(true);
 
     await act(async () => {
@@ -9214,7 +9231,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(getLastInjectedPrompt()).toBe(
-      'Context: mysql "local", selected database "analytics".\nGenerate a query based on the current database schema.',
+      'Context: mysql "local", selected database "analytics", database version unknown.\nGenerate a query based on the current database schema.',
     );
   });
 
@@ -9281,11 +9298,12 @@ describe('QueryEditor external SQL save', () => {
         editorState.contentChangeListeners.forEach((listener) => (listener as any)({
           changes: [{ text: '__AI_SQL__' }],
         }));
+        await Promise.resolve();
         vi.runAllTimers();
       });
 
       expect(getLastInjectedPrompt()).toBe(
-        'Context: mysql "local", selected database "main".\nGenerate SQL for this requirement:',
+        'Context: mysql "local", selected database "main", database version unknown.\nGenerate SQL for this requirement:',
       );
     } finally {
       vi.useRealTimers();
@@ -9587,7 +9605,9 @@ describe('QueryEditor external SQL save', () => {
         windowListeners[type] ||= [];
         windowListeners[type].push(listener);
       }),
-      removeEventListener: vi.fn(),
+      removeEventListener: vi.fn((type: string, listener: (event?: any) => void) => {
+        windowListeners[type] = (windowListeners[type] || []).filter((item) => item !== listener);
+      }),
       dispatchEvent: vi.fn(),
       setTimeout,
       clearTimeout,
@@ -9863,7 +9883,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(getLastInjectedPrompt()).toBe(
-      'Context: mysql "local", selected database "analytics".\nGenerate a query based on the current database schema.',
+      'Context: mysql "local", selected database "analytics", database version unknown.\nGenerate a query based on the current database schema.',
     );
     expect(getLastInjectedPrompt()).not.toContain('上下文环境：');
     expect(getLastInjectedPrompt()).toContain('"local"');
@@ -9894,14 +9914,14 @@ describe('QueryEditor external SQL save', () => {
       await findEditorAction('ai.generateSQL').run(actionEditor);
     });
     expect(getLastInjectedPrompt()).toBe(
-      'Context: mysql "local", selected database "main".\nGenerate a query based on the current database schema.',
+      'Context: mysql "local", selected database "main", database version unknown.\nGenerate a query based on the current database schema.',
     );
 
     await act(async () => {
       await findEditorAction('ai.explainSQL').run(actionEditor);
     });
     expect(getLastInjectedPrompt()).toBe(
-      'Context: mysql "local", selected database "main".\nExplain the execution logic of this SQL statement:\n```sql\nselect * from users\n```',
+      'Context: mysql "local", selected database "main", database version unknown.\nExplain the execution logic of this SQL statement:\n```sql\nselect * from users\n```',
     );
     expect(getLastInjectedPrompt()).not.toContain('请解释以下 SQL');
 
@@ -9909,7 +9929,7 @@ describe('QueryEditor external SQL save', () => {
       await findEditorAction('ai.optimizeSQL').run(actionEditor);
     });
     expect(getLastInjectedPrompt()).toBe(
-      'Context: mysql "local", selected database "main".\nAnalyze this SQL statement for performance issues and suggest optimizations:\n```sql\nselect * from users\n```',
+      'Context: mysql "local", selected database "main", database version unknown.\nAnalyze this SQL statement for performance issues and suggest optimizations:\n```sql\nselect * from users\n```',
     );
     expect(getLastInjectedPrompt()).not.toContain('请分析以下 SQL');
   });
@@ -9984,12 +10004,13 @@ describe('QueryEditor external SQL save', () => {
         editorState.contentChangeListeners.forEach((listener) => (listener as any)({
           changes: [{ text: '__AI_SQL__' }],
         }));
+        await Promise.resolve();
         vi.runAllTimers();
       });
 
       expect(editorState.value).toBe('select 1;');
       expect(getLastInjectedPrompt()).toBe(
-        'Context: mysql "local", selected database "analytics".\nGenerate SQL for this requirement:',
+        'Context: mysql "local", selected database "analytics", database version unknown.\nGenerate SQL for this requirement:',
       );
       expect(getLastInjectedPrompt()).not.toContain('请根据以下需求生成 SQL：');
     } finally {
@@ -10005,7 +10026,10 @@ describe('QueryEditor external SQL save', () => {
 
       let renderer!: ReactTestRenderer;
       await act(async () => {
-        renderer = create(<QueryEditor tab={createTab({ dbName: 'main', query: 'select 1;' })} />);
+        renderer = create(<QueryEditor tab={createTab({
+          dbName: 'main',
+          query: 'select * from first_table\n\nselect * from broken_table where id = ;',
+        })} />);
       });
 
       await act(async () => {
@@ -10016,20 +10040,26 @@ describe('QueryEditor external SQL save', () => {
 
       await act(async () => {
         findExactButton(renderer, 'Schema analysis').props.onClick();
+        await Promise.resolve();
       });
       expect(getLastInjectedPrompt()).toBe(
-        'Context: mysql "local", selected database "main".\nAnalyze the current database schema and suggest performance and design improvements.',
+        'Context: mysql "local", selected database "main", database version unknown.\nAnalyze the current database schema and suggest performance and design improvements.',
       );
       expect(getLastInjectedPrompt()).not.toContain('请针对当前数据库的表结构进行系统分析');
 
-      backendApp.DBQueryMulti.mockResolvedValueOnce({ success: false, message: 'driver exploded', data: [] });
+      backendApp.DBGetServerVersion.mockResolvedValue({ success: true, message: '5.7.44-log' });
+      backendApp.DBQueryMulti.mockResolvedValueOnce({
+        success: false,
+        message: 'You have an error in your SQL syntax at line 1',
+        data: [],
+      });
       editorState.selection = {
-        startLineNumber: 1,
+        startLineNumber: 3,
         startColumn: 1,
-        endLineNumber: 1,
-        endColumn: 'select 1;'.length + 1,
-        positionLineNumber: 1,
-        positionColumn: 'select 1;'.length + 1,
+        endLineNumber: 3,
+        endColumn: 'select * from broken_table where id = ;'.length + 1,
+        positionLineNumber: 3,
+        positionColumn: 'select * from broken_table where id = ;'.length + 1,
       };
 
       await act(async () => {
@@ -10043,15 +10073,19 @@ describe('QueryEditor external SQL save', () => {
       });
 
       expect(textContent(renderer.toJSON())).toContain('SQL 执行日志');
+      editorState.value = 'select changed;';
+      editorState.selection = null;
 
       await act(async () => {
         findButton(renderer, 'AI diagnose').props.onClick();
+        await Promise.resolve();
         vi.runAllTimers();
       });
 
       expect(getLastInjectedPrompt()).toBe(
-        `I got an error while executing this SQL:\n\`\`\`sql\nselect 1;\n\`\`\`\n\nThe database returned this error:\n\`\`\`text\n${formatSqlExecutionError('driver exploded')}\n\`\`\`\n\nAnalyze the cause and suggest a fix.`,
+        `Context: mysql "local", selected database "main", database version 5.7.44-log.\nI got an error while executing this SQL:\n\`\`\`sql\nselect * from broken_table where id = ;\n\`\`\`\n\nThe database returned this error:\n\`\`\`text\n${formatSqlExecutionError('You have an error in your SQL syntax at line 1')}\n\`\`\`\n\nAnalyze the cause and suggest a fix.`,
       );
+      expect(getLastInjectedPrompt()).not.toContain('first_table');
       expect(getLastInjectedPrompt()).not.toContain('我在执行以下 SQL 时遇到了错误');
     } finally {
       vi.useRealTimers();
@@ -15999,6 +16033,22 @@ WHERE GRANTEE = 'APPUSER';`;
     expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
     expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
     expect(messageApi.warning).not.toHaveBeenCalled();
+  });
+
+  it('switches the database before executing a qualified SQL Server table without editing SQL', async () => {
+    storeState.connections[0].config.type = 'sqlserver';
+    storeState.queryOptions.maxRows = 0;
+    const sql = 'SELECT * FROM ZODO_Hmi.dbo.HmiFirstInspectOperate';
+    backendApp.DBQueryMulti.mockResolvedValue({ success: true, data: [] });
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'main', query: sql })} />);
+    });
+    await act(async () => { await findButton(renderer!, '运行').props.onClick(); });
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(expect.anything(), 'ZODO_Hmi', expect.stringContaining(sql), 'query-1');
+    expect(storeState.setActiveContext).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'ZODO_Hmi' });
+    expect(storeState.updateQueryTabDraft).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ dbName: 'ZODO_Hmi' }));
+    expect(editorState.value).toBe(sql);
   });
 
   it('runs the SQL statement at the cursor instead of the whole editor when nothing is selected', async () => {

@@ -160,6 +160,40 @@ func TestDecodeApplicationBrandIconPayloadAcceptsDataURLAndURLSafeBase64(t *test
 	}
 }
 
+func TestPrepareWindowsBrandIconRestartReturnsRestartRequiredAfterPersisting(t *testing.T) {
+	wantPNG, err := base64.StdEncoding.DecodeString(validBrandIconPNGBase64)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	originalPrepare := prepareWindowsBrandIconRestartPlatform
+	t.Cleanup(func() {
+		prepareWindowsBrandIconRestartPlatform = originalPrepare
+	})
+	configDir := t.TempDir()
+	var gotPNG []byte
+	var gotConfigDir string
+	prepareWindowsBrandIconRestartPlatform = func(png []byte, actualConfigDir string) error {
+		gotPNG = append([]byte(nil), png...)
+		gotConfigDir = actualConfigDir
+		return nil
+	}
+
+	application := NewApp()
+	application.configDir = configDir
+	result := application.PrepareWindowsBrandIconRestart(validBrandIconPNGBase64)
+	if !result.Success {
+		t.Fatalf("PrepareWindowsBrandIconRestart failed: %#v", result)
+	}
+	if !bytes.Equal(gotPNG, wantPNG) || gotConfigDir != configDir {
+		t.Fatalf("prepared payload/config = (%d bytes, %q), want (%d bytes, %q)", len(gotPNG), gotConfigDir, len(wantPNG), configDir)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["restartRequired"] != true {
+		t.Fatalf("restart result data = %#v, want restartRequired=true", result.Data)
+	}
+}
+
 func TestDecodeApplicationBrandIconPayloadRejectsEmptyInvalidAndOversizedInput(t *testing.T) {
 	if _, err := decodeApplicationBrandIconPayload("  "); !errors.Is(err, errApplicationBrandIconPayloadEmpty) {
 		t.Fatalf("empty payload error = %v, want empty payload error", err)

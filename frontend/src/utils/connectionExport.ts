@@ -155,6 +155,31 @@ export const detectConnectionImportKind = (raw: unknown): ConnectionImportKind =
   return 'invalid';
 };
 
+/**
+ * ImportConfigFile 统一入口对 .xlsx 直接完成后端导入，并以
+ * { gonaviExcelImport: true, result } 信封返回结果；文本格式仍返回原始内容。
+ * 这里解出 Excel 导入结果，非信封返回 null。
+ */
+export const parseConnectionsExcelImportEnvelope = (raw: string): unknown | null => {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed.startsWith('{')) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && (parsed as { gonaviExcelImport?: unknown }).gonaviExcelImport === true
+    ) {
+      return (parsed as { result?: unknown }).result ?? null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 export const normalizeConnectionPackagePassword = (value: string): string => value.trim();
 
 export const isConnectionPackagePasswordRequiredError = (value: unknown): boolean => {

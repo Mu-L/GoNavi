@@ -29,6 +29,7 @@ type fakeBackend struct {
 	foreignKeysResult     connection.QueryResult
 	triggersResult        connection.QueryResult
 	ddlResult             connection.QueryResult
+	serverVersionResult   connection.QueryResult
 	queryResult           connection.QueryResult
 	inspection            appcore.SQLInspection
 	safetyLevel           ai.SQLPermissionLevel
@@ -153,6 +154,13 @@ func (f *fakeBackend) DBGetTriggers(context.Context, connection.ConnectionConfig
 
 func (f *fakeBackend) DBShowCreateTable(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.ddlResult
+}
+
+func (f *fakeBackend) DBGetServerVersion(context.Context, connection.ConnectionConfig) connection.QueryResult {
+	if f.serverVersionResult.Success || f.serverVersionResult.Message != "" || f.serverVersionResult.Data != nil {
+		return f.serverVersionResult
+	}
+	return connection.QueryResult{Success: true, Message: "", Data: []map[string]interface{}{}}
 }
 
 func (f *fakeBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string, maxRowsPerResult int) connection.QueryResult {
@@ -874,7 +882,7 @@ func TestGetTriggersReturnsTriggerDefinitions(t *testing.T) {
 	}
 }
 
-func TestExecuteSQLRejectsMutatingStatementsWithoutAllowMutating(t *testing.T) {
+func TestExecuteSQLAllowsDMLWhenAISafetyIsReadWriteWithoutAllowMutating(t *testing.T) {
 	backend := &fakeBackend{
 		editableConnection: connection.SavedConnectionView{
 			ID: "mysql-main",
@@ -891,6 +899,10 @@ func TestExecuteSQLRejectsMutatingStatementsWithoutAllowMutating(t *testing.T) {
 			},
 		},
 		safetyLevel: ai.PermissionReadWrite,
+		queryResult: connection.QueryResult{
+			Success: true,
+			Data:    []connection.ResultSetData{},
+		},
 	}
 
 	service := NewService(backend)
@@ -901,14 +913,11 @@ func TestExecuteSQLRejectsMutatingStatementsWithoutAllowMutating(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteSQL returned error: %v", err)
 	}
-	if result == nil || !result.IsError {
-		t.Fatalf("expected tool error, got %#v", result)
+	if result == nil || result.IsError {
+		t.Fatalf("expected success without allowMutating, got %#v", result)
 	}
-	if !strings.Contains(firstTextContent(result), "allowMutating=true") {
-		t.Fatalf("unexpected error text: %q", firstTextContent(result))
-	}
-	if backend.queryCalled {
-		t.Fatalf("expected SQL not to execute when allowMutating is false")
+	if !backend.queryCalled {
+		t.Fatal("expected SQL to execute under readwrite safety")
 	}
 }
 

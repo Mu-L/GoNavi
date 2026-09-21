@@ -55,7 +55,16 @@ func withManagedSQLStatementAuditTimestamp(
 // DBQueryMultiTransactional executes SQL editor DML in a managed transaction.
 // The transaction stays open until DBCommitTransaction or DBRollbackTransaction
 // is called by the SQL editor UI.
-func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbName string, query string, queryID string) (result connection.QueryResult) {
+func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
+	return a.dbQueryMultiTransactionalWithBindings(config, dbName, query, queryID, nil)
+}
+
+// DBQueryMultiTransactionalWithParams 在托管事务启动时按名绑定参数执行首条 SQL。
+func (a *App) DBQueryMultiTransactionalWithParams(config connection.ConnectionConfig, dbName string, query string, queryID string, bindings []connection.QueryParamBinding) connection.QueryResult {
+	return a.dbQueryMultiTransactionalWithBindings(config, dbName, query, queryID, bindings)
+}
+
+func (a *App) dbQueryMultiTransactionalWithBindings(config connection.ConnectionConfig, dbName string, query string, queryID string, bindings []connection.QueryParamBinding) (result connection.QueryResult) {
 	runConfig := normalizeRunConfig(config, dbName)
 	transactionDBType := resolveDDLDBType(runConfig)
 	transactionConfig := runConfig
@@ -84,6 +93,13 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 
 	query = sanitizeSQLForPgLike(transactionDBType, query)
 	if !shouldUseManagedSQLTransaction(transactionDBType, query) {
+		if len(bindings) > 0 {
+			return a.dbQueryMultiWithParams(config, dbName, query, queryID, bindings, dbQueryMultiAuditOptions{
+				auditAll:    true,
+				auditWrites: true,
+				source:      "query_editor",
+			})
+		}
 		return a.DBQueryMulti(config, dbName, query, queryID)
 	}
 	transactionID := "sql-editor-" + uuid.NewString()
@@ -117,6 +133,9 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 	}
 	var queryExecutionDuration time.Duration
 	defer func() {
+		result.DurationMs = durationMilliseconds(queryExecutionDuration)
+	}()
+	defer func() {
 		if !result.Success {
 			return
 		}
@@ -135,7 +154,9 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 
 	ctx, cancel := newQueryExecutionContext(runConfig)
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
+	lifecycle := a.beginQueryExecutionLifecycle(queryID)
 	defer func() {
+		lifecycle.complete(result)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -239,7 +260,10 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 		BoundaryMode:  transactionBoundaryMode,
 	})
 
-	statements := splitSQLStatementsForDialect(transactionDBType, query)
+	statements, executionOptions, bindErr := prepareManagedTransactionStatements(transactionDBType, query, sessionExecer, bindings)
+	if bindErr != nil {
+		return connection.QueryResult{Success: false, Message: a.translateParameterBindingError(bindErr), QueryID: queryID}
+	}
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))
 	resultSets, err := executeManagedSQLTransactionStatementsWithObserver(
@@ -252,6 +276,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 			a.sqlAuditTransactionStatementObserver(transactionConfig, dbName, transactionDBType, queryID, transactionID, transactionBoundaryMode, &statementAuditEvents),
 			&statementAuditEvents,
 		),
+		executionOptions,
 	)
 	queryExecutionDuration += time.Since(queryStartedAt)
 	a.appendSQLAuditEvents(statementAuditEvents)
@@ -345,9 +370,22 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 	if strings.TrimSpace(runConfig.Type) == "" {
 		runConfig.Type = tx.dbType
 	}
+	// 附加/卸载指令在托管事务中无语义（由连接级拦截执行），直接给出明确报错，
+	// 避免指令原文透传到引擎产生难懂的语法错误（Web RPC 公开入口的防御）。
+	if strings.EqualFold(runConfig.Type, "duckdb") && queryContainsDuckDBSavedConnectionDirective(query) {
+		return connection.QueryResult{
+			Success:            false,
+			Message:            a.appText("db.backend.error.duckdb_attach.directive_in_transaction", nil),
+			QueryID:            queryID,
+			TransactionID:      transactionID,
+			TransactionPending: true,
+		}
+	}
 	ctx, cancel := newQueryExecutionContext(runConfig)
 	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
+	lifecycle := a.beginQueryExecutionLifecycle(queryID)
 	defer func() {
+		lifecycle.complete(result)
 		cancel()
 		cleanupRunningQuery()
 	}()
@@ -359,6 +397,9 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 	}
 
 	var queryExecutionDuration time.Duration
+	defer func() {
+		result.DurationMs = durationMilliseconds(queryExecutionDuration)
+	}()
 	defer func() {
 		if !result.Success {
 			return
@@ -415,9 +456,14 @@ func executeManagedSQLTransactionStatementsWithObserver(
 	statements []string,
 	text func(string, map[string]any) string,
 	observer managedSQLStatementObserver,
+	options ...managedTransactionStatementOptions,
 ) ([]connection.ResultSetData, error) {
 	if text == nil {
 		text = defaultDBBackendText
+	}
+	var executionOptions managedTransactionStatementOptions
+	if len(options) > 0 {
+		executionOptions = options[0]
 	}
 	resolvedDBType := resolveDDLDBType(runConfig)
 	buildStatementExecutionFailedError := func(index int, err error) error {
@@ -468,6 +514,14 @@ func executeManagedSQLTransactionStatementsWithObserver(
 			})
 		}
 
+		executableStmt := stmt
+		if executionOptions.ExecutableTexts != nil && statementIndex-1 < len(executionOptions.ExecutableTexts) {
+			executableStmt = executionOptions.ExecutableTexts[statementIndex-1]
+		}
+		var stmtArgs []any
+		if executionOptions.ArgsByStatement != nil && statementIndex-1 < len(executionOptions.ArgsByStatement) {
+			stmtArgs = executionOptions.ArgsByStatement[statementIndex-1]
+		}
 		isReadStmt := isReadOnlySQLQuery(runConfig.Type, stmt)
 		tryQueryStmtFirst := shouldTryQueryResultFirst(runConfig.Type, stmt)
 		if isReadStmt || tryQueryStmtFirst {
@@ -479,7 +533,13 @@ func executeManagedSQLTransactionStatementsWithObserver(
 				usedMultiResult  bool
 				err              error
 			)
-			if isReadStmt && shouldPreferPlainReadQueryResult(resolvedDBType) {
+			if len(stmtArgs) > 0 {
+				if argsTarget, ok := session.(db.StatementQueryArgsExecer); ok {
+					data, columns, err = argsTarget.QueryContextWithArgs(ctx, executableStmt, stmtArgs)
+				} else {
+					err = errParameterBindingSessionUnsupported
+				}
+			} else if isReadStmt && shouldPreferPlainReadQueryResult(resolvedDBType) {
 				if sessionQueryMessageTarget != nil {
 					data, columns, messages, err = sessionQueryMessageTarget.QueryContextWithMessages(ctx, stmt)
 				} else if sessionQueryTarget != nil {
@@ -568,7 +628,17 @@ func executeManagedSQLTransactionStatementsWithObserver(
 			return nil, statementErr
 		}
 
-		affected, err := session.ExecContext(ctx, stmt)
+		var affected int64
+		var err error
+		if len(stmtArgs) > 0 {
+			if argsTarget, ok := session.(db.StatementExecArgsExecer); ok {
+				affected, err = argsTarget.ExecContextWithArgs(ctx, executableStmt, stmtArgs)
+			} else {
+				err = errParameterBindingSessionUnsupported
+			}
+		} else {
+			affected, err = session.ExecContext(ctx, stmt)
+		}
 		if err != nil {
 			statementErr := buildStatementExecutionFailedError(statementIndex, err)
 			emitObservation(0, 0, statementErr)

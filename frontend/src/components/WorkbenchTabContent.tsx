@@ -2,6 +2,7 @@ import React from 'react';
 import { Spin } from 'antd';
 import type { TabData } from '../types';
 import { useStore } from '../store';
+import { useWorkbenchTabActivation } from './useWorkbenchTabActivation';
 import '../styles/v2-theme-workbench.css';
 
 const DataViewer = React.lazy(() => import('./DataViewer'));
@@ -29,6 +30,7 @@ const SqlAuditWorkbench = React.lazy(() => import('./audit/SqlAuditWorkbench'));
 const DriverManagerWorkbench = React.lazy(() => import('./DriverManagerWorkbench'));
 const SettingsCenterWorkbench = React.lazy(() => import('./settings/SettingsCenterWorkbench'));
 const RequestDiagnosticsWorkbench = React.lazy(() => import('./requestDiagnostics/RequestDiagnosticsWorkbench'));
+const DMLSnapshotWorkbench = React.lazy(() => import('./dmlSnapshot/DMLSnapshotWorkbench'));
 const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
 
 const QueryWorkbenchContent: React.FC<{ tab: TabData; isActive: boolean }> = React.memo(({
@@ -96,17 +98,18 @@ const WorkbenchContentReady: React.FC<{
 
 export interface WorkbenchTabContentProps {
   tab: TabData;
-  isActive: boolean;
+  isActive?: boolean;
   onContentReady?: () => void;
   onRequestClose?: () => void;
 }
 
 export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.memo(({
   tab,
-  isActive,
+  isActive: isActiveProp,
   onContentReady,
   onRequestClose,
 }) => {
+  const isActive = useWorkbenchTabActivation(tab.id, isActiveProp);
   let content: React.ReactNode;
   if (tab.type === 'query') {
     content = <QueryWorkbenchContent tab={tab} isActive={isActive} />;
@@ -141,7 +144,7 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     );
   } else if (tab.type === 'trigger') {
     content = <TriggerViewer tab={tab} />;
-  } else if (tab.type === 'view-def' || tab.type === 'event-def' || tab.type === 'routine-def' || tab.type === 'sequence-def' || tab.type === 'package-def') {
+  } else if (tab.type === 'view-def' || tab.type === 'event-def' || tab.type === 'routine-def' || tab.type === 'sequence-def' || tab.type === 'package-def' || tab.type === 'database-link-def') {
     content = <DefinitionViewer tab={tab} />;
   } else if (tab.type === 'table-overview') {
     content = <TableOverview tab={tab} />;
@@ -157,6 +160,8 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <SqlAnalysisWorkbench tab={tab} />;
   } else if (tab.type === 'sql-audit') {
     content = <SqlAuditWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'dml-snapshot') {
+    content = <DMLSnapshotWorkbench isActive={isActive} />;
   } else if (tab.type === 'driver-manager') {
     content = (
       <DriverManagerWorkbench

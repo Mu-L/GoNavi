@@ -494,6 +494,9 @@ const buildCompactObjectTabTitle = (tab: TabData, translate: TabDisplayTranslate
   if (tab.type === 'settings-center') {
     return translate('app.settings.title');
   }
+  if (tab.type === 'request-diagnostics') {
+    return translate('app.tools.entry.request_diagnostics.title');
+  }
   if (tab.type === 'table') {
     return stripSchemaFromTabObjectLabel(tab.tableName || tab.title) || tab.title;
   }
@@ -527,6 +530,9 @@ const buildCompactObjectTabTitle = (tab: TabData, translate: TabDisplayTranslate
   if (tab.type === 'package-def') {
     return replaceTitleObjectLabel(tab.title, tab.packageName);
   }
+  if (tab.type === 'database-link-def') {
+    return replaceTitleObjectLabel(tab.title, tab.databaseLinkName);
+  }
   return tab.title;
 };
 
@@ -537,9 +543,16 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'table-overview') return 'DB';
   if (tab.type === 'table-export') return 'EXPORT';
   if (tab.type === 'data-import') return 'IMPORT';
-  if (tab.type === 'data-sync') return 'SYNC';
+  if (tab.type === 'data-sync') {
+    return tab.dataSyncEntryMode === 'compare' ||
+      tab.dataSyncEntryMode === 'schemaCompare' ||
+      tab.dataSyncEntryMode === 'dataCompare'
+      ? 'COMPARE'
+      : 'SYNC';
+  }
   if (tab.type === 'sql-analysis') return 'ANALYZE';
   if (tab.type === 'sql-audit') return 'AUDIT';
+  if (tab.type === 'dml-snapshot') return 'SNAPSHOT';
   if (tab.type === 'driver-manager') return 'DRIVER';
   if (tab.type === 'settings-center') return 'SETTINGS';
   if (tab.type === 'request-diagnostics') return 'TRACE';
@@ -551,6 +564,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'routine-def') return 'FUNC';
   if (tab.type === 'sequence-def') return 'SEQ';
   if (tab.type === 'package-def') return 'PKG';
+  if (tab.type === 'database-link-def') return 'DBLINK';
   return 'TAB';
 };
 
@@ -562,14 +576,15 @@ const getTabRawObjectLabel = (tab: TabData, translate: TabDisplayTranslate = def
   if (tab.routineName) return tab.routineName;
   if (tab.sequenceName) return tab.sequenceName;
   if (tab.packageName) return tab.packageName;
+  if (tab.databaseLinkName) return tab.databaseLinkName;
   if (tab.triggerName) return tab.triggerName;
   if (tab.resourcePath) return tab.resourcePath;
   if (tab.filePath) return getFileNameFromPath(tab.filePath);
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
-  if (tab.type === 'sql-audit') return tab.title;
+  if (tab.type === 'sql-audit' || tab.type === 'dml-snapshot') return tab.title;
   if (tab.type === 'driver-manager') return translate('app.tools.entry.drivers.title');
   if (tab.type === 'settings-center') return translate('app.settings.title');
-  if (tab.type === 'request-diagnostics') return tab.title;
+  if (tab.type === 'request-diagnostics') return translate('app.tools.entry.request_diagnostics.title');
   return tab.title;
 };
 

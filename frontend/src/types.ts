@@ -518,6 +518,7 @@ export interface TabData {
     | "sql-file-execution"
     | "sql-analysis"
     | "sql-audit"
+    | "dml-snapshot"
     | "driver-manager"
     | "settings-center"
     | "request-diagnostics"
@@ -533,6 +534,7 @@ export interface TabData {
     | "routine-def"
     | "sequence-def"
     | "package-def"
+    | "database-link-def"
     | "table-overview"
     | "table-export"
     | "data-import"
@@ -570,18 +572,23 @@ export interface TabData {
   routineType?: string; // 'FUNCTION' or 'PROCEDURE'
   sequenceName?: string; // Sequence name for sequence definition tabs
   packageName?: string; // Package name for package definition tabs
+  databaseLinkName?: string; // Oracle database link name for definition tabs
   schemaName?: string; // Schema / owner name for schema-grouped objects
   sidebarLocateKey?: string; // Precise sidebar tree key for locating an object node
   savedQueryId?: string; // Saved query identity for quick-save behavior
   objectType?: 'table' | 'view' | 'materialized-view'; // Table-like object type for shared viewers
-  exportWorkbenchMode?: 'single' | 'batch-tables' | 'batch-databases' | 'database' | 'schema';
-  dataSyncEntryMode?: 'sync' | 'schemaCompare' | 'dataCompare';
+  exportWorkbenchMode?: 'single' | 'batch-tables' | 'batch-databases' | 'batch-connections' | 'database' | 'schema';
+  dataSyncEntryMode?: 'sync' | 'compare' | 'schemaCompare' | 'dataCompare';
+  dataSyncFocusTaskId?: string;
+  dataSyncFocusStage?: 'endpoints' | 'mappings' | 'delivery' | 'trigger' | 'preflight';
+  dataSyncFocusRequestId?: string;
   tableExportScopeOptions?: TableExportScopeOption[];
   tableExportInitialScope?: TableExportScope;
   tableExportQueryByScope?: Partial<Record<TableExportScope, string>>;
   tableExportRowCountByScope?: Partial<Record<TableExportScope, number>>;
   tableExportInitialObjectNames?: string[];
   tableExportInitialDatabaseNames?: string[];
+  tableExportInitialConnectionIds?: string[];
   tableExportContentMode?: TableExportContentMode;
   tableExportIncludeDropIfExists?: boolean;
   tableExportLaunchKey?: string;
@@ -642,6 +649,14 @@ export interface SavedQuery {
   fingerprintVersion?: string;
   bindingStatus?: "active" | "rebound" | "orphan" | string;
   originalConnectionId?: string;
+  parameters?: SavedQueryParam[];
+}
+
+export interface SavedQueryParam {
+  name: string;
+  type?: string;
+  label?: string;
+  default?: unknown;
 }
 
 export interface SavedQueryGroup {

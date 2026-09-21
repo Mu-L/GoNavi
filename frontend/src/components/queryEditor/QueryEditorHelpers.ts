@@ -30,12 +30,28 @@ import {
     type MetadataIdentityMode,
 } from '../../utils/metadataIdentity';
 import {
-    splitMetadataQualifiedName,
     splitQualifiedNameSegments,
     splitQualifiedNameSegmentsDetailed,
 } from '../../utils/qualifiedName';
-import { resolveUniqueKeyGroupsFromIndexes } from '../dataGridCopyInsert';
+import { buildQueryEditorNavigationTableMetas } from './queryEditorNavigationTableMetas';
+import {
+    buildQueryEditorNamedObjectMetas,
+    buildQueryEditorRoutineObjectMetas,
+    buildQueryEditorTriggerObjectMetas,
+} from './queryEditorNamedObjectMetas';
+import {
+    QUERY_EDITOR_COMPLETION_SUGGESTION_LIMIT,
+    type QueryEditorCompletionMatchRank,
+} from './queryEditorCompletionMatch';
+import { buildIndexedColumnMetadata, type DataGridIndexedColumnMetadata } from '../dataGridColumnTypeMarker';
 import { t as translate } from '../../i18n';
+
+export {
+    QUERY_EDITOR_COMPLETION_SUGGESTION_LIMIT,
+    rankQueryEditorCompletionCandidate,
+    resolveQueryEditorCompletionFilterText,
+} from './queryEditorCompletionMatch';
+export type { QueryEditorCompletionMatchRank } from './queryEditorCompletionMatch';
 
 export type CompletionTableMeta = {dbName: string, tableName: string, comment?: string};
 export type CompletionColumnMeta = {dbName: string, tableName: string, name: string, type: string, comment?: string};
@@ -79,57 +95,6 @@ export const findCompletionTablesByDatabase = (
         indexes.set(identityMode, index);
     }
     return index.get(buildMetadataIdentityKey(metadataDialect, dbName)) || [];
-};
-
-export const QUERY_EDITOR_COMPLETION_SUGGESTION_LIMIT = 200;
-
-export type QueryEditorCompletionMatchRank = 0 | 1 | 2 | null;
-
-export const rankQueryEditorCompletionCandidate = (
-    prefix: string,
-    candidates: readonly string[],
-    includeSubstring = true,
-): QueryEditorCompletionMatchRank => {
-    const normalizedPrefix = String(prefix || '').trim().toLowerCase();
-    if (!normalizedPrefix) return 0;
-
-    let hasPrefixMatch = false;
-    let hasSubstringMatch = false;
-    for (const candidate of candidates) {
-        const normalizedCandidate = String(candidate || '').trim().toLowerCase();
-        if (!normalizedCandidate) continue;
-        if (normalizedCandidate === normalizedPrefix) return 0;
-        if (normalizedCandidate.startsWith(normalizedPrefix)) {
-            hasPrefixMatch = true;
-        } else if (includeSubstring && normalizedCandidate.includes(normalizedPrefix)) {
-            hasSubstringMatch = true;
-        }
-    }
-    if (hasPrefixMatch) return 1;
-    if (hasSubstringMatch) return 2;
-    return null;
-};
-
-/**
- * Monaco applies its own fuzzy filter after the provider returns. When a
- * candidate is matched only by a substring, expose the matching suffix so
- * Monaco can keep the item visible even when the match does not start at a
- * word boundary (for example `title` in `subtitle`).
- */
-export const resolveQueryEditorCompletionFilterText = (
-    prefix: string,
-    candidates: readonly string[],
-): string | undefined => {
-    const normalizedPrefix = String(prefix || '').trim().toLowerCase();
-    if (!normalizedPrefix) return undefined;
-    for (const candidate of candidates) {
-        const value = String(candidate || '').trim();
-        const matchIndex = value.toLowerCase().indexOf(normalizedPrefix);
-        if (matchIndex >= 0) {
-            return value.slice(matchIndex);
-        }
-    }
-    return undefined;
 };
 
 type RankedQueryEditorCompletionCandidate<Candidate> = {
@@ -414,7 +379,7 @@ export type SimpleSelectInfo = {
     writableColumns: Record<string, string>;
 };
 
-export type QueryStatementPlan = {
+export type QueryStatementPlan = DataGridIndexedColumnMetadata & {
     originalSql: string;
     executedSql: string;
     tableRef?: QueryResultTableRef;
@@ -1034,10 +999,8 @@ export const buildCompletionTableCommentSQL = (dialect: string, dbName: string):
         case 'opengauss':
         case 'gaussdb':
             return `SELECT n.nspname || '.' || c.relname AS table_name, obj_description(c.oid, 'pg_class') AS table_comment FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY n.nspname, c.relname`;
-        case 'sqlserver': {
-            const safeDb = quoteSqlServerDbIdentifier(db);
-            return `SELECT s.name + '.' + t.name AS table_name, ep.value AS table_comment FROM ${safeDb}.sys.tables t JOIN ${safeDb}.sys.schemas s ON t.schema_id = s.schema_id LEFT JOIN ${safeDb}.sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description' WHERE t.type = 'U' ORDER BY s.name, t.name`;
-        }
+        case 'sqlserver':
+            return `SELECT s.name + '.' + t.name AS table_name, CONVERT(nvarchar(4000), ep.value) AS table_comment FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description' WHERE t.type = 'U' ORDER BY s.name, t.name`;
         case 'clickhouse':
             return `SELECT name AS table_name, comment AS table_comment FROM system.tables WHERE database = '${escapedDb}' AND engine NOT IN ('View', 'MaterializedView') ORDER BY name`;
         case 'oracle': {
@@ -1377,10 +1340,8 @@ export const buildCompletionViewsMetadataQuerySpecs = (
         case 'opengauss':
         case 'gaussdb':
             return [{ sql: `SELECT schemaname AS schema_name, viewname AS view_name FROM pg_catalog.pg_views WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY schemaname, viewname` }];
-        case 'sqlserver': {
-            const safeDb = quoteSqlServerDbIdentifier(dbName || 'master');
-            return [{ sql: `SELECT s.name AS schema_name, v.name AS view_name FROM ${safeDb}.sys.views v JOIN ${safeDb}.sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name` }];
-        }
+        case 'sqlserver':
+            return [{ sql: `SELECT s.name AS schema_name, v.name AS view_name FROM sys.views v JOIN sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name` }];
         case 'oracle': {
             const includeCurrentOwnerFallback = options?.includeCurrentOwnerFallback !== false;
             if (!includeCurrentOwnerFallback && safeDbName) {
@@ -1461,10 +1422,8 @@ export const buildCompletionTriggersMetadataQuerySpecs = (dialect: string, dbNam
         case 'opengauss':
         case 'gaussdb':
             return [{ sql: `SELECT DISTINCT event_object_schema AS schema_name, event_object_table AS table_name, trigger_name FROM information_schema.triggers WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema') AND trigger_schema NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY event_object_schema, event_object_table, trigger_name` }];
-        case 'sqlserver': {
-            const safeDb = quoteSqlServerDbIdentifier(dbName || 'master');
-            return [{ sql: `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM ${safeDb}.sys.triggers tr JOIN ${safeDb}.sys.tables t ON tr.parent_id = t.object_id JOIN ${safeDb}.sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name` }];
-        }
+        case 'sqlserver':
+            return [{ sql: `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM sys.triggers tr JOIN sys.tables t ON tr.parent_id = t.object_id JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name` }];
         case 'oracle':
             if (!safeDbName) {
                 return [{ sql: 'SELECT TRIGGER_NAME AS trigger_name, TABLE_NAME AS table_name FROM USER_TRIGGERS ORDER BY TABLE_NAME, TRIGGER_NAME' }];
@@ -1518,10 +1477,8 @@ export const buildCompletionFunctionsMetadataQuerySpecs = (
                     sql: `SELECT n.nspname AS schema_name, p.proname AS routine_name, 'FUNCTION' AS routine_type FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY n.nspname, p.proname`,
                 },
             ]);
-        case 'sqlserver': {
-            const safeDb = quoteSqlServerDbIdentifier(dbName || 'master');
-            return [{ sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM ${safeDb}.sys.objects o JOIN ${safeDb}.sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name` }];
-        }
+        case 'sqlserver':
+            return [{ sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM sys.objects o JOIN sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name` }];
         case 'oracle':
             if (options?.includeCurrentOwnerFallback === false && safeDbName) {
                 return [{
@@ -2540,6 +2497,8 @@ export type QueryEditorTableReference = {
     aliasSegment?: QueryIdentifierPathSegment;
 };
 
+const QUERY_EDITOR_IOTDB_TABLE_PATH_MAX_PARTS = 8;
+
 const createQueryEditorIdentitySegment = (value: string): QueryIdentifierPathSegment => ({
     raw: value,
     value,
@@ -2757,8 +2716,11 @@ const analyzeQueryEditorTableReferences = (source: string, dbType = ''): {
 
             const pathTokens = [token.raw];
             let pathEnd = index;
+            const maxPathTokens = String(resolveSqlDialect(dbType) || dbType || '').toLowerCase() === 'iotdb'
+                ? QUERY_EDITOR_IOTDB_TABLE_PATH_MAX_PARTS
+                : 3;
             while (
-                pathTokens.length < 3
+                pathTokens.length < maxPathTokens
                 && tokens[pathEnd + 1]?.raw === '.'
                 && isQueryEditorSqlIdentifierToken(tokens[pathEnd + 2])
             ) {
@@ -2937,6 +2899,85 @@ export const collectQueryEditorTableReferences = (source: string, dbType = ''): 
     analyzeQueryEditorTableReferences(source, dbType).references
 );
 
+export type QueryEditorExecutionContext = { dbName?: string; schemaName?: string };
+
+const resolveIotdbVisibleStorageGroup = (
+    parts: string[],
+    visible: Map<string, string>,
+): string | undefined => {
+    if (parts.length < 2 || visible.size === 0) return undefined;
+    for (let length = parts.length - 1; length >= 1; length -= 1) {
+        const matched = visible.get(parts.slice(0, length).join('.').toLowerCase());
+        if (matched) return matched;
+    }
+    return undefined;
+};
+
+const usesQueryEditorCatalogQualifiedTwoPartNames = (dialect: string): boolean => {
+    const normalizedDialect = String(resolveSqlDialect(dialect) || '').toLowerCase();
+    return isMysqlFamilyDialect(normalizedDialect)
+        || normalizedDialect === 'clickhouse'
+        || normalizedDialect === 'tdengine';
+};
+
+/** Resolve the database/schema explicitly named by the SQL, without changing SQL text. */
+export const resolveQueryEditorExecutionContext = (
+    source: string,
+    dialect: string,
+    currentDb = '',
+    currentSchema = '',
+    visibleDbs: string[] = [],
+): QueryEditorExecutionContext => {
+    const normalized = String(resolveSqlDialect(dialect) || dialect || '').toLowerCase();
+    const visible = new Map(visibleDbs.map((name) => [String(name).trim().toLowerCase(), String(name).trim()] as const));
+    const canonical = (name: string) => visible.get(name.toLowerCase()) || name;
+    const result: QueryEditorExecutionContext = {};
+    const masked = maskQueryEditorSqlLiteralsAndComments(String(source || ''), normalized);
+    const useMatch = (isMysqlFamilyDialect(normalized) || ['sqlserver', 'clickhouse', 'tdengine'].includes(normalized))
+        && masked.match(/^\s*use\s+(`[^`]+`|"[^"]+"|\[[^\]]+\]|[A-Za-z0-9_$-]+)/i);
+    if (useMatch) result.dbName = canonical(stripQueryIdentifierQuotesForDialect(useMatch[1], normalized));
+    for (const reference of collectQueryEditorTableReferences(source, normalized)) {
+        const parts = reference.parts.map((part) => String(part || '').trim()).filter(Boolean);
+        if (parts.length < 2) continue;
+        if (normalized === 'iotdb') {
+            // Storage groups are multi-segment paths such as root.ln, not the
+            // first identifier of a timeseries (root).
+            const storageGroup = resolveIotdbVisibleStorageGroup(parts, visible);
+            if (storageGroup) result.dbName = storageGroup;
+        } else if (normalized === 'trino') {
+            // Toolbar namespaces are catalog.schema. Two-part schema.table
+            // stays in the current catalog; only catalog.schema.table can switch.
+            if (parts.length >= 3) result.dbName = canonical(`${parts[0]}.${parts[1]}`);
+        } else if (normalized === 'sqlserver') {
+            if (parts.length >= 3) result.dbName = canonical(parts[0]);
+        } else if (isPgLikeDialect(normalized)) {
+            if (parts.length >= 3) {
+                result.dbName = canonical(parts[0]);
+                result.schemaName = parts[1];
+            } else if (parts.length === 2) {
+                result.schemaName = parts[0];
+            }
+        } else if (
+            isOracleLikeDialect(normalized)
+            || normalized === 'sqlite'
+            || normalized === 'duckdb'
+            || normalized === 'iris'
+        ) {
+            // owner.table / schema.table / attached-db.table is already
+            // qualified. Switching the toolbar catalog reconnects or reloads
+            // the wrong namespace (Oracle CURRENT_SCHEMA, IRIS namespace,
+            // DuckDB/SQLite attached catalog).
+            continue;
+        } else if (usesQueryEditorCatalogQualifiedTwoPartNames(normalized) && parts.length === 2) {
+            result.dbName = canonical(parts[0]);
+        }
+        if (result.dbName || result.schemaName) break;
+    }
+    if (result.dbName && result.dbName.toLowerCase() === String(currentDb).trim().toLowerCase()) delete result.dbName;
+    if (!result.dbName && result.schemaName === String(currentSchema).trim()) delete result.schemaName;
+    return result;
+};
+
 export const isQueryEditorTableSourceCompletionContext = (source: string, dbType = ''): boolean => (
     analyzeQueryEditorTableReferences(source, dbType).expectsTableSource
 );
@@ -3101,6 +3142,28 @@ export const collectQueryEditorReferencedDatabaseNames = (
         const parts = reference.parts.map((part) => String(part || '').trim()).filter(Boolean);
         if (parts.length < 2) continue;
 
+        if (normalizedDialect === 'iotdb') {
+            const storageGroup = resolveIotdbVisibleStorageGroup(parts, visibleDbByLower);
+            if (storageGroup && storageGroup.toLowerCase() !== currentDbKey) {
+                addDb(storageGroup);
+            }
+            continue;
+        }
+        if (normalizedDialect === 'trino') {
+            if (parts.length >= 3) {
+                const namespace = `${parts[0]}.${parts[1]}`;
+                const key = namespace.toLowerCase();
+                if (key !== currentDbKey) {
+                    addDb(visibleDbByLower.get(key) || namespace);
+                }
+            }
+            continue;
+        }
+        if (usesQueryEditorCatalogQualifiedTwoPartNames(normalizedDialect) && parts.length !== 2) {
+            // catalog.db.table (StarRocks/Doris/ClickHouse) is already qualified.
+            continue;
+        }
+
         const firstPart = parts[0];
         const firstKey = firstPart.toLowerCase();
         const asVisibleDb = visibleDbByLower.get(firstKey);
@@ -3201,26 +3264,11 @@ export const resolveQueryEditorNavigationTarget = (
             .map((db) => buildMetadataIdentityKey(dialect, db))
             .filter(Boolean),
     );
-    const tableMetas = tables.map((table) => {
-        const dbName = String(table.dbName || '').trim();
-        const rawTableName = String(table.tableName || '').trim();
-        // sqlite_master reports literal table names without quoting. A dot in
-        // that catalog value is legal object data, not a schema separator.
-        const parsed = connectionScopedDialect
-            ? { schemaName: '', objectName: rawTableName }
-            : splitSidebarQualifiedName(rawTableName);
-        return {
-            dbName,
-            rawTableName,
-            metadataDbKey: buildMetadataIdentityKey(dialect, dbName),
-            normalizedDbName: dbName.toLowerCase(),
-            normalizedRawTableName: rawTableName.toLowerCase(),
-            normalizedObjectName: String(parsed.objectName || rawTableName).trim().toLowerCase(),
-            schemaName: String(parsed.schemaName || '').trim(),
-            normalizedSchemaName: String(parsed.schemaName || '').trim().toLowerCase(),
-            identifierSegments: splitQualifiedNameSegmentsDetailed(rawTableName, dialect),
-        };
-    });
+    const tableMetas = buildQueryEditorNavigationTableMetas(
+        tables,
+        dialect,
+        connectionScopedDialect,
+    );
 
     const rawIdentifierSegments = splitQueryIdentifierPathSegments(rawIdentifier, dialect);
     // A single delimited segment such as `order.items` or [order.items] is
@@ -3355,56 +3403,14 @@ export const resolveQueryEditorNavigationTarget = (
     }
     if (parts.length > 3) return null;
 
-    const buildObjectNameMeta = (
-        dbName: string,
-        rawObjectName: string,
-        explicitSchemaName = '',
-    ) => {
-        const normalizedExplicitSchema = String(explicitSchemaName || '').trim();
-        const parsedMetadata = normalizedExplicitSchema
-            ? splitMetadataQualifiedName(rawObjectName, normalizedExplicitSchema)
-            : null;
-        const parsedLegacy = parsedMetadata ? null : splitSidebarQualifiedName(rawObjectName);
-        const schemaName = String(
-            normalizedExplicitSchema
-            || parsedMetadata?.parentPath
-            || parsedLegacy?.schemaName
-            || '',
-        ).trim();
-        const objectName = String(
-            parsedMetadata?.objectName
-            || parsedLegacy?.objectName
-            || rawObjectName,
-        ).trim();
-        return {
-            dbName: String(dbName || '').trim(),
-            rawObjectName: String(rawObjectName || '').trim(),
-            objectName,
-            schemaName,
-            metadataDbKey: buildMetadataIdentityKey(dialect, dbName),
-            normalizedDbName: String(dbName || '').trim().toLowerCase(),
-            normalizedRawObjectName: String(rawObjectName || '').trim().toLowerCase(),
-            normalizedObjectName: objectName.toLowerCase(),
-            normalizedSchemaName: schemaName.toLowerCase(),
-            identifierSegments: splitQualifiedNameSegmentsDetailed(
-                schemaName ? `${schemaName}.${objectName}` : rawObjectName,
-                dialect,
-            ),
-        };
-    };
-
-    const viewMetas = views.map((view) => buildObjectNameMeta(view.dbName, view.viewName, view.schemaName));
-    const materializedViewMetas = materializedViews.map((view) => buildObjectNameMeta(view.dbName, view.viewName, view.schemaName));
-    const triggerMetas = triggers.map((trigger) => ({
-        ...buildObjectNameMeta(trigger.dbName, trigger.triggerName, trigger.schemaName),
-        tableName: String(trigger.tableName || '').trim(),
-    }));
-    const routineMetas = routines.map((routine) => ({
-        ...buildObjectNameMeta(routine.dbName, routine.routineName, routine.schemaName),
-        routineType: String(routine.routineType || 'FUNCTION').trim().toUpperCase() || 'FUNCTION',
-    }));
-    const sequenceMetas = sequences.map((sequence) => buildObjectNameMeta(sequence.dbName, sequence.sequenceName, sequence.schemaName));
-    const packageMetas = packages.map((pkg) => buildObjectNameMeta(pkg.dbName, pkg.packageName, pkg.schemaName));
+    // Normalized once per catalog snapshot rather than once per identifier candidate:
+    // non-table objects outnumber tables in large schemas and dominated the input path.
+    const viewMetas = buildQueryEditorNamedObjectMetas(views, 'viewName', dialect);
+    const materializedViewMetas = buildQueryEditorNamedObjectMetas(materializedViews, 'viewName', dialect);
+    const triggerMetas = buildQueryEditorTriggerObjectMetas(triggers, dialect);
+    const routineMetas = buildQueryEditorRoutineObjectMetas(routines, dialect);
+    const sequenceMetas = buildQueryEditorNamedObjectMetas(sequences, 'sequenceName', dialect);
+    const packageMetas = buildQueryEditorNamedObjectMetas(packages, 'packageName', dialect);
 
     const findTable = (candidateDbName: string, candidateTableName: string, schemaName = ''): QueryEditorNavigationTarget | null => {
         const normalizedDbName = String(candidateDbName || '').trim().toLowerCase();
@@ -4532,9 +4538,10 @@ export const resolveQueryLocatorPlan = async ({
             .filter((column: any) => getColumnDefinitionKey(column) === 'PRI')
             .map(getColumnDefinitionName)
             .filter(Boolean);
-        const indexes = resIndexes?.success && Array.isArray(resIndexes.data)
-            ? resIndexes.data as IndexDefinition[]
-            : [];
+        const indexedMetadata = buildIndexedColumnMetadata(tableColumns,
+            resIndexes?.success && Array.isArray(resIndexes.data) ? resIndexes.data as IndexDefinition[] : undefined);
+        Object.assign(plan, indexedMetadata);
+        const uniqueKeyGroups = indexedMetadata.uniqueKeyGroups || [];
         const writableColumns: Record<string, string> = selectInfo.selectsAll
             ? Object.fromEntries(tableColumnNames.map((column) => [column, column]))
             : {};
@@ -4570,7 +4577,6 @@ export const resolveQueryLocatorPlan = async ({
             plan.pkColumns = primaryKeys;
             plan.editLocator = buildColumnLocator('primary-key', primaryKeys);
         } else {
-            const uniqueKeyGroups = resolveUniqueKeyGroupsFromIndexes(indexes);
             const uniqueKeyGroup = uniqueKeyGroups.find((group) => group.length > 0);
             if (uniqueKeyGroup) {
                 plan.editLocator = buildColumnLocator('unique-key', uniqueKeyGroup);

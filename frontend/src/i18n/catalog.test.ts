@@ -56,6 +56,12 @@ const readAppSource = (): string =>
 const readQueryEditorHelpersSource = (): string =>
   readFileSync(new URL("../components/queryEditor/QueryEditorHelpers.ts", import.meta.url), "utf8");
 
+const readQueryEditorAiContextSource = (): string =>
+  readFileSync(new URL("../components/queryEditor/queryEditorAiContext.ts", import.meta.url), "utf8");
+
+const readQueryEditorAiSqlInsertSource = (): string =>
+  readFileSync(new URL("../components/queryEditor/queryEditorAiSqlInsert.ts", import.meta.url), "utf8");
+
 const readQueryEditorResultsPanelSource = (): string =>
   readFileSync(new URL("../components/QueryEditorResultsPanel.tsx", import.meta.url), "utf8");
 
@@ -71,6 +77,23 @@ const sliceBetween = (source: string, start: string, end: string): string => {
   const endIndex = normalizedSource.indexOf(end, startIndex + start.length);
 
   expect(startIndex).toBeGreaterThanOrEqual(0);
+  expect(endIndex).toBeGreaterThan(startIndex);
+
+  return normalizedSource.slice(startIndex, endIndex);
+};
+
+// 切片起点用「函数名 + 参数开头」的正则锚定，而不是写死完整签名：
+// handleRun 一类函数的参数会随功能演进增删（如新增 runOptions），
+// 写死签名会让 indexOf 静默返回 -1、切片落到错误区间，断言随之失效。
+const sliceFromFunctionStart = (source: string, declaration: string, end: string): string => {
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  const pattern = new RegExp(`^\\s*(?:const|function)\\s+${declaration}\\b[^\\n]*\\{`, "m");
+  const match = pattern.exec(normalizedSource);
+
+  expect(match).not.toBeNull();
+  const startIndex = match!.index;
+  const endIndex = normalizedSource.indexOf(end, startIndex + match![0].length);
+
   expect(endIndex).toBeGreaterThan(startIndex);
 
   return normalizedSource.slice(startIndex, endIndex);
@@ -502,6 +525,9 @@ describe("i18n catalog", () => {
       "data_grid.column.comment_tooltip",
       "data_grid.column.foreign_key_tooltip",
       "data_grid.column.foreign_key_jump_title",
+      "data_grid.column.primary_key_tooltip",
+      "data_grid.column.unique_key_tooltip",
+      "data_grid.column.index_tooltip",
       "data_grid.column_quick_find.tooltip",
       "data_grid.column_quick_find.placeholder",
       "data_grid.column_settings.display_settings",
@@ -545,6 +571,9 @@ describe("i18n catalog", () => {
     expect(t("zh-CN", "data_grid.column.type_tooltip", { type: "uuid" })).toBe("类型：uuid");
     expect(t("zh-CN", "data_grid.column.comment_tooltip", { comment: "账户编号" })).toBe("注释：账户编号");
     expect(t("zh-CN", "data_grid.column.foreign_key_tooltip", { target: "public.users.id" })).toBe("外键：public.users.id");
+    expect(t("zh-CN", "data_grid.column.primary_key_tooltip")).toBe("主键");
+    expect(t("zh-CN", "data_grid.column.unique_key_tooltip")).toBe("唯一索引");
+    expect(t("zh-CN", "data_grid.column.index_tooltip")).toBe("索引");
     expect(t("en-US", "data_grid.column.foreign_key_jump_title", { tableName: "audit.log" })).toBe("Open foreign key table: audit.log");
     assertSourceDoesNotInlineCatalogValues(source, dataGridColumnControlKeys);
   });
@@ -755,6 +784,8 @@ describe("i18n catalog", () => {
       "data_grid.message.change_set_build_failed_detail",
       "data_grid.message.preview_sql_failed_detail",
       "data_grid.message.commit_failed",
+      "data_grid.message.commit_outcome_unknown",
+      "data_grid.message.auto_commit_outcome_unknown",
       "data_grid.message.rollback_failed",
     ];
     const noPlaceholderKeys = [
@@ -884,10 +915,12 @@ describe("i18n catalog", () => {
       "} catch (e) {",
       "const handleAIAction = (action: 'generate' | 'explain' | 'optimize' | 'schema') => {",
     );
+    // AI 注入 SQL 的实现已从 QueryEditor.tsx 抽到 queryEditorAiSqlInsert.ts，
+    // 锚点必须跟着落到新文件，否则切片会静默失配。
     const insertSqlEffectSource = sliceBetween(
-      source,
-      "const handleInsertSql = (e: any) => {",
-      "const resolveDefaultQueryName = () => {",
+      readQueryEditorAiSqlInsertSource(),
+      "export const createAiSqlInsertHandler",
+      "export const useAiSqlInsertToTabListener",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -896,6 +929,12 @@ describe("i18n catalog", () => {
         expect(catalogs[language][key]).toBeTruthy();
       }
     }
+
+    assertSourceDoesNotInlineCatalogValues(formatCatchSource, ["query_editor.message.format_failed"]);
+    assertSourceDoesNotInlineCatalogValues(insertSqlEffectSource, [
+      "query_editor.message.insert_success",
+      "query_editor.message.append_success",
+    ]);
   });
 
   it("keeps QueryEditor local editor interaction toasts in catalogs instead of source literals", () => {
@@ -943,9 +982,9 @@ describe("i18n catalog", () => {
       "query_editor.message.cancel_failed",
     ] as const;
     const source = readQueryEditorSource();
-    const handleRunSource = sliceBetween(
+    const handleRunSource = sliceFromFunctionStart(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "handleRun",
       "  const handleCancel = async () => {",
     );
     const handleCancelSource = sliceBetween(
@@ -973,9 +1012,9 @@ describe("i18n catalog", () => {
       "query_editor.message.execution_failed_with_error",
     ] as const;
     const source = readQueryEditorSource();
-    const handleRunSource = sliceBetween(
+    const handleRunSource = sliceFromFunctionStart(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "handleRun",
       "  const handleCancel = async () => {",
     );
 
@@ -999,9 +1038,9 @@ describe("i18n catalog", () => {
   it("keeps QueryEditor multi-statement failure prefixes in catalogs instead of source literals", () => {
     const statementFailedPrefixKey = "query_editor.message.statement_failed_prefix" as const;
     const source = readQueryEditorSource();
-    const handleRunSource = sliceBetween(
+    const handleRunSource = sliceFromFunctionStart(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "handleRun",
       "  const handleCancel = async () => {",
     );
 
@@ -1021,8 +1060,8 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const handleReloadSource = sliceBetween(
       source,
-      "  const handleReloadResult = async (resultKey: string, sql: string) => {",
-      "  const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "  const handleReloadResult = async (",
+      "  const handleRun = async (",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1680,13 +1719,13 @@ describe("i18n catalog", () => {
     const aiContextKeys = [
       "query_editor.ai_prompt.default_source",
       "query_editor.ai_prompt.default_database",
+      "query_editor.ai_prompt.default_version",
       "query_editor.ai_prompt.context",
     ] as const;
-    const source = readQueryEditorSource();
     const aiContextSource = sliceBetween(
-      source,
-      "const buildQueryEditorAiContextPrompt = (connection: any, database: string): string => {",
-      "// HMR 重载时释放旧注册避免补全和 hover 内容重复",
+      readQueryEditorAiContextSource(),
+      "export const buildQueryEditorAiContextPrompt = (",
+      "  return translate('query_editor.ai_prompt.context', {",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -1694,12 +1733,18 @@ describe("i18n catalog", () => {
         expect(catalogs[language]).toHaveProperty(key);
         expect(catalogs[language][key]).toBeTruthy();
       }
+      expect(getPlaceholders(catalogs[language]["query_editor.ai_prompt.context"])).toEqual([
+        "database",
+        "name",
+        "type",
+        "version",
+      ]);
     }
 
-    for (const key of aiContextKeys) {
-    }
-
-    assertSourceDoesNotInlineCatalogValues(aiContextSource, aiContextKeys);
+    assertSourceDoesNotInlineCatalogValues(aiContextSource, [
+      "query_editor.ai_prompt.default_version",
+      "query_editor.ai_prompt.context",
+    ]);
   });
 
   it("keeps QueryEditor AI context menu prompts in catalogs instead of source literals", () => {
@@ -1901,7 +1946,7 @@ describe("i18n catalog", () => {
       sliceBetween(
         source,
         "const buildQueryEditorEditableDefinitionSql = (",
-        "const buildQueryEditorAiContextPrompt = (",
+        "const SQL_COMPLETION_PROVIDER_VERSION = '20260831-hover-ddl-v6';",
       ),
       sliceBetween(
         source,

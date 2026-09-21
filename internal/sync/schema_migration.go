@@ -434,6 +434,7 @@ func describeColumnStructure(col connection.ColumnDefinition) string {
 var (
 	columnTypeWhitespacePattern     = regexp.MustCompile(`\s*([(),])\s*`)
 	mysqlIntegerDisplayWidthPattern = regexp.MustCompile(`\b(tinyint|smallint|mediumint|int|integer|bigint)\s*\(\s*\d+\s*\)`)
+	pgLikeNextvalPattern            = regexp.MustCompile(`(?i)^nextval\s*\(\s*'((?:[^']|'')+)'`)
 )
 
 // normalizeComparableColumnType removes metadata-only spelling differences
@@ -1432,18 +1433,38 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
 	}
 	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(columnDefs, ",\n  "))
+	postSQL := make([]string, 0)
+	created := 0
+	skipped := 0
+	seqSQL, seqWarnings, seqUnsupported := buildPGLikeOwnedSequenceSQL(targetType, targetQueryTable, sourceCols)
+	postSQL = append(postSQL, seqSQL...)
+	warnings = append(warnings, seqWarnings...)
+	unsupported = append(unsupported, seqUnsupported...)
+	postSQL = append(postSQL, buildPGLikeColumnCommentSQL(targetType, targetQueryTable, sourceCols)...)
+	if commenter, ok := sourceDB.(db.TableCommentProvider); ok {
+		if tableComment, commentErr := commenter.GetTableComment(sourceSchema, sourceTable); commentErr != nil {
+			warnings = append(warnings, fmt.Sprintf("读取源表注释失败，已跳过表注释：%v", commentErr))
+		} else if strings.TrimSpace(tableComment) != "" {
+			postSQL = append(postSQL, fmt.Sprintf("COMMENT ON TABLE %s IS %s", quoteQualifiedIdentByType(targetType, targetQueryTable), pgLikeSQLLiteral(tableComment)))
+		}
+	}
+	triggerSQL, triggerUnsupported := buildPGLikeTriggerSQL(targetType, targetQueryTable, sourceDB, sourceSchema, sourceTable)
+	postSQL = append(postSQL, triggerSQL...)
+	unsupported = append(unsupported, triggerUnsupported...)
+	if fks, fkErr := sourceDB.GetForeignKeys(sourceSchema, sourceTable); fkErr != nil {
+		warnings = append(warnings, fmt.Sprintf("读取源表外键失败，已跳过外键：%v", fkErr))
+	} else if len(fks) > 0 {
+		unsupported = append(unsupported, fmt.Sprintf("外键 %d 个不会随单表自动创建，避免引用尚未同步的表", len(fks)))
+	}
 	if !config.CreateIndexes {
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
 	}
 	indexes, err := sourceDB.GetIndexes(sourceSchema, sourceTable)
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
 	}
 	grouped := groupIndexDefinitions(indexes)
-	postSQL := make([]string, 0, len(grouped))
-	created := 0
-	skipped := 0
 	for _, idx := range grouped {
 		name := strings.TrimSpace(idx.Name)
 		if name == "" || strings.EqualFold(name, "primary") {
@@ -1500,10 +1521,152 @@ func buildPGLikeToPGLikeColumnDefinition(col connection.ColumnDefinition) (strin
 	if strings.EqualFold(strings.TrimSpace(col.Nullable), "NO") {
 		parts = append(parts, "NOT NULL")
 	}
-	if comment := strings.TrimSpace(col.Comment); comment != "" {
-		warnings = append(warnings, fmt.Sprintf("字段 %s 注释未内联到 CREATE TABLE，请按需使用 COMMENT ON COLUMN 补充", col.Name))
-	}
 	return strings.Join(parts, " "), dedupeStrings(warnings)
+}
+
+func pgLikeSQLLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func parsePGLikeNextvalSequence(raw string) string {
+	match := pgLikeNextvalPattern.FindStringSubmatch(strings.TrimSpace(raw))
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.ReplaceAll(match[1], "''", "'")
+}
+
+func splitPGLikeSequenceName(raw string) (schema, name string) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", ""
+	}
+	if dot := strings.LastIndex(value, "."); dot > 0 && dot < len(value)-1 {
+		return strings.Trim(value[:dot], `"`), strings.Trim(value[dot+1:], `"`)
+	}
+	return "", strings.Trim(value, `"`)
+}
+
+func buildPGLikeOwnedSequenceSQL(targetType, targetQueryTable string, sourceCols []connection.ColumnDefinition) ([]string, []string, []string) {
+	targetSchema, _ := splitQualifiedSyncObject(targetQueryTable)
+	postSQL := make([]string, 0)
+	warnings := make([]string, 0)
+	unsupported := make([]string, 0)
+	quotedTable := quoteQualifiedIdentByType(targetType, targetQueryTable)
+	for _, col := range sourceCols {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(col.Extra)), "auto_increment") {
+			continue
+		}
+		if col.Default == nil {
+			continue
+		}
+		sequenceRef := parsePGLikeNextvalSequence(*col.Default)
+		if sequenceRef == "" {
+			continue
+		}
+		_, sequenceName := splitPGLikeSequenceName(sequenceRef)
+		if sequenceName == "" {
+			unsupported = append(unsupported, fmt.Sprintf("字段 %s 的序列默认值无法解析，已跳过", col.Name))
+			continue
+		}
+		if targetSchema != "" {
+			sequenceRef = targetSchema + "." + sequenceName
+		} else {
+			sequenceRef = sequenceName
+		}
+		quotedSequence := quoteQualifiedIdentByType(targetType, sequenceRef)
+		quotedColumn := quoteIdentByType(targetType, col.Name)
+		sequenceRegclass := pgLikeSQLLiteral(quotedSequence) + "::regclass"
+		postSQL = append(postSQL,
+			fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s", quotedSequence),
+			fmt.Sprintf("ALTER SEQUENCE %s OWNED BY %s.%s", quotedSequence, quotedTable, quotedColumn),
+			fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT pg_catalog.nextval(%s)", quotedTable, quotedColumn, sequenceRegclass),
+			fmt.Sprintf(
+				"SELECT pg_catalog.setval(%s, COALESCE((SELECT pg_catalog.max(%s) FROM %s), 1), EXISTS (SELECT 1 FROM %s))",
+				sequenceRegclass,
+				quotedColumn,
+				quotedTable,
+				quotedTable,
+			),
+		)
+	}
+	return postSQL, warnings, unsupported
+}
+
+func buildPGLikeColumnCommentSQL(targetType, targetQueryTable string, sourceCols []connection.ColumnDefinition) []string {
+	quotedTable := quoteQualifiedIdentByType(targetType, targetQueryTable)
+	sql := make([]string, 0)
+	for _, col := range sourceCols {
+		comment := strings.TrimSpace(col.Comment)
+		if comment == "" {
+			continue
+		}
+		sql = append(sql, fmt.Sprintf(
+			"COMMENT ON COLUMN %s.%s IS %s",
+			quotedTable,
+			quoteIdentByType(targetType, col.Name),
+			pgLikeSQLLiteral(comment),
+		))
+	}
+	return sql
+}
+
+func buildPGLikeTriggerSQL(targetType, targetQueryTable string, sourceDB db.Database, sourceSchema, sourceTable string) ([]string, []string) {
+	triggers, err := sourceDB.GetTriggers(sourceSchema, sourceTable)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("读取源表触发器失败，已跳过触发器：%v", err)}
+	}
+	sql := make([]string, 0, len(triggers))
+	unsupported := make([]string, 0)
+	quotedTable := quoteQualifiedIdentByType(targetType, targetQueryTable)
+	for _, trigger := range triggers {
+		name := strings.TrimSpace(trigger.Name)
+		timing := strings.ToUpper(strings.TrimSpace(trigger.Timing))
+		event := strings.ToUpper(strings.TrimSpace(trigger.Event))
+		statement := strings.TrimSpace(trigger.Statement)
+		if name == "" || statement == "" {
+			unsupported = append(unsupported, fmt.Sprintf("触发器缺少名称或语句，已跳过"))
+			continue
+		}
+		if timing != "BEFORE" && timing != "AFTER" && timing != "INSTEAD OF" {
+			unsupported = append(unsupported, fmt.Sprintf("触发器 %s 的时机 %s 暂不支持自动迁移", name, trigger.Timing))
+			continue
+		}
+		if event != "INSERT" && event != "UPDATE" && event != "DELETE" && event != "TRUNCATE" {
+			unsupported = append(unsupported, fmt.Sprintf("触发器 %s 的事件 %s 暂不支持自动迁移", name, trigger.Event))
+			continue
+		}
+		if strings.ContainsAny(statement, ";") {
+			unsupported = append(unsupported, fmt.Sprintf("触发器 %s 语句包含多条命令，已跳过以免误执行", name))
+			continue
+		}
+		orientation := strings.ToUpper(strings.TrimSpace(trigger.Orientation))
+		forEach := "FOR EACH ROW"
+		if orientation == "STATEMENT" {
+			forEach = "FOR EACH STATEMENT"
+		}
+		sql = append(sql, fmt.Sprintf(
+			"CREATE TRIGGER %s %s %s ON %s %s %s",
+			quoteIdentByType(targetType, name),
+			timing,
+			event,
+			quotedTable,
+			forEach,
+			statement,
+		))
+	}
+	return sql, unsupported
+}
+
+func splitQualifiedSyncObject(name string) (schema, object string) {
+	value := strings.TrimSpace(name)
+	if value == "" {
+		return "", ""
+	}
+	if dot := strings.LastIndex(value, "."); dot > 0 && dot < len(value)-1 {
+		return value[:dot], value[dot+1:]
+	}
+	return "", value
 }
 
 func sanitizePGLikeColumnType(t string) string {

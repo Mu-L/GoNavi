@@ -79,7 +79,7 @@ type codexMCPServerConfig struct {
 func (s *Service) AIGetMCPClientInstallStatuses() []ai.MCPClientInstallStatus {
 	command, args, resolveErr := resolveCurrentLocalMCPCommand(s.serviceText)
 	// 每个 inspect 都可能触发一次命令存在性探测（未命中缓存时要起 login shell）。
-	// 它们彼此独立且只读，串行执行会把 7 次探测的耗时直接叠加到设置页打开路径上，
+	// 它们彼此独立且只读，串行执行会把 8 次探测的耗时直接叠加到设置页打开路径上，
 	// 所以并发执行并按固定下标写回，保持返回顺序稳定。
 	inspectors := []func() ai.MCPClientInstallStatus{
 		func() ai.MCPClientInstallStatus {
@@ -90,6 +90,9 @@ func (s *Service) AIGetMCPClientInstallStatuses() []ai.MCPClientInstallStatus {
 		},
 		func() ai.MCPClientInstallStatus {
 			return inspectOpenCodeMCPInstallStatus(command, args, resolveErr, s.serviceText)
+		},
+		func() ai.MCPClientInstallStatus {
+			return inspectExternalJSONMCPClientInstallStatus(cursorMCPClientSpec, command, args, resolveErr, s.serviceText)
 		},
 		func() ai.MCPClientInstallStatus {
 			return inspectExternalJSONMCPClientInstallStatus(zCodeMCPClientSpec, command, args, resolveErr, s.serviceText)
@@ -217,6 +220,9 @@ func (s *Service) repairInstalledLocalMCPClientConfigs() error {
 	}
 	if err := repairOpenCodeMCPClientConfig(command, args, s.serviceText); err != nil {
 		repairErrors = append(repairErrors, fmt.Errorf("OpenCode: %w", err))
+	}
+	if err := repairExternalJSONMCPClientConfig(cursorMCPClientSpec, command, args, s.serviceText); err != nil {
+		repairErrors = append(repairErrors, fmt.Errorf("Cursor: %w", err))
 	}
 	if err := repairExternalJSONMCPClientConfig(zCodeMCPClientSpec, command, args, s.serviceText); err != nil {
 		repairErrors = append(repairErrors, fmt.Errorf("ZCode: %w", err))
@@ -845,7 +851,7 @@ func upsertClaudeCodeMCPServerConfig(configPath string, serverID string, serverC
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_serialize_failed", map[string]any{"detail": err.Error()}))
 	}
 
-	if err := os.WriteFile(configPath, append(data, '\n'), 0o644); err != nil {
+	if err := writeMCPConfigFileAtomically(configPath, append(data, '\n')); err != nil {
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_write_failed", map[string]any{"detail": err.Error()}))
 	}
 	return nil
@@ -918,7 +924,7 @@ func upsertCodexMCPServerConfig(configPath string, serverID string, serverConfig
 	}
 
 	updated := replaceOrAppendTOMLMCPServerBlock(string(data), strings.TrimSpace(serverID), renderCodexMCPServerBlock(serverID, serverConfig))
-	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {
+	if err := writeMCPConfigFileAtomically(configPath, []byte(updated)); err != nil {
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.codex.config_write_failed", map[string]any{"detail": err.Error()}))
 	}
 	return nil
@@ -1226,6 +1232,7 @@ func prewarmLocalCLICommandCache() {
 		claudeCodeClientCommandName,
 		codexClientCommandName,
 		openCodeClientCommandName,
+		cursorClientCommandName,
 		zCodeClientCommandName,
 		kimiCodeClientCommandName,
 		deepSeekHarnessClientCommandName,

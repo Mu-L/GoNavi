@@ -70,7 +70,7 @@ import { useOptionalI18n } from "../i18n/provider";
 import { confirmProductionMutation } from "../utils/productionRiskConfirm";
 import {
   resolveDataSyncEntryModePresentation,
-  type DataSyncEntryMode,
+  type DataSyncEntryModeAlias,
 } from "./dataSyncEntryMode";
 import { loadSchemas } from "./sidebar/sidebarMetadataLoaders";
 import {
@@ -409,7 +409,7 @@ const DataSyncModal: React.FC<{
   open: boolean;
   onClose: () => void;
   onBack?: () => void;
-  entryMode?: DataSyncEntryMode;
+  entryMode?: DataSyncEntryModeAlias;
   embedded?: boolean;
   taskKey?: string;
 }> = ({

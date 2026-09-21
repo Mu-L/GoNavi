@@ -20,16 +20,17 @@ import (
 )
 
 const (
-	windowsImageIcon       = 1
-	windowsLoadFromFile    = 0x0010
-	windowsGetIconMessage  = 0x007f
-	windowsSetIconMessage  = 0x0080
-	windowsIconSmall       = 0
-	windowsIconBig         = 1
-	windowsClassIconLarge  = -14
-	windowsClassIconSmall  = -34
-	windowsSmallIconPixels = 16
-	windowsLargeIconPixels = 32
+	windowsImageIcon                     = 1
+	windowsLoadFromFile                  = 0x0010
+	windowsGetIconMessage                = 0x007f
+	windowsSetIconMessage                = 0x0080
+	windowsIconSmall                     = 0
+	windowsIconBig                       = 1
+	windowsClassIconLarge                = -14
+	windowsClassIconSmall                = -34
+	windowsSmallIconPixels               = 16
+	windowsLargeIconPixels               = 32
+	windowsShortcutIdentityStateFileName = ".taskbar-identity-v1"
 )
 
 var (
@@ -55,7 +56,82 @@ var (
 		proc.Call(hwnd, uintptr(int64(index)), icon)
 	}
 	windowsApplicationIconSetTaskbarProperties = setWindowsTaskbarProperties
+	windowsApplicationIconLoad                 = loadWindowsApplicationIcon
+	windowsApplicationIconDestroyCall          = destroyWindowsApplicationIcon
+	windowsUpdateCurrentApplicationShortcuts   = updateCurrentWindowsApplicationShortcuts
 )
+
+// applyPersistedWindowsApplicationIcon binds the last selected ICO before
+// Wails shows the first window. The frontend state is hydrated too late to be
+// the first source of truth for the Windows taskbar button.
+func applyPersistedWindowsApplicationIcon(runtimeContext context.Context, configDir string) error {
+	removeStaleWindowsShortcutUpdateScripts(configDir)
+	iconPath, err := loadPersistedWindowsApplicationIcon(configDir)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(iconPath) == "" {
+		return clearPersistedWindowsApplicationIcon(configDir)
+	}
+	repairPersistedWindowsApplicationShortcutsOnce(iconPath, configDir)
+	_, err = setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
+	if err != nil {
+		return err
+	}
+	// Persist the compatibility fallback too. This makes later failed
+	// selections transactional: the active pointer remains authoritative and
+	// an unactivated candidate cannot win the next startup scan.
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		return fmt.Errorf("persist active Windows application icon: %w", err)
+	}
+	return nil
+}
+
+func repairPersistedWindowsApplicationShortcutsOnce(iconPath, configDir string) {
+	state, ok := currentWindowsShortcutIdentityState(iconPath)
+	if !ok {
+		return
+	}
+	statePath := filepath.Join(configDir, windowsApplicationIconDirectoryName, windowsShortcutIdentityStateFileName)
+	currentState, err := os.ReadFile(statePath)
+	if err == nil && string(currentState) == state {
+		return
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warnf("检查 Windows 任务栏身份迁移状态失败：%v", err)
+		return
+	}
+	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
+		logger.Warnf("更新 Windows 应用快捷方式图标失败：%v", err)
+		return
+	}
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		logger.Warnf("记录 Windows 任务栏身份迁移状态失败：%v", err)
+	}
+}
+
+func currentWindowsShortcutIdentityState(iconPath string) (string, bool) {
+	executablePath := strings.TrimSpace(updateResolveInstallTarget())
+	if resolveUpdateInstallModeForExecutable("windows", executablePath) != updateInstallModeMSI {
+		return "", false
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(getCurrentVersion()),
+		windowsApplicationUserModelIDForIconPath(iconPath),
+		strings.ToLower(filepath.Clean(executablePath)),
+	}, "\n") + "\n", true
+}
+
+func recordCurrentWindowsShortcutIdentityState(iconPath, configDir string) {
+	state, ok := currentWindowsShortcutIdentityState(iconPath)
+	if !ok {
+		return
+	}
+	statePath := filepath.Join(configDir, windowsApplicationIconDirectoryName, windowsShortcutIdentityStateFileName)
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		logger.Warnf("记录 Windows 任务栏身份迁移状态失败：%v", err)
+	}
+}
 
 func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext context.Context) error {
 	if len(pngBytes) == 0 {
@@ -68,11 +144,15 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	if err != nil {
 		return err
 	}
-	// Migrate existing taskbar pins before assigning the explicit window AUMID.
+	// Update shortcuts before moving the live window to the new identity.
 	// The update is synchronous so quitting cannot leave a half-written pin.
-	if err := updateCurrentWindowsApplicationShortcuts(iconPath); err != nil {
-		logger.Warnf("更新 Windows 应用快捷方式图标失败：%v", err)
+	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
+		return err
 	}
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		return err
+	}
+	recordCurrentWindowsShortcutIdentityState(iconPath, configDir)
 	_, err = setCurrentWindowsApplicationIcon(runtimeContext, iconPath)
 	if err != nil {
 		return err
@@ -80,21 +160,51 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	return nil
 }
 
+func prepareWindowsBrandIconRestartPNG(pngBytes []byte, configDir string) error {
+	if len(pngBytes) == 0 {
+		return errors.New("application icon PNG is empty")
+	}
+	if strings.TrimSpace(configDir) == "" {
+		configDir = resolveAppConfigDir()
+	}
+	iconPath, err := persistWindowsApplicationIcon(pngBytes, configDir)
+	if err != nil {
+		return err
+	}
+	// Update existing shortcuts in place. Only activate the pointer after the
+	// shortcut transaction succeeds, so a failed selection cannot change the
+	// icon used by the next process launch.
+	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
+		// Keep the content-addressed ICO because the shortcut script may have
+		// updated some entries before reporting an error. The active pointer is
+		// unchanged, so the next startup will continue using the previous icon.
+		return err
+	}
+	if err := activatePersistedWindowsApplicationIcon(iconPath, configDir); err != nil {
+		return err
+	}
+	recordCurrentWindowsShortcutIdentityState(iconPath, configDir)
+	return nil
+}
+
 func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath string) (uintptr, error) {
-	small, err := loadWindowsApplicationIcon(iconPath, windowsSmallIconPixels)
+	if err := migrateWindowsApplicationIconFile(iconPath); err != nil {
+		return 0, err
+	}
+	small, err := windowsApplicationIconLoad(iconPath, windowsSmallIconPixels)
 	if err != nil {
 		return 0, err
 	}
-	large, err := loadWindowsApplicationIcon(iconPath, windowsLargeIconPixels)
+	large, err := windowsApplicationIconLoad(iconPath, windowsLargeIconPixels)
 	if err != nil {
-		destroyWindowsApplicationIcon(small)
+		windowsApplicationIconDestroyCall(small)
 		return 0, err
 	}
 
 	mainWindow, err := resolveWailsMainWindowHandle(runtimeContext)
 	if err != nil {
-		destroyWindowsApplicationIcon(small)
-		destroyWindowsApplicationIcon(large)
+		windowsApplicationIconDestroyCall(small)
+		windowsApplicationIconDestroyCall(large)
 		return 0, fmt.Errorf("resolve Windows application window: %w", err)
 	}
 	applyErr := applyWindowsApplicationIcon(mainWindow, iconPath, small, large)
@@ -107,8 +217,8 @@ func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath s
 	windowsApplicationIconSmallHandle = small
 	windowsApplicationIconLargeHandle = large
 	windowsApplicationIconHandleMu.Unlock()
-	destroyWindowsApplicationIcon(previousSmall)
-	destroyWindowsApplicationIcon(previousLarge)
+	windowsApplicationIconDestroyCall(previousSmall)
+	windowsApplicationIconDestroyCall(previousLarge)
 	if applyErr != nil {
 		return mainWindow, applyErr
 	}
@@ -221,7 +331,7 @@ func updateCurrentWindowsApplicationShortcuts(iconPath string) error {
 	script := windowsShortcutRepairPowerShellScript + `
 
 $ErrorActionPreference = 'Stop'
-[void](Set-GoNaviShortcutBrandIcon -TargetPath $env:GONAVI_BRAND_TARGET -IconPath $env:GONAVI_BRAND_ICON)
+[void](Set-GoNaviShortcutBrandIcon -TargetPath $env:GONAVI_BRAND_TARGET -IconPath $env:GONAVI_BRAND_ICON -ApplicationUserModelID $env:GONAVI_BRAND_AUMID)
 `
 	if _, err := temporary.WriteString(strings.ReplaceAll(script, "\n", "\r\n")); err != nil {
 		_ = temporary.Close()
@@ -244,6 +354,7 @@ $ErrorActionPreference = 'Stop'
 	cmd.Env = append(cmd.Environ(),
 		"GONAVI_BRAND_TARGET="+executablePath,
 		"GONAVI_BRAND_ICON="+iconPath,
+		"GONAVI_BRAND_AUMID="+windowsApplicationUserModelIDForIconPath(iconPath),
 	)
 	configureWindowsUpdateCommand(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -254,4 +365,25 @@ $ErrorActionPreference = 'Stop'
 		return fmt.Errorf("update Windows application shortcuts: %w", err)
 	}
 	return nil
+}
+
+// removeStaleWindowsShortcutUpdateScripts deletes PowerShell payloads left in
+// the icon directory when a previous brand-icon selection was interrupted
+// before its deferred cleanup could run.
+func removeStaleWindowsShortcutUpdateScripts(configDir string) {
+	iconDir := filepath.Join(strings.TrimSpace(configDir), windowsApplicationIconDirectoryName)
+	entries, err := os.ReadDir(iconDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, ".gonavi-brand-shortcuts-") || !strings.HasSuffix(name, ".ps1") {
+			continue
+		}
+		_ = os.Remove(filepath.Join(iconDir, name))
+	}
 }

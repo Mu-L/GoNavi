@@ -1,9 +1,19 @@
 import React from 'react';
 
-import type { DataSyncTaskDefinition, DataSyncTaskKind } from './model';
-import type { DataSyncWorkbenchTranslate } from './text';
-
-const taskKindKey = (kind: DataSyncTaskKind) => `task_kind.${kind}` as const;
+import {
+  DATA_SYNC_FAMILY_KIND_CHOICES,
+  type DataSyncCompareMode,
+  type DataSyncTaskDefinition,
+  type DataSyncTaskKind,
+  type DataSyncTaskKindChoice,
+  type DataSyncWorkbenchFamily,
+} from './model';
+import {
+  dataSyncTaskKindChoiceTextKey,
+  dataSyncTaskKindTextKey,
+  type DataSyncWorkbenchTextKey,
+  type DataSyncWorkbenchTranslate,
+} from './text';
 
 const endpointName = (
   task: DataSyncTaskDefinition,
@@ -90,7 +100,7 @@ export const DataSyncTaskList: React.FC<{
             <span className="gn-data-sync-task-row__marker" aria-hidden="true" />
             <span className="gn-data-sync-task-row__content">
               <span className="gn-data-sync-task-row__name">
-                {task.name || t(taskKindKey(task.kind))}
+                {task.name || t(dataSyncTaskKindTextKey(task))}
               </span>
               <span className="gn-data-sync-task-row__route">
                 {endpointName(task, 'source', t('route.pending_source'))}
@@ -98,7 +108,7 @@ export const DataSyncTaskList: React.FC<{
                 {endpointName(task, 'target', t('route.pending_target'))}
               </span>
               <span className="gn-data-sync-task-row__meta">
-                {t(taskKindKey(task.kind))} ·{' '}
+                {t(dataSyncTaskKindTextKey(task))} ·{' '}
                 {t('task_list.revision', { revision: task.revision })}
               </span>
             </span>
@@ -115,40 +125,57 @@ export const DataSyncTaskList: React.FC<{
   </aside>
 );
 
-const TASK_KINDS: DataSyncTaskKind[] = [
-  'migration',
-  'reconcile',
-  'querySink',
-  'compare',
-  'cdc',
+const FALLBACK_KIND_CHOICES: readonly DataSyncTaskKindChoice[] = [
+  { kind: 'migration' },
+  { kind: 'reconcile' },
+  { kind: 'querySink' },
+  { kind: 'compare' },
+  { kind: 'cdc' },
 ];
+
+const kindChoiceKey = (choice: DataSyncTaskKindChoice) =>
+  choice.compareMode ? `${choice.kind}:${choice.compareMode}` : choice.kind;
+
+const kindChoiceDescKey = (choice: DataSyncTaskKindChoice): DataSyncWorkbenchTextKey =>
+  choice.kind === 'compare' && choice.compareMode
+    ? (`task_kind.compare_${choice.compareMode}_desc` as DataSyncWorkbenchTextKey)
+    : (`task_kind.${choice.kind}_desc` as DataSyncWorkbenchTextKey);
 
 export const DataSyncTaskKindSelector: React.FC<{
   t: DataSyncWorkbenchTranslate;
-  onSelect: (kind: DataSyncTaskKind) => void;
-}> = ({ t, onSelect }) => (
-  <section className="gn-data-sync-kind-selector" data-data-sync-kind-selector="true">
-    <header>
-      <h2>{t('task_kind.title')}</h2>
-      <p>{t('task_kind.subtitle')}</p>
-    </header>
-    <div className="gn-data-sync-kind-table" role="list">
-      {TASK_KINDS.map((kind) => (
-        <button
-          key={kind}
-          type="button"
-          role="listitem"
-          className="gn-data-sync-kind-row"
-          data-task-kind={kind}
-          onClick={() => onSelect(kind)}
-        >
-          <span className="gn-data-sync-kind-row__arrow" aria-hidden="true">→</span>
-          <span>
-            <strong>{t(taskKindKey(kind))}</strong>
-            <small>{t(`task_kind.${kind}_desc`)}</small>
-          </span>
-        </button>
-      ))}
-    </div>
-  </section>
-);
+  family?: DataSyncWorkbenchFamily;
+  onSelect: (kind: DataSyncTaskKind, compareMode?: DataSyncCompareMode) => void;
+}> = ({ t, family, onSelect }) => {
+  const choices = family ? DATA_SYNC_FAMILY_KIND_CHOICES[family] : FALLBACK_KIND_CHOICES;
+  return (
+    <section
+      className="gn-data-sync-kind-selector"
+      data-data-sync-kind-selector="true"
+      data-workbench-family={family || ''}
+    >
+      <header>
+        <h2>{t('task_kind.title')}</h2>
+        <p>{t(family === 'compare' ? 'task_kind.subtitle_compare' : 'task_kind.subtitle')}</p>
+      </header>
+      <div className="gn-data-sync-kind-table" role="list">
+        {choices.map((choice) => (
+          <button
+            key={kindChoiceKey(choice)}
+            type="button"
+            role="listitem"
+            className="gn-data-sync-kind-row"
+            data-task-kind={choice.kind}
+            data-compare-mode={choice.compareMode || ''}
+            onClick={() => onSelect(choice.kind, choice.compareMode)}
+          >
+            <span className="gn-data-sync-kind-row__arrow" aria-hidden="true">→</span>
+            <span>
+              <strong>{t(dataSyncTaskKindChoiceTextKey(choice))}</strong>
+              <small>{t(kindChoiceDescKey(choice))}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+};

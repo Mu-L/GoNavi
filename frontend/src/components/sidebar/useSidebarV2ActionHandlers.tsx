@@ -8,6 +8,7 @@ import type { ConnectionTag, SavedConnection } from '../../types';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../utils/connectionVisual';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { isConnectionDataEditRestricted } from '../../utils/connectionReadOnly';
 import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchConsole';
 import {
   buildTableSelectQuery,
@@ -16,6 +17,7 @@ import {
 } from '../../utils/objectQueryTemplates';
 import { DBReleaseConnection } from '../../../wailsjs/go/app/App';
 import { updateSidebarDatabasePinKeys } from '../../store';
+import type { SidebarTableSortPreference } from '../../utils/sidebarTreeOrder';
 import { getDbIcon } from '../DatabaseIcons';
 import { getMetadataDialect } from './sidebarMetadataLoaders';
 import {
@@ -35,6 +37,7 @@ import {
   type V2RailConnectionGroup,
 } from '../sidebarV2Utils';
 import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
+import { supportsTableClearAction } from '../tableDataDangerActions';
 
 type UseSidebarV2ActionHandlersArgs = {
   connections: SavedConnection[];
@@ -69,7 +72,7 @@ type UseSidebarV2ActionHandlersArgs = {
   moveConnectionToTag: (connectionId: string, tagId: string | null) => void;
   setSidebarTablePinned: (connectionId: string, dbName: string, tableName: string, schemaName: string, pinned: boolean) => void;
   setSidebarDatabasePinned: (connectionId: string, dbName: string, pinned: boolean) => void;
-  setTableSortPreference: (connectionId: string, dbName: string, sortBy: 'name' | 'frequency') => void;
+  setTableSortPreference: (connectionId: string, dbName: string, sortBy: SidebarTableSortPreference) => void;
   replaceTreeNodeChildren: (key: React.Key, children: TreeNode[] | undefined) => void;
   loadDatabases: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
   loadTables: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
@@ -99,6 +102,7 @@ type UseSidebarV2ActionHandlersArgs = {
   handleExportDatabaseSQL: (node: any, includeData: boolean) => Promise<void>;
   openBatchTableWorkbench: (node?: any) => void;
   openBatchDatabaseWorkbench: (node?: any) => void;
+  openBatchConnectionWorkbench: (node?: any) => void;
   handleRunSQLFile: (node: any) => void;
   handleDeleteDatabase: (node: any) => void;
   onCreateConnectionInGroup?: (targetTagId: string) => void;
@@ -173,6 +177,7 @@ export const useSidebarV2ActionHandlers = ({
   handleExportDatabaseSQL,
   openBatchTableWorkbench,
   openBatchDatabaseWorkbench,
+  openBatchConnectionWorkbench,
   handleRunSQLFile,
   handleDeleteDatabase,
   onCreateConnectionInGroup,
@@ -268,6 +273,13 @@ export const useSidebarV2ActionHandlers = ({
         return;
       case 'truncate-table':
         void handleTableDataDangerAction(node, 'truncate');
+        return;
+      case 'clear-table':
+        if (
+          !supportsTableClearAction(node.dataRef?.config?.type, node.dataRef?.config?.driver)
+          || isConnectionDataEditRestricted(node.dataRef?.config)
+        ) return;
+        void handleTableDataDangerAction(node, 'clear');
         return;
       case 'drop-table':
         handleDeleteTable(node);
@@ -619,6 +631,9 @@ export const useSidebarV2ActionHandlers = ({
         return;
       case 'copy-connection':
         void handleDuplicateConnection(node.dataRef as SavedConnection);
+        return;
+      case 'batch-connections':
+        openBatchConnectionWorkbench(node);
         return;
       case 'disconnect':
         void disconnectConnectionNode(node);

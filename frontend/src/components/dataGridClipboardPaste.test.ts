@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDataGridClipboardPasteRows,
   parseDataGridClipboardData,
+  parseDataGridClipboardHtml,
   parseDataGridClipboardText,
 } from './dataGridClipboardPaste';
 import { buildSelectedCellClipboardPayload } from './dataGridSelectionCopy';
@@ -30,6 +31,9 @@ describe('dataGridClipboardPaste helpers', () => {
       [''],
     ]);
     expect(parseDataGridClipboardText('')).toEqual([['']]);
+    expect(parseDataGridClipboardText('"NULL"\t"""NULL"""\tNULL')).toEqual([
+      ['NULL', '"NULL"', null],
+    ]);
   });
 
   it('prefers HTML table data over plain TSV so tabs inside cells are preserved', () => {
@@ -264,5 +268,203 @@ describe('dataGridClipboardPaste helpers', () => {
       }],
       updatedCellCount: 1,
     });
+  });
+
+  it('round-trips NULL, quoted NULL text and real null through every clipboard format', () => {
+    const payload = buildSelectedCellClipboardPayload({
+      selectedCells: [
+        { rowKey: 'row-1', colName: 'literal' },
+        { rowKey: 'row-1', colName: 'quoted' },
+        { rowKey: 'row-1', colName: 'empty' },
+      ],
+      rows: [
+        { __rowKey: 'row-1', literal: 'NULL', quoted: '"NULL"', empty: null },
+      ],
+      columnOrder: ['literal', 'quoted', 'empty'],
+      rowKeyField: '__rowKey',
+    });
+    const expected = [['NULL', '"NULL"', null]];
+
+    expect(parseDataGridClipboardHtml(payload.html || '')).toEqual(expected);
+    expect(parseDataGridClipboardText(payload.plainText)).toEqual(expected);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': payload.json || '',
+      'text/html': payload.html || '',
+      'text/csv': payload.csv || '',
+      'text/plain': payload.plainText,
+    }))).toEqual(expected);
+    expect(parseDataGridClipboardData(clipboardData({
+      'text/html': payload.html || '',
+    }))).toEqual(expected);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': payload.json || '',
+    }))).toEqual(expected);
+    expect(parseDataGridClipboardData(clipboardData({
+      'text/plain': payload.plainText,
+    }))).toEqual(expected);
+  });
+
+  it('keeps external spreadsheet NULL tokens as database null', () => {
+    expect(parseDataGridClipboardHtml('<table><tr><td>NULL</td><th></th></tr></table>')).toEqual([
+      [null, ''],
+    ]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'text/html': '<table><tr><td>NULL</td></tr></table>',
+      'text/plain': 'NULL',
+    }))).toEqual([[null]]);
+    expect(parseDataGridClipboardHtml('   ')).toEqual([]);
+    expect(parseDataGridClipboardHtml('')).toEqual([]);
+    expect(parseDataGridClipboardHtml(undefined as unknown as string)).toEqual([]);
+    expect(parseDataGridClipboardData(null)).toEqual([]);
+    expect(parseDataGridClipboardData(clipboardData({}))).toEqual([]);
+  });
+
+  it('treats an explicit in-app null marker as null even without the table marker', () => {
+    expect(parseDataGridClipboardHtml(
+      '<table><tr><td data-gonavi-null="true">NULL</td><td>NULL</td></tr></table>',
+    )).toEqual([
+      [null, null],
+    ]);
+  });
+
+  it('falls through invalid in-app JSON to HTML or plain text', () => {
+    const html = '<table data-gonavi-clipboard="true"><tr><td>NULL</td><td data-gonavi-null="true">NULL</td></tr></table>';
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': '{',
+      'text/html': html,
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': JSON.stringify({ gonaviGrid: 2, values: [['NULL', null]] }),
+      'text/plain': '"NULL"\tNULL',
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': JSON.stringify({ gonaviGrid: 1, values: 'nope' }),
+      'text/plain': '"NULL"\tNULL',
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': JSON.stringify({ gonaviGrid: 1, values: [{ literal: 'NULL' }] }),
+      'text/plain': '"NULL"\tNULL',
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': JSON.stringify({ gonaviGrid: 1, values: [[1]] }),
+      'text/plain': '"NULL"\tNULL',
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': 'null',
+      'text/plain': '"NULL"\tNULL',
+    }))).toEqual([['NULL', null]]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'application/json': JSON.stringify({ gonaviGrid: 1, values: [[]] }),
+      'text/html': html,
+    }))).toEqual([['NULL', null]]);
+  });
+
+  it('returns an empty paste plan for invalid coordinates and fills a single-cell selection', () => {
+    expect(buildDataGridClipboardPasteRows({
+      matrix: [],
+      rows: [{ rowKey: 'row-1', name: 'old' }],
+      columnNames: ['name'],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      rowKeyField: 'rowKey',
+      addedRowKeys: new Set(),
+      modifiedRows: {},
+      deletedRowKeys: new Set(),
+      isWritableColumn: () => true,
+      isValueEqual,
+    })).toEqual({ rows: [], updatedCellCount: 0 });
+    expect(buildDataGridClipboardPasteRows({
+      matrix: [['x']],
+      rows: [{ rowKey: 'row-1', name: 'old' }],
+      columnNames: ['name'],
+      startRowIndex: -1,
+      startColumnIndex: 0,
+      rowKeyField: 'rowKey',
+      addedRowKeys: new Set(),
+      modifiedRows: {},
+      deletedRowKeys: new Set(),
+      isWritableColumn: () => true,
+      isValueEqual,
+    })).toEqual({ rows: [], updatedCellCount: 0 });
+
+    const filled = buildDataGridClipboardPasteRows({
+      matrix: [['NULL']],
+      rows: [
+        { rowKey: 'row-1', name: 'old-1' },
+        { rowKey: 'row-2', name: 'old-2' },
+      ],
+      columnNames: ['name'],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      targetCells: [
+        { rowIndex: 0, columnIndex: 0 },
+        { rowIndex: 1, columnIndex: 0 },
+      ],
+      rowKeyField: 'rowKey',
+      addedRowKeys: new Set(),
+      modifiedRows: {},
+      deletedRowKeys: new Set(),
+      isWritableColumn: () => true,
+      isValueEqual,
+    });
+    expect(filled).toEqual({
+      rows: [
+        {
+          rowKey: 'row-1',
+          values: { name: 'NULL' },
+          modifiedValues: { name: 'NULL' },
+          modifiedColumnNames: ['name'],
+          isAdded: false,
+        },
+        {
+          rowKey: 'row-2',
+          values: { name: 'NULL' },
+          modifiedValues: { name: 'NULL' },
+          modifiedColumnNames: ['name'],
+          isAdded: false,
+        },
+      ],
+      updatedCellCount: 2,
+    });
+  });
+
+  it('ignores clipboard types that cannot produce a table', () => {
+    expect(parseDataGridClipboardData({
+      getData: () => 'NULL',
+    })).toEqual([]);
+    expect(parseDataGridClipboardHtml('<table><tr></tr></table>')).toEqual([]);
+    expect(parseDataGridClipboardData(clipboardData({
+      'text/csv': '"alpha","NULL"\n',
+    }))).toEqual([['alpha', null]]);
+  });
+
+  it('skips unchanged cells and columns that are missing from the target grid', () => {
+    expect(buildDataGridClipboardPasteRows({
+      matrix: [['same']],
+      rows: [{ rowKey: 'row-1', name: 'same' }],
+      columnNames: ['name'],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      rowKeyField: 'rowKey',
+      addedRowKeys: new Set(),
+      modifiedRows: {},
+      deletedRowKeys: new Set(),
+      isWritableColumn: () => true,
+      isValueEqual,
+    })).toEqual({ rows: [], updatedCellCount: 0 });
+
+    expect(buildDataGridClipboardPasteRows({
+      matrix: [['x']],
+      rows: [{ rowKey: 'row-1', name: 'old' }],
+      columnNames: [],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      rowKeyField: 'rowKey',
+      addedRowKeys: new Set(),
+      modifiedRows: {},
+      deletedRowKeys: new Set(),
+      isWritableColumn: () => true,
+      isValueEqual,
+    })).toEqual({ rows: [], updatedCellCount: 0 });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   absorbExtraWidthIntoFlexibleColumns,
@@ -8,9 +8,102 @@ import {
   resolveExternalHorizontalScrollMetrics,
   resolveDataGridColumnQuickFindScrollLeft,
   resolveDataGridHorizontalWheelDelta,
+  resolveDataGridMeasurementHeight,
+  resolveNativeHorizontalWheelScrollLeft,
+  resolveVirtualHorizontalMaxScroll,
+  observeDataGridMetrics,
+  shouldCommitVirtualHorizontalRange,
+  shouldLetNativeHorizontalWheelPass,
 } from './dataGridLayout';
 
 describe('dataGridLayout helpers', () => {
+  it('derives the first query-result grid height from the already stable tabs content', () => {
+    expect(resolveDataGridMeasurementHeight({
+      measuredHeight: 94,
+      rootHeight: 180,
+      queryResultHeight: 534,
+      queryResultSiblingHeight: 0,
+    })).toBe(448);
+
+    expect(resolveDataGridMeasurementHeight({
+      measuredHeight: 94,
+      rootHeight: 180,
+      queryResultHeight: 534,
+      queryResultSiblingHeight: 64,
+    })).toBe(384);
+  });
+
+  it('keeps the measured grid height outside query-result tabs', () => {
+    expect(resolveDataGridMeasurementHeight({
+      measuredHeight: 320,
+    })).toBe(320);
+  });
+
+  it('measures synchronously until the first valid grid size, then coalesces resizes', () => {
+    const previousDescriptors = new Map(
+      ['ResizeObserver', 'window', 'document', 'requestAnimationFrame', 'cancelAnimationFrame'].map((name) => [
+        name,
+        Object.getOwnPropertyDescriptor(globalThis, name),
+      ]),
+    );
+    let resizeCallback: (() => void) | undefined;
+    let scheduledFrame: FrameRequestCallback | undefined;
+    const disconnect = vi.fn();
+    const target = {} as HTMLElement;
+    const measure = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+      .mockReturnValue(true);
+
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: class {
+        constructor(callback: () => void) {
+          resizeCallback = callback;
+        }
+        observe = vi.fn();
+        disconnect = disconnect;
+      },
+    });
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { body: { getAttribute: () => null } },
+    });
+    Object.defineProperty(globalThis, 'requestAnimationFrame', {
+      configurable: true,
+      value: vi.fn((callback: FrameRequestCallback) => {
+        scheduledFrame = callback;
+        return 1;
+      }),
+    });
+    Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    try {
+      const dispose = observeDataGridMetrics(target, measure);
+      expect(measure).toHaveBeenCalledTimes(1);
+      resizeCallback?.();
+      expect(measure).toHaveBeenCalledTimes(2);
+      resizeCallback?.();
+      expect(measure).toHaveBeenCalledTimes(2);
+      scheduledFrame?.(0);
+      expect(measure).toHaveBeenCalledTimes(3);
+      dispose();
+      expect(disconnect).toHaveBeenCalledOnce();
+    } finally {
+      for (const [name, descriptor] of previousDescriptors) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else Reflect.deleteProperty(globalThis, name);
+      }
+    }
+  });
+
   it('returns zero bottom padding without horizontal overflow', () => {
     expect(calculateTableBodyBottomPadding({
       hasHorizontalOverflow: false,
@@ -34,8 +127,41 @@ describe('dataGridLayout helpers', () => {
 
   it('keeps scroll width aligned with viewport or content width', () => {
     expect(calculateVirtualTableScrollX({ totalWidth: 646, tableViewportWidth: 1200, isMacLike: false })).toBe(1200);
+    expect(calculateVirtualTableScrollX({
+      totalWidth: 82,
+      tableViewportWidth: 1200,
+      isMacLike: true,
+      stretchToViewport: false,
+    })).toBe(82);
     expect(calculateVirtualTableScrollX({ totalWidth: 646, tableViewportWidth: 0, isMacLike: false })).toBe(646);
     expect(calculateVirtualTableScrollX({ totalWidth: 1200, tableViewportWidth: 800, isMacLike: true })).toBe(1202);
+    expect(calculateVirtualTableScrollX({
+      totalWidth: 1200,
+      tableViewportWidth: 800,
+      isMacLike: false,
+      nativeHorizontalScroll: true,
+    })).toBe(1202);
+  });
+
+  it('clamps native horizontal scroll to the live DOM range so the thumb can reach the end', () => {
+    expect(resolveVirtualHorizontalMaxScroll({
+      tableScrollX: 2000,
+      clientWidth: 800,
+      scrollWidth: 2016,
+      useNativeScroll: true,
+    })).toBe(1216);
+    expect(resolveVirtualHorizontalMaxScroll({
+      tableScrollX: 2000,
+      clientWidth: 800,
+      scrollWidth: 0,
+      useNativeScroll: true,
+    })).toBe(1200);
+    expect(resolveVirtualHorizontalMaxScroll({
+      tableScrollX: 2000,
+      clientWidth: 800,
+      scrollWidth: 2016,
+      useNativeScroll: false,
+    })).toBe(1200);
   });
 
   it('absorbs leftover viewport width into the last flexible data column only', () => {
@@ -167,5 +293,56 @@ describe('dataGridLayout helpers', () => {
       deltaY: 20,
       shiftKey: true,
     })).toBe(20);
+  });
+
+  it('lets native compositor horizontal wheel pass on Mac-like virtual tables', () => {
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: false,
+      nativeHorizontalEnabled: true,
+    })).toBe(true);
+
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: true,
+      nativeHorizontalEnabled: true,
+    })).toBe(false);
+
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: false,
+      nativeHorizontalEnabled: false,
+    })).toBe(false);
+  });
+
+  it('applies native horizontal wheel deltas onto the holder scrollLeft', () => {
+    expect(resolveNativeHorizontalWheelScrollLeft({
+      delta: 48,
+      currentScrollLeft: 120,
+      maxScrollLeft: 800,
+    })).toBe(168);
+
+    expect(resolveNativeHorizontalWheelScrollLeft({
+      delta: 48,
+      currentScrollLeft: 780,
+      maxScrollLeft: 800,
+    })).toBe(800);
+  });
+
+  it('commits the virtual column window before the retained overscan is exhausted', () => {
+    expect(shouldCommitVirtualHorizontalRange({
+      nextOffset: 480,
+      lastCommittedOffset: 0,
+      thresholdPx: 480,
+    })).toBe(true);
+
+    expect(shouldCommitVirtualHorizontalRange({
+      nextOffset: 400,
+      lastCommittedOffset: 0,
+      thresholdPx: 480,
+    })).toBe(false);
   });
 });

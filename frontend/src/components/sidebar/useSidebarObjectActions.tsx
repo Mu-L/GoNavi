@@ -25,7 +25,14 @@ import {
   getMetadataDialect,
   splitQualifiedName,
 } from './sidebarMetadataLoaders';
-import { buildOracleObjectCompileSQL } from './oracleObjectCompilation';
+import {
+  buildOracleObjectCompileSQL,
+  formatOracleCompileErrors,
+  loadOracleCompileErrors,
+  resolveOracleCompileTarget,
+  supportsOracleObjectCompilation,
+} from './oracleObjectCompilation';
+import { resolveCopyObjectNameLabel } from './sidebarCopyObjectName';
 import {
   resolveSidebarDatabaseNameForCopy,
   resolveSidebarTableNameForCopy,
@@ -150,15 +157,6 @@ type UseSidebarObjectActionsArgs = {
     oldDbName: string,
     newDbName?: string,
   ) => void;
-};
-
-const resolveCopyObjectNameLabel = (node: any): string => {
-  if (node?.type === 'view') return t('sidebar.copy_object_name.label.view');
-  if (node?.type === 'materialized-view') return t('sidebar.copy_object_name.label.materialized_view');
-  if (node?.type === 'sequence') return t('sidebar.copy_object_name.label.sequence');
-  if (node?.type === 'package') return t('sidebar.copy_object_name.label.package');
-  if (node?.type === 'db-event') return t('sidebar.copy_object_name.label.event');
-  return t('sidebar.copy_object_name.label.table');
 };
 
 const resolveNodeSchemaName = (node: any): string | undefined => {
@@ -1563,7 +1561,7 @@ export const useSidebarObjectActions = ({
 
   const handleCompileOracleObject = async (node: any) => {
     const conn = node?.dataRef;
-    if (!conn || getMetadataDialect(conn as SavedConnection) !== 'oracle') return;
+    if (!conn || !supportsOracleObjectCompilation(getMetadataDialect(conn as SavedConnection))) return;
 
     const isTrigger = node?.type === 'db-trigger';
     const objectName = String(
@@ -1574,13 +1572,19 @@ export const useSidebarObjectActions = ({
       : t(String(conn.routineType || '').toUpperCase() === 'PROCEDURE'
         ? 'sidebar.object.procedure'
         : 'sidebar.object.function');
+    const compileTarget = resolveOracleCompileTarget({
+      kind: isTrigger ? 'trigger' : 'routine',
+      objectName,
+      schemaName: conn.schemaName || conn.dbName,
+      routineType: conn.routineType,
+    });
     const compileSQL = buildOracleObjectCompileSQL({
       kind: isTrigger ? 'trigger' : 'routine',
       objectName,
       schemaName: conn.schemaName,
       routineType: conn.routineType,
     });
-    if (!compileSQL) {
+    if (!compileSQL || !compileTarget) {
       message.error(t('sidebar.message.object_compile_target_invalid'));
       return;
     }
@@ -1591,11 +1595,8 @@ export const useSidebarObjectActions = ({
 
     try {
       const config = buildRuntimeConfig(conn, conn.dbName);
-      const result = await DBQuery(
-        buildRpcConnectionConfig(config) as any,
-        conn.dbName,
-        compileSQL,
-      );
+      const rpcConfig = buildRpcConnectionConfig(config) as any;
+      const result = await DBQuery(rpcConfig, conn.dbName, compileSQL);
       if (!result.success) {
         message.error(t('sidebar.message.object_compile_failed', {
           type: objectLabel,
@@ -1604,11 +1605,22 @@ export const useSidebarObjectActions = ({
         }));
         return;
       }
+      const compileErrors = await loadOracleCompileErrors([compileTarget], {
+        query: (sql) => DBQuery(rpcConfig, conn.dbName, sql),
+      });
+      if (compileErrors.length > 0) {
+        message.error(t('sidebar.message.object_compile_failed', {
+          type: objectLabel,
+          name: objectName,
+          error: formatOracleCompileErrors(compileErrors),
+        }));
+      } else {
+        message.success(t('sidebar.message.object_compile_success', {
+          type: objectLabel,
+          name: objectName,
+        }));
+      }
       await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
-      message.success(t('sidebar.message.object_compile_success', {
-        type: objectLabel,
-        name: objectName,
-      }));
     } catch (error: any) {
       message.error(t('sidebar.message.object_compile_failed', {
         type: objectLabel,

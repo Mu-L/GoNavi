@@ -54,6 +54,14 @@ export const resolveSidebarContextMenuPosition = (
   };
 };
 
+export const resolveSidebarTreeRowKey = (target: EventTarget | null | undefined): string | null => {
+  if (!target || typeof (target as Element).closest !== 'function') return null;
+  const row = (target as Element).closest('.ant-tree-treenode');
+  const key = row?.getAttribute('data-sidebar-node-key')
+    || row?.querySelector('[data-sidebar-node-key]')?.getAttribute('data-sidebar-node-key');
+  return String(key || '').trim() || null;
+};
+
 export const isV2SidebarObjectNode = (node: Pick<SidebarObjectNodeLike, 'type'> | null | undefined): boolean => {
   return node?.type === 'message-object'
     || node?.type === 'table'
@@ -63,7 +71,8 @@ export const isV2SidebarObjectNode = (node: Pick<SidebarObjectNodeLike, 'type'> 
     || node?.type === 'db-trigger'
     || node?.type === 'db-event'
     || node?.type === 'routine'
-    || node?.type === 'package';
+    || node?.type === 'package'
+    || node?.type === 'database-link';
 };
 
 export const resolveSidebarObjectDragText = (
@@ -87,6 +96,7 @@ export const resolveSidebarObjectDragText = (
   if (node?.type === 'db-trigger') return String(dataRef.triggerName || node?.title || '').trim();
   if (node?.type === 'routine') return String(dataRef.routineName || node?.title || '').trim();
   if (node?.type === 'package') return String(dataRef.packageName || node?.title || '').trim();
+  if (node?.type === 'database-link') return String(dataRef.databaseLinkName || node?.title || '').trim();
   if (node?.type === 'db-event') return String(dataRef.eventName || node?.title || '').trim();
   return '';
 };

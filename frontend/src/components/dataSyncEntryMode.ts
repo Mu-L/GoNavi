@@ -1,4 +1,16 @@
-export type DataSyncEntryMode = 'sync' | 'schemaCompare' | 'dataCompare';
+export type DataSyncEntryMode = 'sync' | 'compare';
+
+/** Legacy session/menu aliases that all map onto the compare workbench. */
+export type DataSyncEntryModeAlias = DataSyncEntryMode | 'schemaCompare' | 'dataCompare';
+
+export const normalizeDataSyncEntryMode = (
+  entryMode?: string | null,
+): DataSyncEntryMode =>
+  entryMode === 'compare' ||
+  entryMode === 'schemaCompare' ||
+  entryMode === 'dataCompare'
+    ? 'compare'
+    : 'sync';
 
 export type DataSyncEntryModePresentation = {
   title: string;
@@ -19,10 +31,24 @@ type DataSyncEntryModeTranslator = (key: string) => string;
 const text = (key: string, t?: DataSyncEntryModeTranslator) => (t ? t(key) : key);
 
 export const resolveDataSyncEntryModePresentation = (
-  entryMode: DataSyncEntryMode,
+  entryMode: DataSyncEntryModeAlias,
   t?: DataSyncEntryModeTranslator,
 ): DataSyncEntryModePresentation => {
   switch (entryMode) {
+    case 'compare':
+      return {
+        title: text('data_sync.entry_mode.compare.title', t),
+        description: text('data_sync.entry_mode.compare.description', t),
+        heroTitle: text('data_sync.entry_mode.compare.title', t),
+        heroDescription: text('data_sync.entry_mode.compare.hero_description', t),
+        optionTitle: text('data_sync.entry_mode.compare.option_title', t),
+        tableSelectLabel: text('data_sync.entry_mode.compare.table_select_label', t),
+        analyzeButtonText: text('data_sync.entry_mode.compare.action.start', t),
+        closeButtonText: text('data_sync.action.close', t),
+        badgeText: text('data_sync.entry_mode.compare.badge', t),
+        resultTitle: text('data_sync.entry_mode.compare.result_title', t),
+        readOnly: true,
+      };
     case 'schemaCompare':
       return {
         title: text('data_sync.entry_mode.schema_compare.title', t),
