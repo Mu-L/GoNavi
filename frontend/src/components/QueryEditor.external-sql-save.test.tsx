@@ -16498,7 +16498,24 @@ WHERE GRANTEE = 'APPUSER';`;
     expect(dataGridState.latestProps?.data).toEqual(expect.arrayContaining([expect.objectContaining({ a: 1 })]));
   });
 
-  it('shows "Select a database first." in English before running without a database', async () => {
+  it('shows "Select a database first." in English before running database-dependent SQL without a database', async () => {
+    storeState.languagePreference = 'en-US';
+    setCurrentLanguage('en-US');
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: '', query: 'select * from orders;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, 'Run').props.onClick();
+    });
+
+    expect(messageApi.error).toHaveBeenCalledWith('Select a database first.');
+    expect(messageApi.error).not.toHaveBeenCalledWith('请先选择数据库');
+  });
+
+  it('runs database-free SQL without a selected database', async () => {
     storeState.languagePreference = 'en-US';
     setCurrentLanguage('en-US');
 
@@ -16511,8 +16528,10 @@ WHERE GRANTEE = 'APPUSER';`;
       await findButton(renderer, 'Run').props.onClick();
     });
 
-    expect(messageApi.error).toHaveBeenCalledWith('Select a database first.');
-    expect(messageApi.error).not.toHaveBeenCalledWith('请先选择数据库');
+    expect(messageApi.error).not.toHaveBeenCalledWith('Select a database first.');
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledTimes(1);
+    const executedSql = String(backendApp.DBQueryMulti.mock.calls[0][2]);
+    expect(executedSql).toContain('select 1');
   });
 
   it('shows "Connection not found." in English before running without a matching connection', async () => {
