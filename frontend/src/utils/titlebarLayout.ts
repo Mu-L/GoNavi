@@ -175,3 +175,14 @@ export const resolveTitleBarLayout = (
     emptyWorkbenchTopOffset: height - compactLayout.height,
   };
 };
+
+/**
+ * The empty-workbench overlap for the docked band, independent of whether the
+ * band is currently shown. The value lives on the app root, where any change
+ * restyles every element, so it must not flip with the sidebar; CSS applies it
+ * only while the collapsed actions are docked.
+ */
+export const resolveDockedTitleBarBandOffset = (
+  uiScale: number,
+  sidebarButtonScale = 1,
+): number => resolveTitleBarLayout(uiScale, true, sidebarButtonScale).emptyWorkbenchTopOffset;

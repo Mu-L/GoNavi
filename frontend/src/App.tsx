@@ -307,6 +307,7 @@ import {
 } from './utils/overlayZIndex';
 import { useAppUpdateManager } from './hooks/useAppUpdateManager';
 import { useAppLogPanelResize } from './hooks/useAppLogPanelResize';
+import { useAppSidebarCollapse } from './hooks/useAppSidebarCollapse';
 import { useAppSidebarResize } from './hooks/useAppSidebarResize';
 import { resolveSidebarResizeHitGeometry } from './utils/sidebarLayout';
 import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/newQueryContext';
@@ -338,6 +339,7 @@ import { getAntdLocale } from './i18n/frameworkLocale';
 import { useI18n } from './i18n/provider';
 import {
   normalizeTitlebarRuntimePlatform,
+  resolveDockedTitleBarBandOffset,
   resolveDocumentPlatform,
   resolveTitleBarLayout,
   resolveTitlebarRuntimePlatform,
@@ -1217,12 +1219,6 @@ function App() {
   const LazyAISettingsContent = useMemo(createLazyAISettingsContent, [aiSettingsRenderNonce]);
   const sidebarWidth = useStore(state => state.sidebarWidth);
   const setSidebarWidth = useStore(state => state.setSidebarWidth);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [collapsedSidebarActionsTarget, setCollapsedSidebarActionsTarget] = useState<HTMLDivElement | null>(null);
-  const sidebarContentRef = useRef<HTMLDivElement>(null);
-  const sidebarCollapsedToggleRef = useRef<HTMLButtonElement>(null);
-  const sidebarExplorerToggleRef = useRef<HTMLButtonElement>(null);
-  const pendingSidebarToggleFocusRef = useRef<'collapsed' | 'explorer' | null>(null);
   const navigatorPlatform = detectNavigatorPlatform();
   const documentPlatform = resolveDocumentPlatform(runtimePlatform, navigatorPlatform);
   const titlebarRuntimePlatform = resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform);
@@ -1232,41 +1228,19 @@ function App() {
       navigatorPlatform,
       isWebRuntime,
   );
-  const isCollapsedSidebarActionsDocked = isSidebarCollapsed && shouldDockCollapsedSidebarActionsInTitlebar;
-  useLayoutEffect(() => {
-      const sidebarContent = sidebarContentRef.current;
-      if (!sidebarContent) return;
-      // aria-hidden alone does not remove focusable tree wrappers from the tab order.
-      sidebarContent.inert = isCollapsedSidebarActionsDocked;
-  }, [isCollapsedSidebarActionsDocked]);
-  const handleCollapseSidebarPanel = useCallback(() => {
-      if (typeof document !== 'undefined') {
-          const activeElement = document.activeElement as HTMLElement | null;
-          if (activeElement?.closest?.('[data-sidebar-content="true"]')) {
-              activeElement.blur();
-          }
-      }
-      pendingSidebarToggleFocusRef.current = 'collapsed';
-      setIsSidebarCollapsed(true);
-  }, []);
-  const handleExpandSidebarPanel = useCallback(() => {
-      pendingSidebarToggleFocusRef.current = 'explorer';
-      setIsSidebarCollapsed(false);
-  }, []);
-  const handleTitlebarSidebarToggle = useCallback(() => {
-      setIsSidebarCollapsed((collapsed) => !collapsed);
-  }, []);
-  useLayoutEffect(() => {
-      const target = pendingSidebarToggleFocusRef.current;
-      if (!target) return;
-      if (
-          target === 'collapsed'
-          && isCollapsedSidebarActionsDocked
-          && !collapsedSidebarActionsTarget
-      ) return;
-      pendingSidebarToggleFocusRef.current = null;
-      (target === 'collapsed' ? sidebarCollapsedToggleRef : sidebarExplorerToggleRef).current?.focus();
-  }, [collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]);
+  const {
+      collapsedSidebarActionsTarget,
+      handleCollapseSidebarPanel,
+      handleEnsureSidebarExpanded,
+      handleExpandSidebarPanel,
+      isCollapsedSidebarActionsDocked,
+      isSidebarCollapsed,
+      setCollapsedSidebarActionsTarget,
+      setIsSidebarCollapsed,
+      sidebarCollapsedToggleRef,
+      sidebarContentRef,
+      sidebarExplorerToggleRef,
+  } = useAppSidebarCollapse(shouldDockCollapsedSidebarActionsInTitlebar);
   const titleBarLayout = resolveTitleBarLayout(
       effectiveUiScale,
       isCollapsedSidebarActionsDocked,
@@ -3804,6 +3778,8 @@ function App() {
           selectedConnectionIds: connections.map((item) => item.id),
       });
   };
+  const handleExportConnectionsRef = useRef(handleExportConnections);
+  handleExportConnectionsRef.current = handleExportConnections;
 
   // === Excel 批量导入（issue #1226）：统一入口按格式分流 ===
   // Excel 导入结果里分组按连接名声明；导入完成后按名字→ID 映射把连接挂入
@@ -4537,7 +4513,7 @@ function App() {
           return;
       }
       if (spec.action === 'export-connections') {
-          void handleExportConnections('config');
+          void handleExportConnectionsRef.current('config');
           return;
       }
       if (
@@ -4590,7 +4566,6 @@ function App() {
   }), [
       addTab,
       handleCancelSettingsCenterPane,
-      handleExportConnections,
       handleOpenDataSyncWorkbench,
       handleOpenSettingsCenterPane,
       handleOpenSettingsModal,
@@ -8228,7 +8203,7 @@ function App() {
             clipPath: showLinuxResizeHandles ? 'none' : 'inset(0 round var(--gonavi-border-radius))',
             backdropFilter: blurFilter,
             WebkitBackdropFilter: blurFilter,
-            ['--gn-v2-empty-workbench-titlebar-overlap' as any]: `${titleBarLayout.emptyWorkbenchTopOffset}px`,
+            ['--gn-v2-empty-workbench-titlebar-overlap' as any]: `${resolveDockedTitleBarBandOffset(effectiveUiScale, effectiveSidebarRailScale)}px`,
           }}
         >
           <input
@@ -8296,9 +8271,10 @@ function App() {
                   )}
                   <div id="gonavi-titlebar-about-action" className="gonavi-titlebar-quick-actions-slot gn-v2-titlebar-about-slot" />
               </div>
-              {isCollapsedSidebarActionsDocked && (
+              {shouldDockCollapsedSidebarActionsInTitlebar && (
                   <div
                     ref={setCollapsedSidebarActionsTarget}
+                    hidden={!isCollapsedSidebarActionsDocked}
                     className="gn-v2-collapsed-sidebar-actions"
                     data-collapsed-sidebar-actions="true"
                     data-no-titlebar-toggle="true"
@@ -8425,7 +8401,7 @@ function App() {
                             onFocusCommandSearch={handleFocusSidebarSearch}
                             onCollapseSidebar={handleCollapseSidebarPanel}
                             onExpandSidebar={handleExpandSidebarPanel}
-                            onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}
+                            onEnsureSidebarExpanded={handleEnsureSidebarExpanded}
                             onTitlebarSnapshotChange={setSidebarTitlebarSnapshot}
                             collapseSidebarLabel={sidebarPanelCollapseLabel}
                             collapseSidebarButtonRef={sidebarExplorerToggleRef}

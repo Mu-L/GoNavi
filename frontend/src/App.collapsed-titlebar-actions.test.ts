@@ -16,6 +16,7 @@ const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const appCss = readFileSync(new URL('./App.css', import.meta.url), 'utf8');
 const v2ThemeCss = readFileSync(new URL('./v2-theme.css', import.meta.url), 'utf8');
 const sidebarSource = readFileSync(new URL('./components/Sidebar.tsx', import.meta.url), 'utf8');
+const sidebarCollapseSource = readFileSync(new URL('./hooks/useAppSidebarCollapse.ts', import.meta.url), 'utf8');
 
 const readRule = (css: string, selector: string): string => {
   const start = css.indexOf(selector);
@@ -113,7 +114,7 @@ describe('collapsed V2 sidebar actions', () => {
     expect(appSource).toContain('ref={setCollapsedSidebarActionsTarget}');
     expect(appSource).toContain('collapsedSidebarActionsTarget={collapsedSidebarActionsTarget}');
     expect(appSource).toContain('onExpandSidebar={handleExpandSidebarPanel}');
-    expect(appSource).toContain('onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}');
+    expect(appSource).toContain('onEnsureSidebarExpanded={handleEnsureSidebarExpanded}');
     expect(sidebarSource).toContain('collapsedSidebarActionsTarget && createPortal(');
     expect(sidebarSource).toContain("placement: 'collapsed-titlebar'");
 
@@ -137,7 +138,7 @@ describe('collapsed V2 sidebar actions', () => {
     );
     expect(appSource).toContain('const sidebarCollapsedWidth = !shouldDockCollapsedSidebarActionsInTitlebar');
     expect(appSource).toContain('onExpandSidebar={handleExpandSidebarPanel}');
-    expect(appSource).toContain('onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}');
+    expect(appSource).toContain('onEnsureSidebarExpanded={handleEnsureSidebarExpanded}');
     expect(appSource).toContain('data-collapsed-sidebar-actions-docked');
     expect(v2ThemeCss).toMatch(
       /\.ant-layout-sider\[data-sidebar-actions-placement='titlebar'\]\s+\.gn-v2-connection-rail\s*\{[^}]*display:\s*none;/s,
@@ -145,13 +146,22 @@ describe('collapsed V2 sidebar actions', () => {
   });
 
   it('waits for the portal host before restoring focus and makes the hidden tree inert', () => {
-    expect(appSource).toMatch(
+    expect(sidebarCollapseSource).toMatch(
       /target === 'collapsed'\s*&& isCollapsedSidebarActionsDocked\s*&& !collapsedSidebarActionsTarget/s,
     );
-    expect(appSource).toContain('[collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]');
-    expect(appSource).toContain('sidebarContent.inert = isCollapsedSidebarActionsDocked;');
+    expect(sidebarCollapseSource).toContain('[collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]');
+    expect(sidebarCollapseSource).toContain('sidebarContent.inert = isCollapsedSidebarActionsDocked;');
+    expect(sidebarCollapseSource).toContain('focus({ preventScroll: true })');
     expect(appSource).toContain('ref={sidebarContentRef}');
-    expect(appSource).toContain('activeElement?.closest?.(\'[data-sidebar-content="true"]\')');
+    expect(sidebarCollapseSource).toContain('activeElement?.closest?.(\'[data-sidebar-content="true"]\')');
+  });
+
+  it('keeps the docked host mounted so toggling does not re-render the explorer', () => {
+    expect(appSource).toMatch(
+      /\{shouldDockCollapsedSidebarActionsInTitlebar && \(\s*<div\s+ref=\{setCollapsedSidebarActionsTarget\}\s+hidden=\{!isCollapsedSidebarActionsDocked\}/s,
+    );
+    expect(appSource).toContain('resolveDockedTitleBarBandOffset(effectiveUiScale, effectiveSidebarRailScale)');
+    expect(appSource).not.toContain('`${titleBarLayout.emptyWorkbenchTopOffset}px`');
   });
 
   it('uses the shared scaled geometry and keeps titlebar actions reachable on narrow windows', () => {
