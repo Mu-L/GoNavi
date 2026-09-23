@@ -66,10 +66,17 @@ const SHOW_TABLE_KINDS_PATTERN = /^(?:FULL\s+)?(?:COLUMNS|FIELDS|INDEX|INDEXES|K
 const SHOW_CREATE_OBJECT_PATTERN = /^CREATE\s+(?:MATERIALIZED\s+VIEW|TABLE|VIEW|TRIGGER|EVENT|PROCEDURE|FUNCTION|SEQUENCE)\s+([\s\S]+)$/i;
 
 const TRANSACTIONS_PATTERN = /^(?:BEGIN|START TRANSACTION|COMMIT|ROLLBACK|SAVEPOINT|RELEASE SAVEPOINT)\b/;
-const SERVER_ADMIN_PATTERN = /^(?:CREATE|ALTER|DROP|RENAME)\s+(?:DATABASE|SCHEMA|USER)\b|^(?:GRANT|REVOKE|SET|FLUSH|KILL|PURGE|RESET|INSTALL|UNINSTALL|SHUTDOWN)\b|^(?:CHANGE\s+(?:MASTER|REPLICATION)|START\s+(?:SLAVE|REPLICA)|STOP\s+(?:SLAVE|REPLICA))\b/;
+// Verbs whose grammar cannot reference an ordinary table.
+const SERVER_VERBS_PATTERN = /^(?:CREATE|ALTER|DROP|RENAME)\s+(?:DATABASE|SCHEMA|USER)\b|^(?:KILL|PURGE|RESET|INSTALL|UNINSTALL|SHUTDOWN)\b|^(?:CHANGE\s+(?:MASTER|REPLICATION)|START\s+(?:SLAVE|REPLICA)|STOP\s+(?:SLAVE|REPLICA))\b/;
+// SET/GRANT/REVOKE/FLUSH can carry table operands and get shape checks below.
+const SET_PATTERN = /^SET\b/;
+const GRANT_REVOKE_PATTERN = /^(?:GRANT|REVOKE)\b/;
+const GRANT_ON_TARGET_PATTERN = /\bON\s+(\S+)/;
+const FLUSH_TABLES_PATTERN = /^FLUSH\s+TABLES(?:\s+WITH\s+READ\s+LOCK)?\s*$/i;
+const FROM_JOIN_KEYWORDS_PATTERN = /\b(?:FROM|JOIN)\b/;
 const USE_PATTERN = /^USE\b/;
 const SELECT_PATTERN = /^(?:SELECT|WITH)\b/;
-const DESC_PATTERN = /^DESC(?:RIBE)?\s+([\s\S]+)$/;
+const DESC_PATTERN = /^DESC(?:RIBE)?\s+([\s\S]+)$/i;
 const EXPLAIN_PATTERN = /^EXPLAIN\b/i;
 
 const stripIdentifierQuotes = (identifier: string): string => (
@@ -131,13 +138,35 @@ const isStatementDatabaseFree = (statement: string, dialect: string): boolean =>
   if (!text) return true;
   const upper = text.toUpperCase();
 
-  if (USE_PATTERN.test(upper) || TRANSACTIONS_PATTERN.test(upper) || SERVER_ADMIN_PATTERN.test(upper)) {
+  if (USE_PATTERN.test(upper) || TRANSACTIONS_PATTERN.test(upper) || SERVER_VERBS_PATTERN.test(upper)) {
+    // 拆分语义依赖：跨 `;` 的 BEGIN...END 过程体会被拆成多段，尾段（END）不命中
+    // 任何白名单而整批拒绝——保持保守，不要在这里放行多段过程体。
     return true;
+  }
+  if (SET_PATTERN.test(upper)) {
+    // `SET @x = (SELECT * FROM t)` may hide an unqualified table reference.
+    return !FROM_JOIN_KEYWORDS_PATTERN.test(upper)
+      || hasOnlyQualifiedTableReferences(text, dialect);
+  }
+  if (GRANT_REVOKE_PATTERN.test(upper)) {
+    // `GRANT ... ON tbl` with an unqualified target needs a default database;
+    // `*.*` / `db.*` / `db.t` and role grants (no ON clause) do not.
+    const onMatch = upper.match(GRANT_ON_TARGET_PATTERN);
+    if (!onMatch) return true;
+    const target = stripIdentifierQuotes(onMatch[1]);
+    return target === '*' || target.endsWith('.*') || target.includes('.');
+  }
+  if (/^FLUSH\b/.test(upper)) {
+    // Only the TABLES variant carries table operands: `FLUSH TABLES` /
+    // `FLUSH TABLES WITH READ LOCK` are global, while a named table list
+    // (`FLUSH TABLES t1, t2`) needs a default database.
+    if (!/\bTABLES\b/.test(upper)) return true;
+    return FLUSH_TABLES_PATTERN.test(text.trim());
   }
 
   const mysqlLikeShowDialect = isMysqlFamilyDialect(dialect)
     || ['clickhouse', 'tdengine'].includes(dialect);
-  if (upper.startsWith('SHOW ')) {
+  if (/^SHOW\b/.test(upper)) {
     // MySQL-family catalog SHOW kinds are classified individually; other
     // dialects stay conservative (a PG connection always carries a database,
     // so its gate is unaffected in practice).
@@ -150,7 +179,10 @@ const isStatementDatabaseFree = (statement: string, dialect: string): boolean =>
   if (EXPLAIN_PATTERN.test(upper)) {
     let remainder = text.replace(EXPLAIN_PATTERN, '').trim();
     for (let i = 0; i < 4 && remainder; i += 1) {
-      const stripped = remainder.replace(/^(?:ANALYZE|EXTENDED|PARTITIONS|VERBOSE|COSTS|SETTINGS|PLAN|FORMAT\s+\S+)\b/i, '').trim();
+      const stripped = remainder
+        .replace(/^(?:ANALYZE|EXTENDED|PARTITIONS|VERBOSE|COSTS|SETTINGS|PLAN)\b\s*/i, '')
+        .replace(/^FORMAT\s*=?\s*\S+\s*/i, '')
+        .trim();
       if (stripped === remainder) break;
       remainder = stripped;
     }

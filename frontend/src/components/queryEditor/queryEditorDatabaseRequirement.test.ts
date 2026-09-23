@@ -54,6 +54,25 @@ describe('canExecuteQueryEditorSQLWithoutDatabase', () => {
     expect(canExecuteQueryEditorSQLWithoutDatabase('SET search_path TO public', 'postgres')).toBe(true);
   });
 
+  it('allows operand-free shapes of SET/GRANT/REVOKE/FLUSH', () => {
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SET NAMES utf8mb4', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SET autocommit = 1', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SET @x = (SELECT 1)', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('GRANT SELECT ON db.* TO u', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('REVOKE SELECT ON db.t FROM u', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('GRANT role_u TO user_u', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('FLUSH PRIVILEGES', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('FLUSH TABLES', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('FLUSH TABLES WITH READ LOCK', 'mysql')).toBe(true);
+  });
+
+  it('blocks management statements that hide unqualified table operands', () => {
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SET @x = (SELECT * FROM t)', 'mysql')).toBe(false);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('GRANT SELECT ON t TO u', 'mysql')).toBe(false);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('REVOKE SELECT ON t FROM u', 'mysql')).toBe(false);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('FLUSH TABLES t1, t2', 'mysql')).toBe(false);
+  });
+
   it('keeps write and table DDL statements conservative', () => {
     expect(canExecuteQueryEditorSQLWithoutDatabase('INSERT INTO t VALUES (1)', 'mysql')).toBe(false);
     expect(canExecuteQueryEditorSQLWithoutDatabase('UPDATE t SET a = 1', 'mysql')).toBe(false);
@@ -67,6 +86,31 @@ describe('canExecuteQueryEditorSQLWithoutDatabase', () => {
     expect(canExecuteQueryEditorSQLWithoutDatabase('SHOW DATABASES; SELECT 1', 'mysql')).toBe(true);
     expect(canExecuteQueryEditorSQLWithoutDatabase('SHOW DATABASES; SHOW TABLES', 'mysql')).toBe(false);
     expect(canExecuteQueryEditorSQLWithoutDatabase('SELECT 1; SELECT * FROM t', 'mysql')).toBe(false);
+  });
+
+  it('keeps UNION and scalar-subquery references to unqualified tables blocked', () => {
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SELECT 1 UNION SELECT * FROM t', 'mysql')).toBe(false);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SELECT (SELECT COUNT(*) FROM t)', 'mysql')).toBe(false);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('SELECT 1 UNION SELECT 2', 'mysql')).toBe(true);
+  });
+
+  it('stays conservative for CTE aliases resolved as table references', () => {
+    // Documented false negative: the shared table scanner reports the CTE
+    // alias as an unqualified reference, so the batch keeps asking for a
+    // database even though it would run without one.
+    expect(canExecuteQueryEditorSQLWithoutDatabase('WITH c AS (SELECT 1) SELECT * FROM c', 'mysql')).toBe(false);
+  });
+
+  it('matches SHOW/DESC regardless of case and line breaks', () => {
+    expect(canExecuteQueryEditorSQLWithoutDatabase('show databases', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('show\ndatabases', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('desc db.t', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('describe t', 'mysql')).toBe(false);
+  });
+
+  it('unwraps EXPLAIN FORMAT=JSON prefixes before classification', () => {
+    expect(canExecuteQueryEditorSQLWithoutDatabase('EXPLAIN FORMAT=JSON SELECT * FROM information_schema.tables', 'mysql')).toBe(true);
+    expect(canExecuteQueryEditorSQLWithoutDatabase('EXPLAIN FORMAT = JSON SELECT * FROM t', 'mysql')).toBe(false);
   });
 
   it('ignores statement separators inside string literals', () => {
