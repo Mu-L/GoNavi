@@ -173,6 +173,10 @@ func StopLegacyWorker(ctx context.Context, root string) error {
 
 // createSchtasksTaskForID 与 createSchtasksTask 相同，但使用显式任务名。
 func createSchtasksTaskForID(ctx context.Context, root, taskName string, content []byte) error {
+	// 全新数据根首次注册时 data_sync 目录尚不存在，CreateTemp 前先确保目录在。
+	if err := os.MkdirAll(filepath.Join(root, "data_sync"), 0o700); err != nil {
+		return err
+	}
 	file, err := os.CreateTemp(filepath.Join(root, "data_sync"), "worker-task-*.xml")
 	if err != nil {
 		return err
