@@ -1,0 +1,189 @@
+//go:build windows
+
+package syncworker
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"GoNavi-Wails/internal/syncjob"
+)
+
+// RunningOSSupportsJobSchedules 报告当前平台是否支持按任务的 OS 计划注册。
+func RunningOSSupportsJobSchedules() bool { return true }
+
+func jobScheduleMarkerPath(root, taskName string) string {
+	return filepath.Join(root, "data_sync", "schedules", taskName+".xml")
+}
+
+// runSyncJobActionArguments 渲染一次性执行进程的命令行参数。
+func runSyncJobActionArguments(root, jobID string) string {
+	return syscall.EscapeArg("run-sync-job") +
+		" --job " + syscall.EscapeArg(jobID) +
+		" --data-root " + syscall.EscapeArg(root)
+}
+
+// jobScheduleTaskXML 渲染单个定时任务的计划任务定义。
+//
+// 与旧常驻模型的区别：没有 LogonTrigger，只有任务自己的日历触发器；
+// StartWhenAvailable 兜底睡眠/关机错过的执行，是否真正到期由 runner
+// 打开 store 后按 NextRunAt 判定，因此触发器多唤醒是安全的。
+func jobScheduleTaskXML(executable, root, jobID, username string, triggers []syncjob.TaskTrigger) (string, error) {
+	if len(triggers) == 0 {
+		return "", errors.New("job schedule has no os triggers")
+	}
+	var triggerXML strings.Builder
+	for _, trigger := range triggers {
+		rendered, err := renderTaskTrigger(trigger)
+		if err != nil {
+			return "", err
+		}
+		triggerXML.WriteString(rendered)
+	}
+	arguments := xmlText(runSyncJobActionArguments(root, jobID))
+	return `<?xml version="1.0" encoding="UTF-8"?><Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers>` +
+		triggerXML.String() +
+		`</Triggers><Principals><Principal id="Author"><UserId>` + xmlText(username) + `</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings><Actions Context="Author"><Exec><Command>` + xmlText(executable) + `</Command><Arguments>` + arguments + `</Arguments></Exec></Actions></Task>`, nil
+}
+
+func renderTaskTrigger(trigger syncjob.TaskTrigger) (string, error) {
+	startBoundary := trigger.StartAt.Format("2006-01-02T15:04:05Z07:00")
+	switch trigger.Kind {
+	case syncjob.TaskTriggerTime:
+		return `<TimeTrigger><StartBoundary>` + startBoundary + `</StartBoundary><Enabled>true</Enabled></TimeTrigger>`, nil
+	case syncjob.TaskTriggerDaily:
+		daysInterval := trigger.DaysInterval
+		if daysInterval <= 0 {
+			daysInterval = 1
+		}
+		return `<CalendarTrigger><StartBoundary>` + startBoundary + `</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>` + fmt.Sprint(daysInterval) + `</DaysInterval></ScheduleByDay></CalendarTrigger>`, nil
+	case syncjob.TaskTriggerRepetition:
+		if trigger.RepetitionIntervalSeconds <= 0 {
+			return "", errors.New("repetition trigger requires interval")
+		}
+		interval := formatISO8601DurationSeconds(trigger.RepetitionIntervalSeconds)
+		return `<CalendarTrigger><StartBoundary>` + startBoundary + `</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay><Repetition><Interval>` + interval + `</Interval><Duration>P1D</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition></CalendarTrigger>`, nil
+	default:
+		return "", fmt.Errorf("unsupported task trigger kind %q", trigger.Kind)
+	}
+}
+
+// formatISO8601DurationSeconds 把秒数渲染为 ISO8601 时长（schtasks 只接受
+// 分钟以上粒度，余数秒向上取整到分钟）。
+func formatISO8601DurationSeconds(seconds int64) string {
+	if seconds%60 != 0 {
+		seconds += 60 - seconds%60
+	}
+	if seconds < 60 {
+		seconds = 60
+	}
+	if seconds%3600 == 0 {
+		return fmt.Sprintf("PT%dH", seconds/3600)
+	}
+	return fmt.Sprintf("PT%dM", seconds/60)
+}
+
+// RegisterJobSchedule 把单个任务的 OS 计划任务注册（或更新）为与当前调度
+// 一致的定义；marker 里保存上次注册成功的编码，内容未变且任务仍在时直接
+// 跳过，避免每次启动都重写 schtasks。
+func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, spec syncjob.ScheduleSpec) error {
+	account, err := user.Current()
+	if err != nil {
+		return err
+	}
+	triggers, err := syncjob.TaskTriggersForSchedule(spec, time.Now())
+	if err != nil {
+		return fmt.Errorf("translate job schedule: %w", err)
+	}
+	definition, err := jobScheduleTaskXML(executable, root, jobID, account.Username, triggers)
+	if err != nil {
+		return fmt.Errorf("render job schedule task: %w", err)
+	}
+	candidates, err := taskXMLCandidates(definition)
+	if err != nil {
+		return err
+	}
+	taskName := JobScheduleTaskName(root, jobID)
+	marker := jobScheduleMarkerPath(root, taskName)
+	if previous, err := os.ReadFile(marker); err == nil && matchesAnyCandidate(previous, candidates) {
+		if err := runSchtasks(ctx, "/Query", "/TN", taskName); err == nil {
+			return nil
+		}
+	}
+	content, err := firstAcceptedEncoding(candidates, func(candidate []byte) error {
+		return createSchtasksTaskForID(ctx, root, taskName, candidate)
+	})
+	if err != nil {
+		return fmt.Errorf("register job schedule task: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, content, 0o600)
+}
+
+// UnregisterJobSchedule 移除单个任务的计划任务；任务本就不存在时视为成功，
+// 方便删除任务的路径无条件调用。
+func UnregisterJobSchedule(ctx context.Context, root, jobID string) error {
+	taskName := JobScheduleTaskName(root, jobID)
+	marker := jobScheduleMarkerPath(root, taskName)
+	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := runSchtasks(ctx, "/Query", "/TN", taskName); err == nil {
+		if err := runSchtasks(ctx, "/Delete", "/TN", taskName, "/F"); err != nil {
+			return fmt.Errorf("remove job schedule task: %w", err)
+		}
+	}
+	return os.Remove(marker)
+}
+
+// UnregisterLegacyLogonTask 清理旧常驻模型的登录任务（GoNaviSync-<root 哈希>），
+// 供升级到一次性调度模型的实例在启动时调用；任务不存在时视为成功。
+func UnregisterLegacyLogonTask(ctx context.Context, root string) error {
+	legacyName := registrationID(root)
+	if err := runSchtasks(ctx, "/Query", "/TN", legacyName); err != nil {
+		// 任务不存在：已经是目标状态。
+		return nil
+	}
+	if err := runSchtasks(ctx, "/Delete", "/TN", legacyName, "/F"); err != nil {
+		return fmt.Errorf("remove legacy sync worker logon task: %w", err)
+	}
+	_ = os.Remove(filepath.Join(root, "data_sync", "worker-task.xml"))
+	return nil
+}
+
+// StopLegacyWorker 通知旧常驻 worker 退出（若在运行）。一次性调度模型下
+// 升级实例用它完成旧进程的一次性回收。
+func StopLegacyWorker(ctx context.Context, root string) error {
+	if healthy(ctx, root) {
+		return request(ctx, root, "/stop")
+	}
+	return nil
+}
+
+// createSchtasksTaskForID 与 createSchtasksTask 相同，但使用显式任务名。
+func createSchtasksTaskForID(ctx context.Context, root, taskName string, content []byte) error {
+	file, err := os.CreateTemp(filepath.Join(root, "data_sync"), "worker-task-*.xml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(content); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return runSchtasks(ctx, "/Create", "/TN", taskName, "/XML", file.Name(), "/F")
+}
