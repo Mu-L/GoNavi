@@ -129,22 +129,30 @@ func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, sp
 	return os.WriteFile(marker, content, 0o600)
 }
 
-// UnregisterJobSchedule 移除单个任务的计划任务；任务本就不存在时视为成功，
+// UnregisterJobSchedule 移除单个任务的计划任务；任务不存在时视为成功，
 // 方便删除任务的路径无条件调用。
 func UnregisterJobSchedule(ctx context.Context, root, jobID string) error {
-	taskName := JobScheduleTaskName(root, jobID)
+	return UnregisterJobScheduleTaskName(ctx, root, JobScheduleTaskName(root, jobID))
+}
+
+// UnregisterJobScheduleTaskName 按任务名移除计划任务；任务不存在时视为成功。
+// marker 缺失时也尝试查询并删除，兜住「marker 丢失但 schtasks 任务残留」
+// 的孤儿场景。
+func UnregisterJobScheduleTaskName(ctx context.Context, root, taskName string) error {
 	marker := jobScheduleMarkerPath(root, taskName)
-	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
+	_, markerErr := os.Stat(marker)
+	if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
+		return markerErr
 	}
 	if err := runSchtasks(ctx, "/Query", "/TN", taskName); err == nil {
 		if err := runSchtasks(ctx, "/Delete", "/TN", taskName, "/F"); err != nil {
 			return fmt.Errorf("remove job schedule task: %w", err)
 		}
 	}
-	return os.Remove(marker)
+	if markerErr == nil {
+		return os.Remove(marker)
+	}
+	return nil
 }
 
 // UnregisterLegacyLogonTask 清理旧常驻模型的登录任务（GoNaviSync-<root 哈希>），

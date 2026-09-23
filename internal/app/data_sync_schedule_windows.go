@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"GoNavi-Wails/internal/logger"
@@ -20,7 +22,8 @@ import (
 func (a *App) usesDataSyncWorker() bool { return false }
 
 // prepareDataSyncSchedule 在任务保存后按存储中的最新状态对齐全部计划任务
-// 注册（启用、停用与调度变更都在同一条保存路径上生效）。
+// 注册（启用、停用与调度变更都在同一条保存路径上生效）。带超时：schtasks
+// 挂起时不能无限阻塞保存动作与退出排空。
 func (a *App) prepareDataSyncSchedule(definition syncjob.JobDefinition) error {
 	if err := a.beginDataSyncJobsOperation(); err != nil {
 		return err
@@ -30,11 +33,15 @@ func (a *App) prepareDataSyncSchedule(definition syncjob.JobDefinition) error {
 	if err != nil {
 		return err
 	}
-	return a.reconcileDataSyncSchedules(context.Background(), manager)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return a.reconcileDataSyncSchedules(ctx, manager)
 }
 
 func (a *App) registerExistingDataSyncSchedules(ctx context.Context, manager *syncjob.Manager) error {
-	if err := a.reconcileDataSyncSchedules(ctx, manager); err != nil {
+	reconcileCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	if err := a.reconcileDataSyncSchedules(reconcileCtx, manager); err != nil {
 		return err
 	}
 	// 升级到一次性调度模型后的一次性回收：停掉旧常驻 worker 并注销其登录任务。
@@ -71,6 +78,36 @@ func (a *App) reconcileDataSyncSchedules(ctx context.Context, manager *syncjob.M
 			return err
 		}
 	}
+	return a.sweepOrphanJobSchedules(ctx, manager)
+}
+
+// sweepOrphanJobSchedules 清理 marker 目录里已无对应任务的孤儿注册
+// （注销失败等异常路径的残留），避免它们周期性拉起空进程。
+func (a *App) sweepOrphanJobSchedules(ctx context.Context, manager *syncjob.Manager) error {
+	jobs, err := manager.ListJobs(ctx)
+	if err != nil {
+		return err
+	}
+	expected := make(map[string]struct{}, len(jobs))
+	for _, job := range jobs {
+		expected[syncworker.JobScheduleTaskName(a.configDir, job.ID)] = struct{}{}
+	}
+	entries, err := os.ReadDir(filepath.Join(a.configDir, "data_sync", "schedules"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		taskName := strings.TrimSuffix(entry.Name(), ".xml")
+		if _, ok := expected[taskName]; ok {
+			continue
+		}
+		if err := syncworker.UnregisterJobScheduleTaskName(ctx, a.configDir, taskName); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -87,15 +124,32 @@ func (a *App) stopDataSyncWorkerForMaintenance() error {
 	a.dataSyncJobsMu.Lock()
 	manager := a.dataSyncJobManager
 	a.dataSyncJobsMu.Unlock()
-	if manager == nil {
-		return nil
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), dataSyncJobShutdownTimeout+5*time.Second)
 	defer cancel()
+	if manager == nil {
+		// 启动初始化失败等场景 manager 缺失：轻量打开存储补齐注销。
+		store, err := syncjob.Open(a.dataSyncJobDatabasePath())
+		if err != nil {
+			return err
+		}
+		jobs, listErr := store.ListJobs(ctx)
+		closeErr := store.Close()
+		if listErr != nil {
+			return listErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		return a.unregisterDataSyncJobSchedules(ctx, jobs)
+	}
 	jobs, err := manager.ListJobs(ctx)
 	if err != nil {
 		return err
 	}
+	return a.unregisterDataSyncJobSchedules(ctx, jobs)
+}
+
+func (a *App) unregisterDataSyncJobSchedules(ctx context.Context, jobs []syncjob.JobDefinition) error {
 	for _, job := range jobs {
 		if err := syncworker.UnregisterJobSchedule(ctx, a.configDir, job.ID); err != nil {
 			return err

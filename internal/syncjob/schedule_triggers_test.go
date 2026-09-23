@@ -35,9 +35,14 @@ func TestTaskTriggersForSchedule(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "整天 interval 映射为多天 daily",
+			name: "整天 interval 按锚点对齐日期相位",
 			spec: ScheduleSpec{Kind: ScheduleInterval, IntervalSeconds: 7 * 86400, AnchorAt: time.Date(2026, 9, 20, 22, 30, 0, 0, time.UTC).UnixMilli()},
-			want: []TaskTrigger{{Kind: TaskTriggerDaily, StartAt: time.Date(2026, 9, 24, 22, 30, 0, 0, time.UTC), DaysInterval: 7}},
+			want: []TaskTrigger{{Kind: TaskTriggerDaily, StartAt: time.Date(2026, 9, 27, 22, 30, 0, 0, time.UTC), DaysInterval: 7}},
+		},
+		{
+			name: "跨天非整天倍数 interval 退化为每小时兜底唤醒",
+			spec: ScheduleSpec{Kind: ScheduleInterval, IntervalSeconds: 90000, AnchorAt: triggerTestNow.Add(-time.Hour).UnixMilli()},
+			want: []TaskTrigger{{Kind: TaskTriggerRepetition, StartAt: triggerTestNow.Add(-time.Hour).Add(25 * time.Hour), RepetitionIntervalSeconds: 3600}},
 		},
 		{
 			name: "亚天 interval 映射为 repetition 且对齐锚点网格",

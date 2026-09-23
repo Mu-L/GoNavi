@@ -73,12 +73,28 @@ func intervalTaskTriggers(spec ScheduleSpec, now time.Time) ([]TaskTrigger, erro
 		return nil, errors.New("interval schedule requires intervalSeconds")
 	}
 	if spec.IntervalSeconds%86400 == 0 {
-		// 整天间隔：映射为每 N 天的 daily 触发，时刻取锚点（或当前时刻）的钟点。
+		// 整天间隔：映射为每 N 天的 daily 触发。锚点决定日期相位——StartAt
+		// 必须落在锚点 + k*N 天的网格上，否则主应用关闭期间任务会在错误的
+		// 日期被执行并把错位固化下来。
 		days := int(spec.IntervalSeconds / 86400)
+		startAt := nextDailyOccurrence(now, now)
+		if spec.AnchorAt > 0 {
+			startAt = nextAlignedOccurrence(spec, now)
+		}
 		return []TaskTrigger{{
 			Kind:         TaskTriggerDaily,
-			StartAt:      nextDailyOccurrence(now, anchorClockTime(spec, now)),
+			StartAt:      startAt,
 			DaysInterval: days,
+		}}, nil
+	}
+	if spec.IntervalSeconds > 86400 {
+		// 跨天但非整天倍数（如 25 小时）：schtasks 的 repetition 无法表达
+		// Interval > Duration，退化为每小时兜底唤醒，正确性由 DB 到期判定保证。
+		startAt := nextAlignedOccurrence(spec, now)
+		return []TaskTrigger{{
+			Kind:                      TaskTriggerRepetition,
+			StartAt:                   startAt,
+			RepetitionIntervalSeconds: TaskTriggerMaxRepetitionSeconds,
 		}}, nil
 	}
 	// 亚天间隔：daily 起点每天重摆一次 repetition，当日重复到间隔结束。
@@ -88,15 +104,6 @@ func intervalTaskTriggers(spec ScheduleSpec, now time.Time) ([]TaskTrigger, erro
 		StartAt:                   startAt,
 		RepetitionIntervalSeconds: spec.IntervalSeconds,
 	}}, nil
-}
-
-// anchorClockTime 返回锚点（缺省为 now）在当天的钟点，用于保持每天触发的
-// 时刻与任务创建时的预期一致。
-func anchorClockTime(spec ScheduleSpec, now time.Time) time.Time {
-	if spec.AnchorAt > 0 {
-		return time.UnixMilli(spec.AnchorAt)
-	}
-	return now
 }
 
 // nextAlignedOccurrence 返回锚点网格上晚于 now 的下一次触发时刻：

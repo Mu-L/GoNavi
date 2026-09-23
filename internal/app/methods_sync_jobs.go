@@ -128,6 +128,10 @@ func (a *App) DataSyncJobSave(definition syncjob.JobDefinition, approvalToken st
 		if err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
+		// 停用/归档同样要对齐 OS 计划任务注册（Windows 上注销被停用任务的注册）。
+		if err := a.prepareDataSyncSchedule(enriched); err != nil {
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
 		return connection.QueryResult{Success: true, Message: "data sync inactive job saved", Data: publicDataSyncJobDefinition(saved)}
 	}
 	preflight := a.preflightDataSyncJob(definition, time.Now())

@@ -119,11 +119,13 @@ func RunScheduledJobOnce(ctx context.Context, args []string) error {
 func syncJobDueForRun(ctx context.Context, databasePath, jobID string) bool {
 	store, err := syncjob.Open(databasePath)
 	if err != nil {
+		logger.Warnf("定时任务到期预检打开存储失败，本次唤醒跳过：%v", err)
 		return false
 	}
 	defer store.Close()
 	dueJobs, err := store.ListDueJobs(ctx, time.Now().UnixMilli())
 	if err != nil {
+		logger.Warnf("定时任务到期预检查询失败，本次唤醒跳过：%v", err)
 		return false
 	}
 	for _, definition := range dueJobs {
