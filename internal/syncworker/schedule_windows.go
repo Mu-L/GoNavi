@@ -129,6 +129,10 @@ func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, sp
 	return os.WriteFile(marker, content, 0o600)
 }
 
+// runSchtasksFn 抽成变量：单测注入桩，验证注销的 Query/Delete 分支而不触
+// 真实任务计划程序。
+var runSchtasksFn = runSchtasks
+
 // UnregisterJobSchedule 移除单个任务的计划任务；任务不存在时视为成功，
 // 方便删除任务的路径无条件调用。
 func UnregisterJobSchedule(ctx context.Context, root, jobID string) error {
@@ -144,8 +148,8 @@ func UnregisterJobScheduleTaskName(ctx context.Context, root, taskName string) e
 	if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
 		return markerErr
 	}
-	if err := runSchtasks(ctx, "/Query", "/TN", taskName); err == nil {
-		if err := runSchtasks(ctx, "/Delete", "/TN", taskName, "/F"); err != nil {
+	if err := runSchtasksFn(ctx, "/Query", "/TN", taskName); err == nil {
+		if err := runSchtasksFn(ctx, "/Delete", "/TN", taskName, "/F"); err != nil {
 			return fmt.Errorf("remove job schedule task: %w", err)
 		}
 	}
