@@ -131,7 +131,7 @@ describe('useAppSidebarResize interaction cleanup', () => {
   let fakeDocument: FakeEventTarget & { body: FakeBody };
   let scheduledFrames: Map<number, FrameRequestCallback>;
   let nextFrameId: number;
-  let setSidebarWidth: ReturnType<typeof vi.fn>;
+  let setSidebarWidth: ReturnType<typeof vi.fn<(width: number) => void>>;
   let fakeSider: FakeHTMLElement;
   let fakeContent: FakeHTMLElement;
 
@@ -160,7 +160,7 @@ describe('useAppSidebarResize interaction cleanup', () => {
   beforeEach(() => {
     scheduledFrames = new Map();
     nextFrameId = 1;
-    setSidebarWidth = vi.fn();
+    setSidebarWidth = vi.fn<(width: number) => void>();
     fakeWindow = Object.assign(new FakeEventTarget(), {
       getComputedStyle: () => ({ minWidth: '180px', maxWidth: '600px' }),
       innerWidth: 1200,
@@ -363,5 +363,43 @@ describe('useAppSidebarResize interaction cleanup', () => {
     expect(callback).toHaveBeenCalledTimes(2);
     expect(setSidebarWidth).not.toHaveBeenCalled();
     scheduler.dispose();
+  });
+
+  it('keeps the explorer frozen from collapse until the expand transition settles', () => {
+    const previousResizeObserver = globalThis.ResizeObserver;
+    const observers: Array<(entries: Array<{ contentRect: { width: number; height: number } }>) => void> = [];
+    globalThis.ResizeObserver = class {
+      constructor(callback: (entries: Array<{ contentRect: { width: number; height: number } }>) => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    const panel = new FakeHTMLElement(300);
+    Object.assign(fakeSider, {
+      querySelector: (selector: string) => (selector === '[data-sidebar-tree-panel="true"]' ? panel : null),
+    });
+
+    try {
+      act(() => renderer?.update(<Harness sidebarCollapsed />));
+      act(() => renderer?.update(<Harness sidebarCollapsed={false} />));
+      act(() => fakeSider.dispatch('transitionend', { target: fakeSider, propertyName: 'width' }));
+      observers[0]([{ contentRect: { width: 300, height: 720 } }]);
+
+      act(() => renderer?.update(<Harness sidebarCollapsed />));
+      expect(panel.getAttribute('data-sidebar-tree-panel-frozen')).toBe('true');
+      expect(panel.style.getPropertyValue('--gonavi-sidebar-tree-panel-frozen-width')).toBe('300px');
+
+      act(() => fakeSider.dispatch('transitionend', { target: fakeSider, propertyName: 'width' }));
+      expect(panel.getAttribute('data-sidebar-tree-panel-frozen')).toBe('true');
+
+      act(() => renderer?.update(<Harness sidebarCollapsed={false} />));
+      expect(panel.getAttribute('data-sidebar-tree-panel-frozen')).toBe('true');
+
+      act(() => fakeSider.dispatch('transitionend', { target: fakeSider, propertyName: 'width' }));
+      expect(panel.getAttribute('data-sidebar-tree-panel-frozen')).toBe(null);
+    } finally {
+      globalThis.ResizeObserver = previousResizeObserver;
+    }
   });
 });

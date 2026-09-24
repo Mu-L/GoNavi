@@ -1,10 +1,15 @@
-import { dataSyncScheduleTextsEnUS, dataSyncScheduleTextsZhCN } from './textSchedules';
+import { resolveDataSyncWorkbenchLocale } from './textLocale';
+export { resolveDataSyncWorkbenchLocale } from './textLocale';
+export type { DataSyncWorkbenchLocale } from './textLocale';
+import { backupTexts } from './textBackup';
+import { dataSyncRunEventTextsEnUS, dataSyncRunEventTextsZhCN, dataSyncScheduleTextsEnUS, dataSyncScheduleTextsZhCN } from './textSchedules';
 import {
   dataSyncValidationTextsEnUS,
   dataSyncValidationTextsZhCN,
 } from './textValidation';
 
 const zhCN = {
+  ...backupTexts('zh-CN'),
   'workbench.title': '数据迁移与同步',
   'workbench.title_short': '数据同步',
   'workbench.title_compare': '数据对比',
@@ -469,7 +474,7 @@ const zhCN = {
   'common.details': '查看详情',
   'common.retry': '重试',
   'common.cancel': '取消',
-  ...dataSyncScheduleTextsZhCN,
+  ...dataSyncScheduleTextsZhCN, ...dataSyncRunEventTextsZhCN,
   ...dataSyncValidationTextsZhCN,
   'cdc.title': '持续同步状态',
   'cdc.subtitle': '这里显示源库是否已准备好持续同步，以及任务当前进度。后端没上报延迟时不会猜测。',
@@ -509,6 +514,7 @@ export const DATA_SYNC_WORKBENCH_TEXT_KEYS: readonly DataSyncWorkbenchTextKey[] 
   Object.freeze(Object.keys(zhCN) as DataSyncWorkbenchTextKey[]);
 
 const enUS: Record<DataSyncWorkbenchTextKey, string> = {
+  ...backupTexts('en-US'),
   'workbench.title': 'Data migration and sync',
   'workbench.title_short': 'Data sync',
   'workbench.title_compare': 'Data compare',
@@ -974,7 +980,7 @@ const enUS: Record<DataSyncWorkbenchTextKey, string> = {
   'common.details': 'View details',
   'common.retry': 'Retry',
   'common.cancel': 'Cancel',
-  ...dataSyncScheduleTextsEnUS,
+  ...dataSyncScheduleTextsEnUS, ...dataSyncRunEventTextsEnUS,
   ...dataSyncValidationTextsEnUS,
   'cdc.title': 'CDC source status',
   'cdc.subtitle': 'Status comes from adapter probes and task checkpoints. Lag is never inferred when the backend does not report it.',
@@ -1003,56 +1009,17 @@ const enUS: Record<DataSyncWorkbenchTextKey, string> = {
   'status.interrupted': 'Interrupted',
 };
 
-export type DataSyncWorkbenchLocale = 'zh-CN' | 'en-US';
-
-export const resolveDataSyncWorkbenchLocale = (
-  language?: string,
-): DataSyncWorkbenchLocale =>
-  String(language || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
-
 export type DataSyncWorkbenchTranslate = (
   key: DataSyncWorkbenchTextKey,
   params?: Record<string, string | number>,
 ) => string;
 
-export const dataSyncTaskKindTextKey = (
-  task: {
-    kind: import('./model').DataSyncTaskKind;
-    compareMode?: import('./model').DataSyncCompareMode;
-  },
-): DataSyncWorkbenchTextKey => {
-  if (task.kind === 'compare') {
-    return task.compareMode === 'schema'
-      ? 'task_kind.compare_schema'
-      : 'task_kind.compare_data';
-  }
-  return `task_kind.${task.kind}` as DataSyncWorkbenchTextKey;
-};
-
-export const dataSyncTaskKindChoiceTextKey = (
-  choice: import('./model').DataSyncTaskKindChoice,
-): DataSyncWorkbenchTextKey => dataSyncTaskKindTextKey(choice);
-
-export const dataSyncStageTextKey = (
-  stage: import('./model').DataSyncTaskStage,
-  kind: import('./model').DataSyncTaskKind,
-  compareMode?: import('./model').DataSyncCompareMode,
-): DataSyncWorkbenchTextKey => {
-  if (kind === 'compare' && stage === 'mappings') {
-    return compareMode === 'schema'
-      ? 'stage.mappings_schema_compare'
-      : 'stage.mappings_data_compare';
-  }
-  if (kind === 'compare' && stage === 'preflight') {
-    return 'stage.preflight_compare';
-  }
-  return `stage.${stage}` as DataSyncWorkbenchTextKey;
-};
+export { dataSyncTaskKindTextKey, dataSyncTaskKindChoiceTextKey, dataSyncStageTextKey } from './textTaskKeys';
 
 export const createDataSyncWorkbenchTranslate = (
   language?: string,
 ): DataSyncWorkbenchTranslate => {
-  const catalog = resolveDataSyncWorkbenchLocale(language) === 'zh-CN' ? zhCN : enUS;
+  const catalog = { ...(resolveDataSyncWorkbenchLocale(language) === 'zh-CN' ? zhCN : enUS), ...backupTexts(language || 'en-US') };
   return (key, params) => {
     let value = catalog[key] || key;
     Object.entries(params || {}).forEach(([name, replacement]) => {

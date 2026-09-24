@@ -1,3 +1,5 @@
+import { toLocalDateTimeInput, fromLocalDateTimeInput } from './dataSyncDateTime';
+import { DataSyncBackgroundNotice } from './DataSyncBackgroundNotice';
 import React, { useEffect, useRef, useState } from 'react';
 import { isWebRPCAbortError } from '../../utils/webRpc';
 
@@ -78,19 +80,6 @@ const createTrigger = (
   return { mode: 'continuous' };
 };
 
-const toLocalDateTimeInput = (value: string): string => {
-  const date = new Date(value);
-  if (!value || !Number.isFinite(date.getTime())) return '';
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-};
-
-const fromLocalDateTimeInput = (value: string): string => {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
-};
-
 const createIncremental = (
   mode: DataSyncIncrementalPolicy['mode'],
 ): DataSyncIncrementalPolicy => {
@@ -129,8 +118,10 @@ const EndpointStage: React.FC<{
   onContinue: () => void;
 }> = ({ task, gateway, connectionTree, t, onPatch, onContinue }) => {
   const connections = useDataSyncSavedConnections(gateway);
-  const sourceDatabases = useDataSyncDatabases(gateway, task.source.connectionId);
-  const targetDatabases = useDataSyncDatabases(gateway, task.target.connectionId);
+  const sourceDatabases = useDataSyncDatabases(gateway, task.source.connectionId,
+    connections.items.some((connection) => connection.id === task.source.connectionId));
+  const targetDatabases = useDataSyncDatabases(gateway, task.target.connectionId,
+    connections.items.some((connection) => connection.id === task.target.connectionId));
 
   const selectConnection = (
     side: 'source' | 'target',
@@ -171,8 +162,8 @@ const EndpointStage: React.FC<{
     });
   };
 
-  const sourceReady = Boolean(task.source.connectionId.trim());
-  const targetReady = Boolean(task.target.connectionId.trim());
+  const sourceReady = connections.items.some((connection) => connection.id === task.source.connectionId && connection.readable);
+  const targetReady = connections.items.some((connection) => connection.id === task.target.connectionId && connection.writable);
   const canContinue = sourceReady && targetReady;
 
   return (
@@ -770,7 +761,7 @@ const DeliveryStage: React.FC<{
   );
 };
 
-const TriggerStage: React.FC<{
+export const TriggerStage: React.FC<{
   task: DataSyncTaskDefinition;
   gateway: DataSyncWorkbenchGateway;
   capability: DataSyncRouteCapability;
@@ -835,6 +826,7 @@ const TriggerStage: React.FC<{
       <div>
         <h2>{t('trigger.title')}</h2>
         <p>{t('trigger.help')}</p>
+        <DataSyncBackgroundNotice />
       </div>
     </header>
     <div className="gn-data-sync-field-grid gn-data-sync-field-grid--policy">
@@ -855,9 +847,10 @@ const TriggerStage: React.FC<{
           <option value="continuous" disabled={task.kind !== 'cdc'}>{t('trigger.continuous')}</option>
         </select>
       </Field>
-      <Field label={t('incremental.mode')}>
+      <Field label={task.kind === 'backup' ? t('backup.run_mode') : t('incremental.mode')}>
         <select
           className="gn-data-sync-control"
+          disabled={task.kind === 'backup'}
           value={incremental.mode}
           onChange={(event) => {
             const mode = event.target.value as DataSyncIncrementalPolicy['mode'];
@@ -899,10 +892,11 @@ const TriggerStage: React.FC<{
           }}
         >
           <option value="snapshot" disabled={task.kind === 'cdc'}>{t('incremental.snapshot')}</option>
-          <option value="watermark" disabled={task.kind === 'cdc'}>{t('incremental.watermark')}</option>
-          <option value="cdc" disabled={task.kind !== 'cdc'}>{t('incremental.cdc')}</option>
+          {task.kind !== 'backup' ? <option value="watermark" disabled={task.kind === 'cdc'}>{t('incremental.watermark')}</option> : null}
+          {task.kind !== 'backup' ? <option value="cdc" disabled={task.kind !== 'cdc'}>{t('incremental.cdc')}</option> : null}
         </select>
       </Field>
+      {task.kind === 'backup' ? <p className="gn-data-sync-inline-note" role="note">{t('backup.full_snapshot_help')}</p> : null}
       {trigger.mode === 'once' ? (
         <>
           <Field label={t('trigger.run_at')}>

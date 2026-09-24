@@ -12,6 +12,8 @@ import TitleBarPrimaryActions, {
   resolveTitleBarPrimaryActionShortcut,
 } from './components/TitleBarPrimaryActions';
 import TitleBarSystemActions from './components/TitleBarSystemActions';
+import TitleBarViewMenu from './components/TitleBarViewMenu';
+import { useTitleBarViewMenuEntries } from './components/useTitleBarViewMenuEntries';
 import ConnectionGroupManagementModal from './components/sidebar/ConnectionGroupManagementModal';
 import TabManager from './components/TabManager';
 import FloatingWorkbenchWindows from './components/FloatingWorkbenchWindows';
@@ -46,24 +48,12 @@ import SecurityUpdateSettingsModal from './components/SecurityUpdateSettingsModa
 import LanguageSettingsPanel from './components/LanguageSettingsPanel';
 import WebAuthSettingsPanel from './components/WebAuthSettingsPanel';
 import CloudBackupSettings from './components/CloudBackupSettings';
-import BrandIconPicker from './components/BrandIconPicker';
 import {
-  resolveBrandAboutSrc,
-  resolveBrandDockSrc,
   resolveBrandIconSrc,
-  resolveBrandIcon,
-  setLoadedBrandIconSources,
-  BRAND_ICONS,
-  type BrandIconId,
 } from './brand/brandIcons';
-import {
-  composeMacOSDockIconBase64,
-  composeWindowsNativeIconBase64,
-  LEGACY_MASCOT_DOCK_ICON_INSET,
-  shouldSyncApplicationBrandIcon,
-} from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
+import TitlebarMenuStyleSettings from './components/settings/TitlebarMenuStyleSettings';
 import SettingsCenterTreeNav, {
   findSettingsCenterTreeItem,
 } from './components/settings/SettingsCenterTreeNav';
@@ -239,6 +229,7 @@ import {
   ShortcutAction,
   canRecordShortcutForAction,
   eventToShortcut,
+  findEnabledActionConflicts,
   findReservedConflictsForAction,
   getShortcutDisplay,
   getShortcutDisplayLabel,
@@ -271,7 +262,19 @@ import {
   type WindowScaleFixReason,
   type WindowsScaleCheckTrigger,
 } from './utils/windowStateUi';
-import { resolveVisibleStartupWindowBounds } from './utils/windowRestoreBounds';
+import { resolveVisibleStartupWindowBounds, type WindowRestoreBounds } from './utils/windowRestoreBounds';
+import {
+  applyRuntimeWindowPlacement,
+  loadMainWindowDisplayLayout,
+  resolveDisplayAwareLayout,
+  resolveGlobalWindowBounds,
+  resolveMaximisedWindowRestoreBounds,
+  resolveRuntimeWindowPlacement,
+  resolveVisibleGlobalWindowBounds,
+  resolveWailsWindowPosition,
+  type MainWindowDisplayLayout,
+} from './utils/mainWindowDisplayPlacement';
+import { markStartupWindowGeometrySettled } from './utils/mainWindowStartup';
 import { resolveWailsWindowSetPosition, resolveWailsWindowVisibleViewport } from './utils/wailsWindowViewport';
 import {
   DEFAULT_AI_PANEL_WIDTH,
@@ -304,6 +307,7 @@ import {
 } from './utils/overlayZIndex';
 import { useAppUpdateManager } from './hooks/useAppUpdateManager';
 import { useAppLogPanelResize } from './hooks/useAppLogPanelResize';
+import { useAppSidebarCollapse } from './hooks/useAppSidebarCollapse';
 import { useAppSidebarResize } from './hooks/useAppSidebarResize';
 import { resolveSidebarResizeHitGeometry } from './utils/sidebarLayout';
 import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/newQueryContext';
@@ -329,14 +333,13 @@ import {
   SelectDataRootDirectory,
   SelectLogDirectory,
   SelectSavedQueryDirectory,
-  SetApplicationBrandIcon,
-  GetBrandIconDataURL,
   SetWindowTranslucency,
 } from '../wailsjs/go/app/App';
 import { getAntdLocale } from './i18n/frameworkLocale';
 import { useI18n } from './i18n/provider';
 import {
   normalizeTitlebarRuntimePlatform,
+  resolveDockedTitleBarBandOffset,
   resolveDocumentPlatform,
   resolveTitleBarLayout,
   resolveTitlebarRuntimePlatform,
@@ -660,7 +663,6 @@ type SettingsCenterGroupKey = 'preferences' | 'services' | ToolCenterGroupKey | 
 type SettingsCenterPaneKey =
   | 'language'
   | 'theme'
-  | 'brand-icon'
   | 'sidebar-metadata'
   | 'sidebar-objects'
   | 'proxy'
@@ -867,22 +869,16 @@ function App() {
   // snapshot while the panel is hidden, detached, or being remounted.
   useAIWorkspaceSnapshot({ enabled: true });
   const [notificationApi, notificationContextHolder] = notification.useNotification();
-  const [brandAssetRevision, setBrandAssetRevision] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConnectionModalMounted, setIsConnectionModalMounted] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const [connectionHealthTargetIds, setConnectionHealthTargetIds] = useState<string[]>([]);
   const pendingConnectionTagIdRef = useRef<string | null>(null);
-  // Suppresses the brand-icon sync effect while the explicit selection flow is
-  // applying the same icon through the native bridge, so the shortcut update
-  // and window identity rotation run exactly once.
-  const windowsBrandIconApplyingRef = useRef<BrandIconId | null>(null);
   const connectionModalWarmupDoneRef = useRef(false);
   const windowState = useStore(state => state.windowState);
   const themeMode = useStore(state => state.theme);
   const themePreference = useStore(state => state.themePreference);
   const brandIconId = useStore(state => state.brandIconId);
-  const setBrandIconId = useStore(state => state.setBrandIconId);
   const setTheme = useStore(state => state.setTheme);
   const setThemePreference = useStore(state => state.setThemePreference);
   const customThemes = useCustomThemeStore(state => state.themes);
@@ -1050,7 +1046,7 @@ function App() {
       void safeWindowRuntimeCall(() => WindowSetLightTheme(), undefined);
   }, [effectiveThemePreference, resolvedThemeMode, setTheme, themeMode]);
 
-  // Apply the selected brand mascot to the favicon and supported native OS surfaces.
+  // Use the bundled application brand for the browser favicon.
   useEffect(() => {
       if (typeof document === 'undefined') return;
       const href = resolveBrandIconSrc(brandIconId);
@@ -1061,77 +1057,10 @@ function App() {
           link.setAttribute('data-brand-icon', 'true');
           document.head.appendChild(link);
       }
-      // The current ribbon assets are SVG, while the restored 0.9.7 mascot
-      // assets are lossless WebP files. Keep the favicon MIME in sync with
-      // the selected asset so browsers do not discard the mascot icon.
-      link.type = /\.webp(?:[?#]|$)/i.test(href) ? 'image/webp' : 'image/svg+xml';
+      link.type = 'image/svg+xml';
       link.href = href;
 
-      // The selection flow below rotates the live window identity itself;
-      // skip this sync while that apply is in flight so the shortcut update
-      // and window re-grouping run exactly once.
-      if (runtimePlatform === 'windows' && windowsBrandIconApplyingRef.current === brandIconId) {
-          return;
-      }
-
-      let cancelled = false;
-      const applyNativeIcon = async () => {
-          try {
-              const environment = await Environment();
-              if (cancelled || !shouldSyncApplicationBrandIcon(environment)) {
-                  return;
-              }
-              const dockHref = resolveBrandDockSrc(brandIconId);
-              // The compact fallback is suitable for UI placeholders, but it
-              // must never become the cached Windows taskbar or macOS Dock icon.
-              if (!dockHref) return;
-              const b64 = runtimePlatform === 'windows'
-                  ? await composeWindowsNativeIconBase64(dockHref, {
-                      transparentMark: resolveBrandIcon(brandIconId).bundled ? true : undefined,
-                  })
-                  : await composeMacOSDockIconBase64(dockHref, {
-                      inset: resolveBrandIcon(brandIconId).bundled ? LEGACY_MASCOT_DOCK_ICON_INSET : undefined,
-                  });
-              if (cancelled) return;
-              const result = await SetApplicationBrandIcon(b64);
-              if (!result.success && !cancelled) {
-                  console.warn('Failed to update the native application icon:', result.message);
-                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
-              }
-          } catch (error) {
-              if (!cancelled) {
-                  console.warn('Failed to update the native application icon:', error);
-                  message.warning(t('app.settings.entry.brand_icon.native_sync_failed'));
-              }
-          }
-      };
-      void applyNativeIcon();
-      return () => {
-          cancelled = true;
-      };
-  }, [brandIconId, brandAssetRevision, runtimePlatform, t]);
-
-  useEffect(() => {
-      let cancelled = false;
-      const loadBrandAssets = async () => {
-          const loaded: Partial<Record<BrandIconId, string>> = {};
-          await Promise.all(BRAND_ICONS.filter((icon) => !icon.bundled).map(async (icon) => {
-              try {
-                  const source = await GetBrandIconDataURL(icon.id);
-                  if (source) loaded[icon.id] = source;
-              } catch {
-                  // The compact in-memory fallback keeps the UI usable offline.
-              }
-          }));
-          if (!cancelled && Object.keys(loaded).length > 0) {
-              setLoadedBrandIconSources(loaded);
-              setBrandAssetRevision((revision) => revision + 1);
-              window.dispatchEvent(new Event('gonavi-brand-assets-ready'));
-          }
-      };
-      void loadBrandAssets();
-      return () => { cancelled = true; };
-  }, []);
+  }, [brandIconId]);
 
   const selectPresetTheme = useCallback((preference: ThemePreference) => {
       // Custom CSS is an independent skin layer. Selecting a built-in preset
@@ -1290,12 +1219,6 @@ function App() {
   const LazyAISettingsContent = useMemo(createLazyAISettingsContent, [aiSettingsRenderNonce]);
   const sidebarWidth = useStore(state => state.sidebarWidth);
   const setSidebarWidth = useStore(state => state.setSidebarWidth);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [collapsedSidebarActionsTarget, setCollapsedSidebarActionsTarget] = useState<HTMLDivElement | null>(null);
-  const sidebarContentRef = useRef<HTMLDivElement>(null);
-  const sidebarCollapsedToggleRef = useRef<HTMLButtonElement>(null);
-  const sidebarExplorerToggleRef = useRef<HTMLButtonElement>(null);
-  const pendingSidebarToggleFocusRef = useRef<'collapsed' | 'explorer' | null>(null);
   const navigatorPlatform = detectNavigatorPlatform();
   const documentPlatform = resolveDocumentPlatform(runtimePlatform, navigatorPlatform);
   const titlebarRuntimePlatform = resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform);
@@ -1305,41 +1228,19 @@ function App() {
       navigatorPlatform,
       isWebRuntime,
   );
-  const isCollapsedSidebarActionsDocked = isSidebarCollapsed && shouldDockCollapsedSidebarActionsInTitlebar;
-  useLayoutEffect(() => {
-      const sidebarContent = sidebarContentRef.current;
-      if (!sidebarContent) return;
-      // aria-hidden alone does not remove focusable tree wrappers from the tab order.
-      sidebarContent.inert = isCollapsedSidebarActionsDocked;
-  }, [isCollapsedSidebarActionsDocked]);
-  const handleCollapseSidebarPanel = useCallback(() => {
-      if (typeof document !== 'undefined') {
-          const activeElement = document.activeElement as HTMLElement | null;
-          if (activeElement?.closest?.('[data-sidebar-content="true"]')) {
-              activeElement.blur();
-          }
-      }
-      pendingSidebarToggleFocusRef.current = 'collapsed';
-      setIsSidebarCollapsed(true);
-  }, []);
-  const handleExpandSidebarPanel = useCallback(() => {
-      pendingSidebarToggleFocusRef.current = 'explorer';
-      setIsSidebarCollapsed(false);
-  }, []);
-  const handleTitlebarSidebarToggle = useCallback(() => {
-      setIsSidebarCollapsed((collapsed) => !collapsed);
-  }, []);
-  useLayoutEffect(() => {
-      const target = pendingSidebarToggleFocusRef.current;
-      if (!target) return;
-      if (
-          target === 'collapsed'
-          && isCollapsedSidebarActionsDocked
-          && !collapsedSidebarActionsTarget
-      ) return;
-      pendingSidebarToggleFocusRef.current = null;
-      (target === 'collapsed' ? sidebarCollapsedToggleRef : sidebarExplorerToggleRef).current?.focus();
-  }, [collapsedSidebarActionsTarget, isCollapsedSidebarActionsDocked, isSidebarCollapsed]);
+  const {
+      collapsedSidebarActionsTarget,
+      handleCollapseSidebarPanel,
+      handleEnsureSidebarExpanded,
+      handleExpandSidebarPanel,
+      isCollapsedSidebarActionsDocked,
+      isSidebarCollapsed,
+      setCollapsedSidebarActionsTarget,
+      setIsSidebarCollapsed,
+      sidebarCollapsedToggleRef,
+      sidebarContentRef,
+      sidebarExplorerToggleRef,
+  } = useAppSidebarCollapse(shouldDockCollapsedSidebarActionsInTitlebar);
   const titleBarLayout = resolveTitleBarLayout(
       effectiveUiScale,
       isCollapsedSidebarActionsDocked,
@@ -1969,6 +1870,8 @@ function App() {
           // 启动偏好成功后立刻同步实际窗口态，避免 settle 宽限期留下瞬态 normal。
           useStore.getState().setWindowState('maximized');
           clearStartupWindowRestorePending();
+          // 最大化已落到最终几何，放行主窗口首屏显示。
+          markStartupWindowGeometrySettled();
       };
 
       /** Maximise 多次失败时：退回普通窗口并铺满工作区，避免残留默认半窗。 */
@@ -2013,6 +1916,7 @@ function App() {
               void emitWindowDiagnostic('adjust:startup-work-area-fill-fallback', {
                   to: nextBounds,
               });
+              markStartupWindowGeometrySettled();
               return true;
           } catch (e) {
               console.warn('Failed to apply Windows work-area fill fallback', e);
@@ -2070,20 +1974,26 @@ function App() {
                               void emitWindowDiagnostic('error:startup-work-area-fill-fallback-failed');
                           }
                           clearStartupWindowRestorePending();
+                          // 启动偏好最终没能生效：仍放行首屏，避免窗口一直隐藏。
+                          markStartupWindowGeometrySettled();
                       }
                   });
           }, delayMs);
       };
 
-      const applyRestoredWindowBounds = (bounds: {
-          width: number;
-          height: number;
-          x: number;
-          y: number;
-      }) => {
+      const applyRestoredWindowBounds = (
+          bounds: WindowRestoreBounds,
+          displayLayout?: MainWindowDisplayLayout | null,
+      ) => {
           const state = useStore.getState();
-          const viewport = readCurrentVisibleViewport();
-          const nextBounds = resolveVisibleStartupWindowBounds(bounds, viewport);
+          const placement = resolveRuntimeWindowPlacement(
+              bounds, displayLayout ?? null, readCurrentVisibleViewport(), isWindowsPlatform(), true,
+          );
+          if (!placement) {
+              void emitWindowDiagnostic('warn:startup-window-display-unavailable', { from: bounds });
+              return bounds;
+          }
+          const nextBounds = placement.bounds;
           if (
               nextBounds.x !== bounds.x ||
               nextBounds.y !== bounds.y ||
@@ -2095,21 +2005,15 @@ function App() {
                   to: nextBounds,
               });
           }
-          WindowSetSize(nextBounds.width, nextBounds.height);
-          const setPosition = resolveWailsWindowSetPosition(nextBounds, viewport, {
-              useMonitorLocalOrigin: isWindowsPlatform(),
-          });
-          WindowSetPosition(setPosition.x, setPosition.y);
+          applyRuntimeWindowPlacement(placement, isWindowsPlatform(), WindowSetSize, WindowSetPosition);
           state.setWindowBounds(nextBounds);
           return nextBounds;
       };
 
-      const restoreNormalWindowBounds = async (bounds: {
-          width: number;
-          height: number;
-          x: number;
-          y: number;
-      }) => {
+      const restoreNormalWindowBounds = async (
+          bounds: WindowRestoreBounds,
+          layout: MainWindowDisplayLayout | null,
+      ) => {
           try {
               if (await WindowIsFullscreen()) {
                   WindowUnfullscreen();
@@ -2122,7 +2026,7 @@ function App() {
           } catch (e) {
               console.warn('Failed to restore normal window chrome', e);
           }
-          const appliedBounds = applyRestoredWindowBounds(bounds);
+          const appliedBounds = applyRestoredWindowBounds(bounds, layout);
           // Wails can finish the native normal-window transition before the
           // WebView2 controller receives its first size update. Wait for the
           // native rect, then explicitly resize the controller just as the
@@ -2144,9 +2048,14 @@ function App() {
               return;
           }
           restoredOnce = true;
+          await applyStartupWindowState();
+      };
 
+      const applyStartupWindowState = async () => {
           const state = useStore.getState();
           const bounds = state.windowBounds;
+          const layout = await loadMainWindowDisplayLayout();
+          if (cancelled) return;
           const restoreMode = resolveStartupWindowRestoreMode(
               state.startupFullscreen,
               state.windowState,
@@ -2160,7 +2069,7 @@ function App() {
                       // reload may already be maximised: SetSize in that state
                       // shrinks the HWND while its client area stays maximised.
                       if (!await WindowIsMaximised() && !await WindowIsFullscreen() && !cancelled) {
-                          const appliedBounds = applyRestoredWindowBounds(bounds);
+                          const appliedBounds = applyRestoredWindowBounds(bounds, layout);
                           await waitForNativeWindowBounds(appliedBounds);
                       }
                   } catch (e) {
@@ -2180,7 +2089,7 @@ function App() {
               if (!bounds || bounds.width < 400 || bounds.height < 300) {
                   if (isWindowsPlatform()) {
                       const nextBounds = resolveDefaultStartupWindowBounds(viewport);
-                      await restoreNormalWindowBounds(nextBounds);
+                      await restoreNormalWindowBounds(nextBounds, layout);
                       void emitWindowDiagnostic('adjust:startup-default-window-bounds', {
                           to: nextBounds,
                       });
@@ -2189,11 +2098,12 @@ function App() {
                   }
                   return;
               }
-              await restoreNormalWindowBounds(bounds);
+              await restoreNormalWindowBounds(bounds, layout);
           } catch (e) {
               console.warn('Failed to restore window bounds', e);
           } finally {
               clearStartupWindowRestorePending();
+              markStartupWindowGeometrySettled();
           }
       };
 
@@ -2252,8 +2162,19 @@ function App() {
                   store.setWindowState(newState);
               }
 
-              // 只在普通窗口模式下保存尺寸和位置
-              if (isFs || isMax) return;
+              // Windows 最大化时只记录所在显示器：不把最大化尺寸写成普通窗口的还原尺寸。
+              if (isFs || isMax) {
+                  if (isWindowsPlatform() && isMax && !isFs) {
+                      const layout = await loadMainWindowDisplayLayout();
+                      if (cancelled || isStartupWindowRestorePending()) return;
+                      const nextBounds = resolveMaximisedWindowRestoreBounds(store.windowBounds, layout);
+                      if (nextBounds) {
+                          lastSaved = `${nextBounds.width},${nextBounds.height},${nextBounds.x},${nextBounds.y},${nextBounds.dpi || ''}`;
+                          store.setWindowBounds(nextBounds);
+                      }
+                  }
+                  return;
+              }
 
               const [size, pos] = await Promise.all([
                   safeWindowRuntimeCall(() => WindowGetSize(), null),
@@ -2266,13 +2187,21 @@ function App() {
               const y = Math.trunc(Number(pos.y || 0));
                if (w < 400 || h < 300) return;
 
-               const key = `${w},${h},${x},${y}`;
+               // macOS 的 WindowGetPosition 是当前屏局部坐标，必须换算成全局坐标
+               // 才能记住窗口在哪块显示器上；换算失败时按原值保存，行为不回退。
+               const layout = await loadMainWindowDisplayLayout();
+               const savedBounds = resolveGlobalWindowBounds(
+                   { width: w, height: h, x, y },
+                   layout,
+               ) ?? { width: w, height: h, x, y };
+
+               const key = `${savedBounds.width},${savedBounds.height},${savedBounds.x},${savedBounds.y},${savedBounds.dpi || ''}`;
                if (key === lastSaved) return;
                lastSaved = key;
-               if (Math.abs(x) > 5000 || Math.abs(y) > 5000) {
-                   void emitWindowDiagnostic('anomaly:windowBounds', { width: w, height: h, x, y });
+               if (Math.abs(savedBounds.x) > 5000 || Math.abs(savedBounds.y) > 5000) {
+                   void emitWindowDiagnostic('anomaly:windowBounds', savedBounds);
                }
-               store.setWindowBounds({ width: w, height: h, x, y });
+               store.setWindowBounds(savedBounds);
             } catch (e) {
                 // 静默忽略
             }
@@ -2324,13 +2253,20 @@ function App() {
               if (currentBounds.width <= 0 || currentBounds.height <= 0) {
                   return;
               }
-              const viewport = readCurrentVisibleViewport();
-              const nextBounds = resolveVisibleStartupWindowBounds(currentBounds, viewport);
+              const layout = await loadMainWindowDisplayLayout();
+              if (cancelled || isStartupWindowRestorePending()) return;
+              const placement = resolveRuntimeWindowPlacement(currentBounds, layout, readCurrentVisibleViewport(), isWindowsPlatform());
+              if (!placement) return;
+              const nextBounds = placement.bounds;
+              const resolvedOriginal = resolveGlobalWindowBounds(currentBounds, layout);
+              const originalGlobal = resolvedOriginal ?? currentBounds;
+              const originalDpi = resolvedOriginal?.dpi;
               if (
-                  nextBounds.x === currentBounds.x &&
-                  nextBounds.y === currentBounds.y &&
-                  nextBounds.width === currentBounds.width &&
-                  nextBounds.height === currentBounds.height
+                  nextBounds.x === originalGlobal.x &&
+                  nextBounds.y === originalGlobal.y &&
+                  nextBounds.width === originalGlobal.width &&
+                  nextBounds.height === originalGlobal.height &&
+                  nextBounds.dpi === originalDpi
               ) {
                   return;
               }
@@ -2338,13 +2274,12 @@ function App() {
                   from: currentBounds,
                   to: nextBounds,
               });
-              WindowSetSize(nextBounds.width, nextBounds.height);
-              const setPosition = resolveWailsWindowSetPosition(nextBounds, viewport, {
-                  useMonitorLocalOrigin: isWindowsPlatform(),
-              });
-              WindowSetPosition(setPosition.x, setPosition.y);
-              lastSaved = `${nextBounds.width},${nextBounds.height},${nextBounds.x},${nextBounds.y}`;
-              useStore.getState().setWindowBounds(nextBounds);
+              applyRuntimeWindowPlacement(placement, isWindowsPlatform(), WindowSetSize, WindowSetPosition);
+              // 持久化用全局坐标：macOS 的窗口位置是当前屏局部坐标，直接落盘会丢
+              // 失“在哪块显示器上”的信息。换算失败时保留设备侧坐标，行为不回退。
+              const persistedBounds = placement.persistedBounds;
+              lastSaved = `${persistedBounds.width},${persistedBounds.height},${persistedBounds.x},${persistedBounds.y},${persistedBounds.dpi || ''}`;
+              useStore.getState().setWindowBounds(persistedBounds);
               window.dispatchEvent(new Event('resize'));
           } catch {
               // Wails runtime window APIs are best-effort here.
@@ -3507,54 +3442,6 @@ function App() {
       });
   }, [applicationQuitModalZIndex, ensureSavedQueriesLoaded, forceQuitApplication, resetApplicationQuitRequest, saveQuery, t]);
 
-  const handleBrandIconChange = useCallback(async (id: BrandIconId) => {
-      if (id === brandIconId) return;
-      const previousId = brandIconId;
-      if (runtimePlatform !== 'windows') {
-          setBrandIconId(id);
-          message.success(t('app.settings.entry.brand_icon.applied'));
-          return;
-      }
-
-      // Windows applies the new ICO to existing shortcuts and rotates the live
-      // window's AppUserModel identity in a single native call, so Explorer
-      // re-renders the taskbar group immediately — no restart required now
-      // that the identity follows the icon. Detached native windows spawned
-      // before the next full app restart keep the previous identity until
-      // then, which is the only leftover of skipping the restart.
-      windowsBrandIconApplyingRef.current = id;
-      setBrandIconId(id);
-      try {
-          const source = resolveBrandDockSrc(id);
-          if (!source) {
-              // Remote ribbon assets are still warming the cache. The compact
-              // GN fallback must never be written to the Windows icon cache;
-              // the dock sync effect applies the verified asset once it lands.
-              message.success(t('app.settings.entry.brand_icon.applied'));
-              return;
-          }
-          // Windows fills the whole taskbar tile; the macOS Dock safe-area
-          // inset would shrink the ICO mark relative to neighbouring apps.
-          // Bundled mascots drop the white tile and the GoNavi word mark —
-          // the cut-out dog itself becomes the whole icon, no background.
-          const b64 = await composeWindowsNativeIconBase64(source, {
-              transparentMark: resolveBrandIcon(id).bundled ? true : undefined,
-          });
-          const result = await SetApplicationBrandIcon(b64);
-          if (!result || result.success === false) {
-              throw new Error(result?.message || 'Windows brand icon update failed');
-          }
-          message.success(t('app.settings.entry.brand_icon.applied'));
-      } catch (error) {
-          setBrandIconId(previousId);
-          console.warn('Failed to apply the Windows brand icon:', error);
-          message.error(t('app.settings.entry.brand_icon.native_sync_failed'));
-      } finally {
-          if (windowsBrandIconApplyingRef.current === id) {
-              windowsBrandIconApplyingRef.current = null;
-          }
-      }
-  }, [brandIconId, runtimePlatform, setBrandIconId, t]);
 
   const handleInstallUpdateRequest = useCallback(async () => {
       let pendingCloseInstanceCount: number | null = null;
@@ -3884,6 +3771,8 @@ function App() {
           selectedConnectionIds: connections.map((item) => item.id),
       });
   };
+  const handleExportConnectionsRef = useRef(handleExportConnections);
+  handleExportConnectionsRef.current = handleExportConnections;
 
   // === Excel 批量导入（issue #1226）：统一入口按格式分流 ===
   // Excel 导入结果里分组按连接名声明；导入完成后按名字→ID 映射把连接挂入
@@ -4506,6 +4395,19 @@ function App() {
           openSecurityUpdateSettings();
       }
   }, [openSecurityUpdateSettings, securityUpdateRepairSource]);
+  const titleBarViewMenuEntries = useTitleBarViewMenuEntries({
+      activeTabType: activeWorkbenchTab?.type,
+      aiPanelVisible,
+      fullscreen: windowState === 'fullscreen',
+      isMacRuntime,
+      onCloseSettings: closeSettingsCenterWorkbenchTab,
+      onCollapseSidebar: handleCollapseSidebarPanel,
+      onExpandSidebar: handleExpandSidebarPanel,
+      onOpenSettings: handleOpenSettingsModal,
+      onToggleAI: handleToggleOrFocusAIPanel,
+      settingsOpen: isSettingsModalOpen,
+      sidebarCollapsed: isSidebarCollapsed,
+  });
   const handleCancelSettingsCenterPane = useCallback(() => withAISettingsLeaveGuard(aiSettingsLeaveGuardRef.current, () => {
       const leavingAI = activeSettingsCenterPane?.key === 'ai';
       if (isConnectionPackageSettingsPaneKey(activeSettingsCenterPane?.key)) {
@@ -4604,7 +4506,7 @@ function App() {
           return;
       }
       if (spec.action === 'export-connections') {
-          void handleExportConnections('config');
+          void handleExportConnectionsRef.current('config');
           return;
       }
       if (
@@ -4657,7 +4559,6 @@ function App() {
   }), [
       addTab,
       handleCancelSettingsCenterPane,
-      handleExportConnections,
       handleOpenDataSyncWorkbench,
       handleOpenSettingsCenterPane,
       handleOpenSettingsModal,
@@ -5825,16 +5726,12 @@ function App() {
                   : t('app.shortcuts.message.modifier_required'));
               return;
           }
-          const conflictAction = SHORTCUT_ACTION_ORDER.find((action) => {
-              if (action === capturingShortcutAction) {
-                  return false;
-              }
-              const binding = resolveShortcutBinding(shortcutOptions, action, activeShortcutPlatform);
-              if (!binding?.enabled) {
-                  return false;
-              }
-              return normalizeShortcutCombo(binding.combo) === normalizedCombo;
-          });
+          const conflictAction = findEnabledActionConflicts(
+              shortcutOptions,
+              capturingShortcutAction,
+              normalizedCombo,
+              activeShortcutPlatform,
+          )[0];
           if (conflictAction) {
               void message.warning(t('app.shortcuts.message.conflict', { action: SHORTCUT_ACTION_META[conflictAction].label }));
               return;
@@ -7312,6 +7209,11 @@ function App() {
                                   options?.hideSectionTabs ? null : t('app.theme.nav.appearance.title'),
                                   <>
                                       {renderThemeSettingsRow({
+                                          label: t('app.theme.appearance.titlebar_menu_style_title'),
+                                          stacked: true,
+                                          control: <TitlebarMenuStyleSettings />,
+                                      })}
+                                      {renderThemeSettingsRow({
                                           label: t('app.theme.appearance.ui_scale_title'),
                                           hint: t('app.theme.appearance.ui_scale_hint'),
                                           stacked: true,
@@ -8029,13 +7931,6 @@ function App() {
                   })),
               },
               {
-                  key: 'brand-icon',
-                  icon: <AppstoreOutlined />,
-                  title: t('app.settings.entry.brand_icon.title'),
-                  description: t('app.settings.entry.brand_icon.description'),
-                  onClick: () => handleOpenSettingsCenterPane('preferences', 'brand-icon'),
-              },
-              {
                   key: 'sidebar-metadata',
                   icon: <TableOutlined />,
                   title: t('app.settings.sidebar_metadata.title'),
@@ -8178,19 +8073,6 @@ function App() {
               </div>
           );
       }
-      if (activeSettingsCenterPane.key === 'brand-icon') {
-          return (
-              <div style={{ padding: '16px 0 20px' }}>
-                  <BrandIconPicker
-                    value={brandIconId}
-                    darkMode={darkMode}
-                    accentColor={overlayTheme.selectedText}
-                    ariaLabel={t('app.settings.entry.brand_icon.title')}
-                    onChange={handleBrandIconChange}
-                  />
-              </div>
-          );
-      }
       if (activeSettingsCenterPane.key === 'sidebar-metadata') {
           return renderSidebarMetadataSettingsPane();
       }
@@ -8314,7 +8196,7 @@ function App() {
             clipPath: showLinuxResizeHandles ? 'none' : 'inset(0 round var(--gonavi-border-radius))',
             backdropFilter: blurFilter,
             WebkitBackdropFilter: blurFilter,
-            ['--gn-v2-empty-workbench-titlebar-overlap' as any]: `${titleBarLayout.emptyWorkbenchTopOffset}px`,
+            ['--gn-v2-empty-workbench-titlebar-overlap' as any]: `${resolveDockedTitleBarBandOffset(effectiveUiScale, effectiveSidebarRailScale)}px`,
           }}
         >
           <input
@@ -8374,10 +8256,18 @@ function App() {
                     onConnectionGroupManagement={() => setIsConnectionGroupManagementOpen(true)}
                   />
                   <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />
+                  {appearance.titlebarMenuStyle === 'view-menu' && (
+                      <TitleBarViewMenu
+                        label={t('app.view_menu.trigger')}
+                        entries={titleBarViewMenuEntries}
+                      />
+                  )}
+                  <div id="gonavi-titlebar-about-action" className="gonavi-titlebar-quick-actions-slot gn-v2-titlebar-about-slot" />
               </div>
-              {isCollapsedSidebarActionsDocked && (
+              {shouldDockCollapsedSidebarActionsInTitlebar && (
                   <div
                     ref={setCollapsedSidebarActionsTarget}
+                    hidden={!isCollapsedSidebarActionsDocked}
                     className="gn-v2-collapsed-sidebar-actions"
                     data-collapsed-sidebar-actions="true"
                     data-no-titlebar-toggle="true"
@@ -8504,7 +8394,7 @@ function App() {
                             onFocusCommandSearch={handleFocusSidebarSearch}
                             onCollapseSidebar={handleCollapseSidebarPanel}
                             onExpandSidebar={handleExpandSidebarPanel}
-                            onEnsureSidebarExpanded={isSidebarCollapsed ? handleExpandSidebarPanel : undefined}
+                            onEnsureSidebarExpanded={handleEnsureSidebarExpanded}
                             onTitlebarSnapshotChange={setSidebarTitlebarSnapshot}
                             collapseSidebarLabel={sidebarPanelCollapseLabel}
                             collapseSidebarButtonRef={sidebarExplorerToggleRef}

@@ -18,7 +18,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/uievents"
-	"GoNavi-Wails/shared/i18n"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -812,56 +811,6 @@ func TestTryResolveExportTableTotalRows_UsesCountQuery(t *testing.T) {
 	}
 }
 
-func TestVerifyOptionalDriverAgentReadyForExport_RejectsStaleAgent(t *testing.T) {
-	originalProbe := optionalDriverAgentMetadataProbe
-	originalResolvePath := resolveOptionalDriverAgentExecutablePathFunc
-	originalLanguage := defaultAppTextLanguage
-	t.Cleanup(func() {
-		optionalDriverAgentMetadataProbe = originalProbe
-		resolveOptionalDriverAgentExecutablePathFunc = originalResolvePath
-		setDefaultAppLanguage(originalLanguage)
-	})
-	setDefaultAppLanguage(i18n.LanguageEnUS)
-
-	resolveOptionalDriverAgentExecutablePathFunc = func(downloadDir string, driverType string) (string, error) {
-		return "/tmp/oceanbase-driver-agent", nil
-	}
-	optionalDriverAgentMetadataProbe = func(driverType string, executablePath string) (db.OptionalDriverAgentMetadata, error) {
-		return db.OptionalDriverAgentMetadata{
-			DriverType:    driverType,
-			AgentRevision: "src-stale-agent",
-		}, nil
-	}
-
-	err := verifyOptionalDriverAgentReadyForExport(connection.ConnectionConfig{Type: "oceanbase"})
-	if err == nil {
-		t.Fatal("预期旧版 OceanBase driver-agent 被导出前校验拦截")
-	}
-	expectedDriverName := resolveDriverDisplayName(driverDefinition{Type: "oceanbase"})
-	if strings.Contains(err.Error(), "当前导出依赖最新的") {
-		t.Fatalf("错误信息不应再直接返回中文原文，got=%q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "latest "+expectedDriverName+" driver-agent streaming protocol") {
-		t.Fatalf("错误信息应说明需要最新的 driver-agent 流式协议，got=%q", err.Error())
-	}
-}
-
-func TestVerifyOptionalDriverAgentReadyForExport_SkipsBuiltInDriver(t *testing.T) {
-	originalResolvePath := resolveOptionalDriverAgentExecutablePathFunc
-	t.Cleanup(func() {
-		resolveOptionalDriverAgentExecutablePathFunc = originalResolvePath
-	})
-
-	resolveOptionalDriverAgentExecutablePathFunc = func(downloadDir string, driverType string) (string, error) {
-		t.Fatalf("内置驱动导出不应探测 optional driver-agent 路径")
-		return "", nil
-	}
-
-	if err := verifyOptionalDriverAgentReadyForExport(connection.ConnectionConfig{Type: "mysql"}); err != nil {
-		t.Fatalf("内置驱动导出不应被 optional driver-agent 校验阻断: %v", err)
-	}
-}
-
 func TestExportQueryResultToFile_UsesStreamQueryPath(t *testing.T) {
 	f, err := os.CreateTemp("", "gonavi-export-stream-*.csv")
 	if err != nil {
@@ -1625,6 +1574,7 @@ func BenchmarkDumpTableSQL_SQLBackup_StreamMap_20000Rows(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		writer := bufio.NewWriterSize(io.Discard, 1024*1024)
 		if err := dumpTableSQL(
+			context.Background(),
 			writer,
 			streamDB,
 			connection.ConnectionConfig{Type: "mysql"},
@@ -1652,6 +1602,7 @@ func BenchmarkDumpTableSQL_SQLBackup_StreamValues_20000Rows(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		writer := bufio.NewWriterSize(io.Discard, 1024*1024)
 		if err := dumpTableSQL(
+			context.Background(),
 			writer,
 			streamDB,
 			connection.ConnectionConfig{Type: "mysql"},
@@ -1730,6 +1681,7 @@ func TestDumpTableSQL_PostgresBooleanBackupUsesBooleanLiterals(t *testing.T) {
 	writer := bufio.NewWriter(&buf)
 
 	err := dumpTableSQL(
+		context.Background(),
 		writer,
 		fake,
 		connection.ConnectionConfig{Type: "postgres"},
@@ -1769,6 +1721,7 @@ func TestDumpTableSQL_PostgresBackupExportIncludesEscapedTableComment(t *testing
 	writer := bufio.NewWriter(&buf)
 
 	err := dumpTableSQL(
+		context.Background(),
 		writer,
 		fake,
 		connection.ConnectionConfig{Type: "postgres"},
@@ -1812,6 +1765,7 @@ func TestDumpTableSQL_PostgresSchemaExportOmitsEmptyTableComment(t *testing.T) {
 	writer := bufio.NewWriter(&buf)
 
 	if err := dumpTableSQL(
+		context.Background(),
 		writer,
 		fake,
 		connection.ConnectionConfig{Type: "postgres"},
@@ -1930,6 +1884,7 @@ func TestDumpTableSQL_MySQLBackupBatchesRowsIntoMultiValueInsert(t *testing.T) {
 	writer := bufio.NewWriter(&buf)
 
 	err := dumpTableSQL(
+		context.Background(),
 		writer,
 		fake,
 		connection.ConnectionConfig{Type: "mysql"},
@@ -1967,6 +1922,7 @@ func TestDumpTableSQL_OracleBackupBatchesRowsIntoInsertAll(t *testing.T) {
 	writer := bufio.NewWriter(&buf)
 
 	err := dumpTableSQL(
+		context.Background(),
 		writer,
 		fake,
 		connection.ConnectionConfig{Type: "oracle"},
@@ -2070,7 +2026,7 @@ func TestExportDatabaseSQLToFileDefaultOptionsDoNotEmitDropsOrDatabaseContext(t 
 	if err := legacyFile.Close(); err != nil {
 		t.Fatalf("close legacy export file: %v", err)
 	}
-	legacyResult := app.exportDatabaseSQLToFile(config, "app", false, legacyPath, ExportFileOptions{})
+	legacyResult := app.exportDatabaseSQLToFile(context.Background(), config, "app", false, legacyPath, ExportFileOptions{})
 	if !legacyResult.Success {
 		t.Fatalf("legacy export failed: %+v", legacyResult)
 	}
@@ -2094,6 +2050,7 @@ func TestExportDatabaseSQLToFileDefaultOptionsDoNotEmitDropsOrDatabaseContext(t 
 		t.Fatalf("close opt-in export file: %v", err)
 	}
 	contextFreeDropResult := app.exportDatabaseSQLToFile(
+		context.Background(),
 		config,
 		"app",
 		false,
@@ -2140,6 +2097,7 @@ func TestExportDatabaseSQLToFileDatabaseContextIsExplicitOptIn(t *testing.T) {
 
 	contextFreePath := filepath.Join(t.TempDir(), "context-free.sql")
 	contextFreeResult := app.exportDatabaseSQLToFile(
+		context.Background(),
 		config,
 		"app",
 		true,
@@ -2178,6 +2136,7 @@ func TestExportDatabaseSQLToFileDatabaseContextIsExplicitOptIn(t *testing.T) {
 
 	contextPath := filepath.Join(t.TempDir(), "with-context.sql")
 	contextResult := app.exportDatabaseSQLToFile(
+		context.Background(),
 		config,
 		"app",
 		true,
@@ -2231,6 +2190,7 @@ func TestExportDatabaseSQLToFileReportsObjectProgress(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "app_backup.sql")
 
 	result := app.exportDatabaseSQLToFile(
+		context.Background(),
 		connection.ConnectionConfig{Type: "mysql", Host: "127.0.0.1", Port: 3306},
 		"app",
 		false,
@@ -2294,6 +2254,7 @@ func TestExportDatabaseSQLToFilePreservesExistingBackupOnFailure(t *testing.T) {
 	}
 
 	result := NewApp().exportDatabaseSQLToFile(
+		context.Background(),
 		connection.ConnectionConfig{Type: "mysql", Host: "127.0.0.1", Port: 3306},
 		"app",
 		false,

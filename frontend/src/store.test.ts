@@ -710,6 +710,36 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().appearance.autoAddTableAlias).toBe(true);
   });
 
+  it('persists the titlebar menu style and falls back to classic for unknown values', async () => {
+    const { useStore } = await importStore();
+
+    expect(useStore.getState().appearance.titlebarMenuStyle).toBe('classic');
+
+    useStore.getState().setAppearance({ titlebarMenuStyle: 'view-menu' });
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').state.appearance.titlebarMenuStyle).toBe('view-menu');
+
+    vi.resetModules();
+    let reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.titlebarMenuStyle).toBe('view-menu');
+
+    // 老配置里没有该字段、或写入了非法值时，都必须回到经典模式，避免升级后标题栏突变
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: { appearance: { titlebarMenuStyle: 'compact' } },
+      version: 21,
+    }));
+    vi.resetModules();
+    reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.titlebarMenuStyle).toBe('classic');
+
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: { appearance: {} },
+      version: 21,
+    }));
+    vi.resetModules();
+    reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.titlebarMenuStyle).toBe('classic');
+  });
+
   it('persists v2 sidebar search preferences and sanitizes filter text', async () => {
     const { useStore } = await importStore();
 
@@ -3981,15 +4011,18 @@ describe('store appearance persistence', () => {
     const { useStore } = await importStore();
 
     useStore.getState().setWindowState('maximized');
-    useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40 });
+    useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
     expect(persisted.state.windowState).toBe('maximized');
-    expect(persisted.state.windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40 });
+    expect(persisted.state.windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
 
     vi.resetModules();
     const reloaded = await importStore();
     expect(reloaded.useStore.getState().windowState).toBe('maximized');
+    expect(reloaded.useStore.getState().windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
+
+    reloaded.useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40, dpi: Number.NaN });
     expect(reloaded.useStore.getState().windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40 });
   });
 

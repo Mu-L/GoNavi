@@ -1,6 +1,7 @@
 import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
 import Modal from './common/ResizableDraggableModal';
-import TitleBarQuickActions, { type TitleBarQuickAction } from './TitleBarQuickActions';
+import { type TitleBarQuickAction } from './TitleBarQuickActions';
+import TitleBarQuickActionsHost from './TitleBarQuickActionsHost';
 import { type DataSyncEntryModeAlias } from './dataSyncEntryMode';
 import type { DatabaseCharsetOption, DatabaseCollationOption } from '../utils/databaseCharset';
 import SidebarSearchPanel, {
@@ -190,8 +191,8 @@ import {
 import {
   canLocateSidebarActiveTab,
   describeSidebarLocateFailure,
+  dispatchSidebarActiveQueryTableLocate,
   resolveSidebarActiveTabLocateAction,
-  SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT,
 } from './sidebar/sidebarLocateActiveTab';
 import {
   runSidebarTreeScrollRequest,
@@ -1204,7 +1205,7 @@ const Sidebar: React.FC<{
           const target = treeContainerRef.current;
           if (!target) return;
           const rect = target.getBoundingClientRect();
-          setTreeHeight((current) => current === rect.height ? current : rect.height);
+          setTreeHeight((current) => (Math.abs(current - rect.height) < 1 ? current : rect.height));
       });
       const resizeObserver = new ResizeObserver(() => scheduler.schedule());
       resizeObserver.observe(treeContainerRef.current);
@@ -2099,7 +2100,7 @@ const Sidebar: React.FC<{
           return;
       }
       if (activeTabLocateAction.kind === 'query-line-table') {
-          window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT));
+          dispatchSidebarActiveQueryTableLocate(activeTabLocateAction);
           return;
       }
       message.warning(t('sidebar.message.locate_current_table_unavailable'));
@@ -4328,9 +4329,6 @@ const Sidebar: React.FC<{
       onClick: () => onOpenSettingsNavigation?.({ group: 'about', pane: 'about-go-navi' }),
     },
   ];
-  const v2TitlebarQuickActionsTarget = typeof document !== 'undefined'
-    ? document.getElementById('gonavi-titlebar-quick-actions')
-    : null;
 
   const getCommandSearchCopyOptions = useCallback((item: V2CommandSearchItem): V2CommandSearchCopyOption[] => {
     if (item.kind === 'action') return [];
@@ -4684,14 +4682,11 @@ const Sidebar: React.FC<{
           collapsedSidebarActionsTarget,
         )}
 
-        {v2TitlebarQuickActionsTarget && createPortal(
-          <TitleBarQuickActions
-            label={v2RailObjectActionsLabel}
-            actions={v2TitlebarQuickActions}
-            trailingActions={v2TitlebarAboutActions}
-          />,
-          v2TitlebarQuickActionsTarget,
-        )}
+        <TitleBarQuickActionsHost
+          label={v2RailObjectActionsLabel}
+          actions={v2TitlebarQuickActions}
+          trailingActions={v2TitlebarAboutActions}
+        />
 
         {contextMenu?.kind && typeof document !== 'undefined' && createPortal(
             <div

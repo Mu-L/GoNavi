@@ -1130,8 +1130,8 @@ func (l *Ledger) getSessionTx(ctx context.Context, tx *sql.Tx, id string, includ
 	if err != nil {
 		return SessionProjection{}, err
 	}
-	var title string
-	if err := l.openJSON("sessions", id, "title", titleBlob, &title); err != nil {
+	title, err := l.sessionDisplayTitleTx(ctx, tx, id, titleBlob)
+	if err != nil {
 		return SessionProjection{}, err
 	}
 	projection := SessionProjection{ID: id, Title: title, Revision: revision, Generation: generation,
@@ -1252,11 +1252,7 @@ func (l *Ledger) ListSessions(ctx context.Context, request SessionListRequest) (
 	if offset < 0 {
 		offset = 0
 	}
-	where := ""
-	args := []any{}
-	if request.ActiveOnly {
-		where = ` WHERE archived=0 AND EXISTS (SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.state NOT IN ('completed','failed','canceled','exhausted'))`
-	}
+	where, args := sessionListWhere(request.ActiveOnly)
 	var total int
 	if err := l.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions s`+where, args...).Scan(&total); err != nil {
 		return SessionListResult{}, err
@@ -1368,7 +1364,7 @@ func (l *Ledger) createRunTx(ctx context.Context, tx *sql.Tx, request CreateRunR
 			return RunSnapshot{}, err
 		}
 	}
-	if _, err := l.ensureSessionTx(ctx, tx, request.SessionID, ""); err != nil {
+	if _, err := l.ensureSessionTx(ctx, tx, request.SessionID, sessionTitleFromMessage(request.InitialMessage)); err != nil {
 		return RunSnapshot{}, err
 	}
 	var generation int64

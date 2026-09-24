@@ -504,30 +504,6 @@ func tryResolveExportTableTotalRows(dbInst db.Database, config connection.Connec
 	return resolveExportTotalRowsFromRows(rows)
 }
 
-func verifyOptionalDriverAgentReadyForExport(config connection.ConnectionConfig) error {
-	driverType := normalizeDriverType(config.Type)
-	if strings.EqualFold(strings.TrimSpace(config.Type), "custom") &&
-		strings.EqualFold(strings.TrimSpace(config.Driver), "clickhouse") {
-		driverType = "clickhouse"
-	}
-	if !db.IsOptionalGoDriver(driverType) {
-		return nil
-	}
-
-	executablePath, err := resolveOptionalDriverAgentExecutablePathFunc("", driverType)
-	if err != nil {
-		return err
-	}
-	if _, err := verifyInstalledOptionalDriverAgentRevision(driverType, executablePath); err != nil {
-		displayName := resolveDriverDisplayName(driverDefinition{Type: driverType})
-		return fmt.Errorf("%s", defaultAppText("file.backend.error.export_driver_agent_streaming_required", map[string]any{
-			"driver": displayName,
-			"detail": err.Error(),
-		}))
-	}
-	return nil
-}
-
 var exportFileNameSanitizer = strings.NewReplacer(
 	"/", "_",
 	"\\", "_",
@@ -5173,11 +5149,6 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	format := options.Format
-	if format != "sql" {
-		if err := verifyOptionalDriverAgentReadyForExport(config); err != nil {
-			return connection.QueryResult{Success: false, Message: err.Error()}
-		}
-	}
 	defaultFilename := fmt.Sprintf("%s.%s", tableName, format)
 	filename := ""
 	var err error
@@ -5210,6 +5181,11 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 	}
 	reporter := newExportProgressReporter(a, options, tableName, reporterPath)
 	reporter.Start(a.appText("data_export.progress.stage.preparing_export", nil))
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
 	runConfig := normalizeRunConfig(config, dbName)
 
 	dbInst, err := a.getDatabase(runConfig)
@@ -5258,7 +5234,7 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 			reporter.Error(0, err.Error())
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
-		if err := dumpTableSQL(w, dbInst, runConfig, dbName, tableName, true, true, viewLookup); err != nil {
+		if err := dumpTableSQL(exportCtx, w, dbInst, runConfig, dbName, tableName, true, true, viewLookup); err != nil {
 			reporter.Error(0, err.Error())
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
@@ -5272,7 +5248,7 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 			reporter.Error(0, err.Error())
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
-		if err := target.commit(); err != nil {
+		if err := commitCancelableExportTarget(exportCtx, target); err != nil {
 			reporter.Error(0, err.Error())
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
@@ -5284,20 +5260,20 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 	dbType := resolveDDLDBType(config)
 	query := buildExportTableSelectQuery(dbType, tableName, options.Columns)
 
-	f, err := openExportFileForTarget(webTarget, filename)
+	f, atomicTarget, err := openCancelableExportTarget(webTarget, filename)
 	if err != nil {
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer func() { _ = f.Close() }()
-	rowCount, _, err := exportQueryResultToFile(f, dbInst, runConfig, query, options, reporter)
+	defer cleanupExportFileTarget(f, atomicTarget)
+	rowCount, _, err := exportQueryResultToFileWithContext(exportCtx, f, dbInst, runConfig, query, options, reporter)
 	if err != nil {
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(rowCount, errMsg)
 		maybeReleaseFileTransferMemory("export-table-error", rowCount, filename)
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
-	if err := closeExportFile(f); err != nil {
+	if err := finishCancelableExportTarget(exportCtx, atomicTarget, f); err != nil {
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(rowCount, errMsg)
 		maybeReleaseFileTransferMemory("export-table-error", rowCount, filename)
@@ -5368,7 +5344,12 @@ func (a *App) ExportTablesSQLWithOptions(
 	if reporter != nil {
 		reporter.Start(a.appText("data_export.progress.stage.preparing_batch_tables_export", nil))
 	}
-	return a.exportTablesSQLToFile(config, dbName, objects, includeSchema, includeData, filename, reporter, options, webDownloadBudgetForTarget(webTarget))
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
+	return a.exportTablesSQLToFile(exportCtx, config, dbName, objects, includeSchema, includeData, filename, reporter, options, webDownloadBudgetForTarget(webTarget))
 }
 
 func (a *App) exportTablesSQL(config connection.ConnectionConfig, dbName string, tableNames []string, includeSchema bool, includeData bool) connection.QueryResult {
@@ -5391,6 +5372,7 @@ func (a *App) exportTablesSQL(config connection.ConnectionConfig, dbName string,
 	}
 
 	return a.exportTablesSQLToFile(
+		context.Background(),
 		config,
 		dbName,
 		objects,
@@ -5403,180 +5385,6 @@ func (a *App) exportTablesSQL(config connection.ConnectionConfig, dbName string,
 	)
 }
 
-type atomicExportFile interface {
-	io.Writer
-	io.Closer
-	Sync() error
-}
-
-type atomicExportTarget struct {
-	file       atomicExportFile
-	tempPath   string
-	targetPath string
-	closed     bool
-	committed  bool
-}
-
-func createAtomicExportTarget(targetPath string, budgets ...*webTransferBudget) (*atomicExportTarget, error) {
-	temporary, err := os.CreateTemp(filepath.Dir(targetPath), ".gonavi-export-*.part")
-	if err != nil {
-		return nil, err
-	}
-	var file atomicExportFile = temporary
-	if len(budgets) > 0 && budgets[0] != nil {
-		file, err = newWebTransferFile(temporary, budgets[0])
-		if err != nil {
-			_ = temporary.Close()
-			_ = os.Remove(temporary.Name())
-			return nil, err
-		}
-	}
-	return &atomicExportTarget{
-		file:       file,
-		tempPath:   temporary.Name(),
-		targetPath: targetPath,
-	}, nil
-}
-
-func (target *atomicExportTarget) abort() {
-	if target == nil {
-		return
-	}
-	if !target.closed {
-		_ = target.file.Close()
-		target.closed = true
-	}
-	if !target.committed {
-		_ = os.Remove(target.tempPath)
-	}
-}
-
-func (target *atomicExportTarget) commit() error {
-	if target == nil || target.file == nil {
-		return errors.New("invalid atomic export target")
-	}
-	if err := target.file.Sync(); err != nil {
-		return err
-	}
-	closeErr := target.file.Close()
-	target.closed = true
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := atomicReplaceSQLAuditFile(target.tempPath, target.targetPath); err != nil {
-		return err
-	}
-	target.committed = true
-	return nil
-}
-
-func (a *App) exportTablesSQLToFile(
-	config connection.ConnectionConfig,
-	dbName string,
-	tableNames []string,
-	includeSchema bool,
-	includeData bool,
-	filename string,
-	reporter *exportProgressReporter,
-	options ExportFileOptions,
-	budget *webTransferBudget,
-) connection.QueryResult {
-	if !includeSchema && !includeData {
-		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.invalid_export_mode", nil)}
-	}
-
-	runConfig := normalizeRunConfig(config, dbName)
-	dbInst, err := a.getDatabase(runConfig)
-	if err != nil {
-		if reporter != nil {
-			reporter.Error(0, err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-
-	viewLookup := listViewNameLookup(dbInst, runConfig, dbName)
-	objects := buildExportObjectOrder(runConfig, dbName, normalizeExportNameList(tableNames), viewLookup, false)
-
-	target, err := createAtomicExportTarget(filename, budget)
-	if err != nil {
-		if reporter != nil {
-			reporter.Error(0, err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	defer target.abort()
-
-	w := bufio.NewWriterSize(target.file, 1024*1024)
-
-	if err := writeSQLHeader(w, runConfig, dbName); err != nil {
-		if reporter != nil {
-			reporter.Error(0, err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	if err := writeSQLDropIfExistsPreamble(
-		w,
-		runConfig,
-		dbName,
-		objects,
-		viewLookup,
-		includeSchema,
-		options,
-	); err != nil {
-		if reporter != nil {
-			reporter.Error(0, err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	for index, objectName := range objects {
-		if reporter != nil {
-			reporter.ForceRunning(int64(index), a.appText("data_export.progress.stage.exporting_item_with_progress", map[string]any{
-				"name":    objectName,
-				"current": index + 1,
-				"total":   len(objects),
-			}))
-		}
-		if err := dumpTableSQL(w, dbInst, runConfig, dbName, objectName, includeSchema, includeData, viewLookup); err != nil {
-			if reporter != nil {
-				reporter.Error(int64(index), err.Error())
-			}
-			return connection.QueryResult{Success: false, Message: err.Error()}
-		}
-	}
-	if err := writeSQLFooter(w, runConfig); err != nil {
-		if reporter != nil {
-			reporter.Error(int64(len(objects)), err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-
-	if reporter != nil {
-		reporter.Finalizing(int64(len(objects)))
-	}
-	if err := w.Flush(); err != nil {
-		if reporter != nil {
-			reporter.Error(int64(len(objects)), err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	if err := target.commit(); err != nil {
-		if reporter != nil {
-			reporter.Error(int64(len(objects)), err.Error())
-		}
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	if reporter != nil {
-		reporter.Done(int64(len(objects)))
-	}
-	return connection.QueryResult{
-		Success: true,
-		Message: a.appText("file.backend.message.export_completed", nil),
-		Data: map[string]interface{}{
-			"filePath":    filename,
-			"objectCount": len(objects),
-		},
-	}
-}
 
 func (a *App) ExportDatabaseSQL(config connection.ConnectionConfig, dbName string, includeData bool) connection.QueryResult {
 	return a.ExportDatabaseSQLWithOptions(config, dbName, includeData, ExportFileOptions{
@@ -5623,7 +5431,12 @@ func (a *App) ExportDatabaseSQLWithOptions(
 		}
 	}
 
-	return a.exportDatabaseSQLToFile(config, safeDbName, includeData, filename, options, webDownloadBudgetForTarget(webTarget))
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
+	return a.exportDatabaseSQLToFile(exportCtx, config, safeDbName, includeData, filename, options, webDownloadBudgetForTarget(webTarget))
 }
 
 func (a *App) ExportDatabasesSQLWithOptions(
@@ -5682,6 +5495,11 @@ func (a *App) ExportDatabasesSQLWithOptions(
 	if reporter != nil {
 		reporter.Start(a.appText("data_export.progress.stage.preparing_batch_databases_export", nil))
 	}
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
 
 	entries := make([]webDownloadZipEntry, 0, len(normalizedDbNames))
 	for index, name := range normalizedDbNames {
@@ -5699,7 +5517,7 @@ func (a *App) ExportDatabasesSQLWithOptions(
 		targetFile := filepath.Join(directory, entryName)
 		innerOptions := options
 		innerOptions.JobID = ""
-		result := a.exportDatabaseSQLToFile(config, name, includeData, targetFile, innerOptions, webDownloadBudgetForTarget(webTarget))
+		result := a.exportDatabaseSQLToFile(exportCtx, config, name, includeData, targetFile, innerOptions, webDownloadBudgetForTarget(webTarget))
 		if !result.Success {
 			displayTarget := targetFile
 			if webTarget != nil {
@@ -5739,6 +5557,7 @@ func (a *App) ExportDatabasesSQLWithOptions(
 }
 
 func (a *App) exportDatabaseSQLToFile(
+	exportCtx context.Context,
 	config connection.ConnectionConfig,
 	dbName string,
 	includeData bool,
@@ -5824,6 +5643,7 @@ func (a *App) exportDatabaseSQLToFile(
 			}))
 		}
 		if err := dumpTableSQLWithDatabaseContext(
+			exportCtx,
 			w,
 			dbInst,
 			runConfig,
@@ -5855,7 +5675,7 @@ func (a *App) exportDatabaseSQLToFile(
 		}
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	if err := target.commit(); err != nil {
+	if err := commitCancelableExportTarget(exportCtx, target); err != nil {
 		if reporter != nil {
 			reporter.Error(int64(len(objects)), err.Error())
 		}
@@ -5936,6 +5756,11 @@ func (a *App) ExportSchemaSQLWithOptions(
 	if reporter != nil {
 		reporter.Start(a.appText("data_export.progress.stage.preparing_export", nil))
 	}
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
 
 	runConfig := normalizeRunConfig(config, dbName)
 	dbInst, err := a.getDatabase(runConfig)
@@ -6009,7 +5834,7 @@ func (a *App) ExportSchemaSQLWithOptions(
 				"total":   len(objects),
 			}))
 		}
-		if err := dumpTableSQL(w, dbInst, runConfig, dbName, objectName, true, includeData, filteredViews); err != nil {
+		if err := dumpTableSQL(exportCtx, w, dbInst, runConfig, dbName, objectName, true, includeData, filteredViews); err != nil {
 			if reporter != nil {
 				reporter.Error(int64(index), err.Error())
 			}
@@ -6031,7 +5856,7 @@ func (a *App) ExportSchemaSQLWithOptions(
 		}
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	if err := target.commit(); err != nil {
+	if err := commitCancelableExportTarget(exportCtx, target); err != nil {
 		if reporter != nil {
 			reporter.Error(int64(len(objects)), err.Error())
 		}
@@ -6782,6 +6607,7 @@ func buildListViewQueries(config connection.ConnectionConfig, dbName string) []s
 }
 
 func tryGetViewCreateStatement(
+	exportCtx context.Context,
 	dbInst db.Database,
 	config connection.ConnectionConfig,
 	dbName string,
@@ -6793,7 +6619,7 @@ func tryGetViewCreateStatement(
 		if strings.TrimSpace(query) == "" {
 			continue
 		}
-		rows, _, err := queryDataForViewDDL(dbInst, config, query)
+		rows, _, err := queryDataForViewDDL(exportCtx, dbInst, config, query)
 		if err != nil || len(rows) == 0 {
 			continue
 		}
@@ -6826,6 +6652,7 @@ func (c *viewDDLQueryCollector) ConsumeRow(row map[string]interface{}) error {
 }
 
 func queryDataForViewDDL(
+	exportCtx context.Context,
 	dbInst db.Database,
 	config connection.ConnectionConfig,
 	query string,
@@ -6833,12 +6660,12 @@ func queryDataForViewDDL(
 	switch resolveDDLDBType(config) {
 	case "oracle", "dameng":
 		collector := &viewDDLQueryCollector{}
-		if err := streamQueryDataForExport(dbInst, config, query, collector); err != nil {
+		if err := streamQueryDataForExportWithContext(exportCtx, dbInst, config, query, collector); err != nil {
 			return nil, nil, err
 		}
 		return collector.rows, collector.columns, nil
 	default:
-		return queryDataForExport(dbInst, config, query)
+		return queryDataForExportWithContext(exportCtx, dbInst, config, query)
 	}
 }
 
@@ -7194,6 +7021,7 @@ func formatSQLValue(dbType string, v interface{}) string {
 }
 
 func dumpTableSQL(
+	exportCtx context.Context,
 	w *bufio.Writer,
 	dbInst db.Database,
 	config connection.ConnectionConfig,
@@ -7204,6 +7032,7 @@ func dumpTableSQL(
 	viewLookup map[string]string,
 ) error {
 	return dumpTableSQLWithDatabaseContext(
+		exportCtx,
 		w,
 		dbInst,
 		config,
@@ -7217,6 +7046,7 @@ func dumpTableSQL(
 }
 
 func dumpTableSQLWithDatabaseContext(
+	exportCtx context.Context,
 	w *bufio.Writer,
 	dbInst db.Database,
 	config connection.ConnectionConfig,
@@ -7236,7 +7066,7 @@ func dumpTableSQLWithDatabaseContext(
 
 	if includeSchema {
 		if isView {
-			viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName)
+			viewDDL, ok := tryGetViewCreateStatement(exportCtx, dbInst, config, dbName, metadataSchemaName, metadataTableName)
 			if ok {
 				createSQL = viewDDL
 			} else {
@@ -7249,7 +7079,7 @@ func dumpTableSQLWithDatabaseContext(
 		} else {
 			ddl, err := resolveCreateStatementWithFallback(dbInst, config, dbName, tableName)
 			if err != nil {
-				if viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
+				if viewDDL, ok := tryGetViewCreateStatement(exportCtx, dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
 					createSQL = viewDDL
 					isView = true
 				} else {
@@ -7262,7 +7092,7 @@ func dumpTableSQLWithDatabaseContext(
 	}
 
 	if includeData && !includeSchema && !isView {
-		if _, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
+		if _, ok := tryGetViewCreateStatement(exportCtx, dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
 			isView = true
 		}
 	}
@@ -7317,7 +7147,7 @@ func dumpTableSQLWithDatabaseContext(
 		quotedTable:   outputTableName,
 		columnTypeMap: columnTypeMap,
 	}
-	if err := streamQueryDataForExport(dbInst, config, selectSQL, insertConsumer); err != nil {
+	if err := streamQueryDataForExportWithContext(exportCtx, dbInst, config, selectSQL, insertConsumer); err != nil {
 		if flushErr := insertConsumer.Flush(); flushErr != nil {
 			return flushErr
 		}
@@ -7392,14 +7222,19 @@ func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []str
 	}
 	reporter := newExportProgressReporter(a, options, defaultName, reporterPath)
 	reporter.Start(a.appText("data_export.progress.stage.preparing_export", nil))
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
 
-	f, err := openExportFileForTarget(webTarget, filename)
+	f, atomicTarget, err := openCancelableExportTarget(webTarget, filename)
 	if err != nil {
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer func() { _ = f.Close() }()
-	writtenRows, err := writeRowsToFileWithReporter(f, data, columns, options, reporter)
+	defer cleanupExportFileTarget(f, atomicTarget)
+	writtenRows, err := writeRowsToFileWithReporter(exportCtx, f, data, columns, options, reporter)
 	if err != nil {
 		logger.Warnf("ExportData 写入失败：file=%s err=%v", filename, err)
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
@@ -7407,7 +7242,7 @@ func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []str
 		maybeReleaseFileTransferMemory("export-data-error", writtenRows, filename)
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
-	if err := closeExportFile(f); err != nil {
+	if err := finishCancelableExportTarget(exportCtx, atomicTarget, f); err != nil {
 		logger.Warnf("ExportData 落盘失败：file=%s err=%v", filename, err)
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(writtenRows, errMsg)
@@ -7441,11 +7276,6 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	format := options.Format
-	if format != "sql" {
-		if err := verifyOptionalDriverAgentReadyForExport(config); err != nil {
-			return connection.QueryResult{Success: false, Message: err.Error()}
-		}
-	}
 
 	defaultFilename := fmt.Sprintf("%s.%s", defaultName, strings.ToLower(format))
 	filename := ""
@@ -7484,6 +7314,11 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 	}
 	reporter := newExportProgressReporter(a, options, defaultName, reporterPath)
 	reporter.Start(a.appText("data_export.progress.stage.preparing_export", nil))
+	exportCtx, finishExportTask := a.beginCancelableExportTask(options.JobID)
+	defer finishExportTask()
+	defer func() {
+		result = a.classifyExportTaskResult(exportCtx, result)
+	}()
 
 	runConfig := normalizeRunConfig(config, dbName)
 	dbInst, err := a.getDatabase(runConfig)
@@ -7516,21 +7351,21 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.select_with_query_required", nil)}
 	}
 
-	f, err := openExportFileForTarget(webTarget, filename)
+	f, atomicTarget, err := openCancelableExportTarget(webTarget, filename)
 	if err != nil {
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer func() { _ = f.Close() }()
+	defer cleanupExportFileTarget(f, atomicTarget)
 
-	rowCount, columns, err := exportQueryResultToFile(f, dbInst, runConfig, query, options, reporter)
+	rowCount, columns, err := exportQueryResultToFileWithContext(exportCtx, f, dbInst, runConfig, query, options, reporter)
 	if err != nil {
 		logger.Warnf("ExportQuery 查询失败：type=%s db=%s err=%v sql=%q", strings.TrimSpace(config.Type), strings.TrimSpace(dbName), err, sqlSnippet(query))
 		reporter.Error(rowCount, err.Error())
 		maybeReleaseFileTransferMemory("export-query-error", rowCount, filename)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	if err := closeExportFile(f); err != nil {
+	if err := finishCancelableExportTarget(exportCtx, atomicTarget, f); err != nil {
 		logger.Warnf("ExportQuery 落盘失败：file=%s err=%v", filename, err)
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(rowCount, errMsg)
@@ -8485,13 +8320,16 @@ func formatExportRecordValue(val interface{}, markdown bool) string {
 }
 
 func writeRowsToFile(f io.Writer, data []map[string]interface{}, columns []string, options ExportFileOptions) error {
-	_, err := writeRowsToFileWithReporter(f, data, columns, options, nil)
+	_, err := writeRowsToFileWithReporter(context.Background(), f, data, columns, options, nil)
 	return err
 }
 
-func writeRowsToFileWithReporter(f io.Writer, data []map[string]interface{}, columns []string, options ExportFileOptions, reporter *exportProgressReporter) (int64, error) {
+func writeRowsToFileWithReporter(exportCtx context.Context, f io.Writer, data []map[string]interface{}, columns []string, options ExportFileOptions, reporter *exportProgressReporter) (int64, error) {
 	if f == nil {
 		return 0, fmt.Errorf("file required")
+	}
+	if exportCtx == nil {
+		exportCtx = context.Background()
 	}
 	options = normalizeExportFileOptions("", options)
 	if err := validateExportColumnsSelection(options); err != nil {
@@ -8514,6 +8352,10 @@ func writeRowsToFileWithReporter(f io.Writer, data []map[string]interface{}, col
 		reporter.ForceRunning(0, reporter.text("data_export.progress.stage.writing_file", nil))
 	}
 	for index, row := range data {
+		if err := exportCtx.Err(); err != nil {
+			_ = writer.Close()
+			return int64(index), err
+		}
 		if err := writer.ConsumeRow(row); err != nil {
 			_ = writer.Close()
 			return int64(index), err

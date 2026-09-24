@@ -31,6 +31,12 @@ import {
 } from './driverManager/driverDownloadCancellation';
 import { useDriverDownloadCancellation } from './driverManager/useDriverDownloadCancellation';
 import {
+  OPTIONAL_UPDATE_DISMISS_KEY,
+  isDriverReinstallTarget,
+  isOptionalUpdateVisible,
+  readOptionalUpdateDismissedRevisions,
+} from './driverManager/driverOptionalUpdate';
+import {
   getDriverLocalImportButtonLabel,
   getDriverLocalImportDirectoryHelp,
   getDriverLocalImportSingleFileHelp,
@@ -78,8 +84,8 @@ const parseDriverPackageSizeBytes = (value?: string): number => {
 };
 
 const driverStatusSortRank = (row: DriverStatusRow): number => {
-  // 与列表圆点 / 详情 Tag 一致：需重装优先于仍可连接，避免橙色混进绿色里
-  if (row.needsUpdate) return 0;
+  // 与列表圆点 / 详情 Tag 一致：需重装（含可选更新）优先于仍可连接，避免橙色混进绿色里
+  if (row.needsUpdate || row.optionalUpdate) return 0;
   if (row.builtIn || row.connectable) return 1;
   if (row.packageInstalled) return 2;
   return 3;
@@ -121,6 +127,7 @@ type DriverStatusRow = {
   agentRevision?: string;
   expectedRevision?: string;
   needsUpdate?: boolean;
+  optionalUpdate?: boolean;
   updateReason?: string;
   affectedConnections?: number;
   activeConnections?: number;
@@ -510,13 +517,16 @@ const appendRawNonChineseDetail = (parts: string[], value: unknown) => {
   }
   parts.push(text);
 };
-const formatDriverCardStatusMessage = (row: DriverStatusRow): string => {
+const formatDriverCardStatusMessage = (row: DriverStatusRow, dismissedRevisions: string[]): string => {
   const parts: string[] = [];
   if (row.builtIn) {
     parts.push(t('driver.modal.card.status.builtIn'));
   } else if (row.needsUpdate) {
     parts.push(t('driver.modal.card.status.needsUpdate'));
     appendRawNonChineseDetail(parts, row.updateReason);
+    appendRawNonChineseDetail(parts, row.message);
+  } else if (isOptionalUpdateVisible(row, dismissedRevisions)) {
+    parts.push(t('driver.modal.card.status.optionalUpdate'));
     appendRawNonChineseDetail(parts, row.message);
   } else if (row.connectable || row.runtimeAvailable) {
     parts.push(t('driver.modal.card.status.runtimeAvailable'));
@@ -701,6 +711,7 @@ const DriverManagerModal: React.FC<{
   const [selectedVersionMap, setSelectedVersionMap] = useState<Record<string, string>>({});
   const [versionLoadingMap, setVersionLoadingMap] = useState<Record<string, boolean>>({});
   const [versionSizeLoadingMap, setVersionSizeLoadingMap] = useState<Record<string, boolean>>({});
+  const [optionalUpdateDismissedRevisions, setOptionalUpdateDismissedRevisions] = useState<string[]>(() => readOptionalUpdateDismissedRevisions());
   const [driverFilter, setDriverFilter] = useState<'all' | 'needsUpdate' | 'enabled' | 'notEnabled'>('all');
   const [driverSortKey, setDriverSortKey] = useState<DriverListSortKey>('name');
   const [selectedDriverType, setSelectedDriverType] = useState('');
@@ -999,6 +1010,7 @@ const DriverManagerModal: React.FC<{
         agentRevision: String(item.agentRevision || '').trim() || undefined,
         expectedRevision: String(item.expectedRevision || '').trim() || undefined,
         needsUpdate: !!item.needsUpdate,
+        optionalUpdate: !!item.optionalUpdate && !item.needsUpdate,
         updateReason: String(item.updateReason || '').trim() || undefined,
         affectedConnections: Number.isFinite(Number(item.affectedConnections))
           ? Number(item.affectedConnections)
@@ -1814,7 +1826,7 @@ const DriverManagerModal: React.FC<{
     if (isDriverDownloadActive(progress)) {
       return <Tag color="processing">{t('driver.modal.card.installing', { percent: resolveDriverProgress(row).percent })}</Tag>;
     }
-    if (row.needsUpdate) {
+    if (row.needsUpdate || isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions)) {
       return <Tag color="warning">{t('driver.modal.stats.needsUpdate')}</Tag>;
     }
     if (row.connectable) {
@@ -1914,7 +1926,7 @@ const DriverManagerModal: React.FC<{
       return <Text type="secondary">{t('driver.modal.card.fullOnly')}</Text>;
     }
 
-    const mainAction = row.needsUpdate ? (
+    const mainAction = isDriverReinstallTarget(row, optionalUpdateDismissedRevisions) ? (
       <Button size={embedded ? 'small' : undefined} type="primary" icon={<DownloadOutlined />} disabled={driverMutationBusy} loading={loadingInstallOrRemove} onClick={() => requestInstallDriver(row)}>
         {t('driver.modal.card.action.reinstall')}
       </Button>
@@ -1935,6 +1947,27 @@ const DriverManagerModal: React.FC<{
     return (
       <Space size={8} wrap className="driver-manager-card-actions">
         {mainAction}
+        {isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions) ? (
+          <Button
+            size={embedded ? 'small' : undefined}
+            type="text"
+            disabled={driverMutationBusy}
+            onClick={() => {
+              if (!row.expectedRevision) {
+                return;
+              }
+              const nextDismissed = Array.from(new Set([...optionalUpdateDismissedRevisions, row.expectedRevision]));
+              try {
+                window.localStorage.setItem(OPTIONAL_UPDATE_DISMISS_KEY, JSON.stringify(nextDismissed));
+              } catch {
+                // localStorage 不可用时仅本次会话内生效
+              }
+              setOptionalUpdateDismissedRevisions(nextDismissed);
+            }}
+          >
+            {t('driver.modal.card.optionalUpdate.dismiss')}
+          </Button>
+        ) : null}
         {!row.connectable ? (
           <Button size={embedded ? 'small' : undefined} danger ghost icon={<DeleteOutlined />} disabled={driverMutationBusy} onClick={() => confirmRemoveDriver(row)}>
             {t('driver.modal.card.action.remove')}
@@ -1958,9 +1991,9 @@ const DriverManagerModal: React.FC<{
         row.type,
         row.pinnedVersion,
         row.installedVersion,
-        formatDriverCardStatusMessage(row),
+        formatDriverCardStatusMessage(row, optionalUpdateDismissedRevisions),
         row.builtIn ? t('driver.modal.search.builtIn') : t('driver.modal.search.external'),
-        row.needsUpdate
+        isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)
           ? t('driver.modal.search.reinstallRecommended')
           : row.connectable
             ? t('driver.modal.card.enabled')
@@ -1971,12 +2004,12 @@ const DriverManagerModal: React.FC<{
       const searchableText = normalizeDriverSearchText(searchableParts.filter(Boolean).join(' '));
       return searchableText.includes(normalizedSearchKeyword);
     });
-  }, [normalizedSearchKeyword, rows]);
+  }, [normalizedSearchKeyword, rows, optionalUpdateDismissedRevisions]);
   const visibleRows = useMemo(() => {
     let nextRows: DriverStatusRow[];
     switch (driverFilter) {
       case 'needsUpdate':
-        nextRows = filteredRows.filter((row) => !row.builtIn && row.needsUpdate);
+        nextRows = filteredRows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions));
         break;
       case 'enabled':
         nextRows = filteredRows.filter((row) => !row.builtIn && row.connectable);
@@ -1989,7 +2022,7 @@ const DriverManagerModal: React.FC<{
         break;
     }
     return [...nextRows].sort((left, right) => compareDriverRows(left, right, driverSortKey));
-  }, [driverFilter, driverSortKey, filteredRows]);
+  }, [driverFilter, driverSortKey, filteredRows, optionalUpdateDismissedRevisions]);
   const selectedRow = useMemo(() => (
     visibleRows.find((row) => row.type === selectedDriverType) || visibleRows[0]
   ), [selectedDriverType, visibleRows]);
@@ -2005,11 +2038,14 @@ const DriverManagerModal: React.FC<{
     return {
       total: filteredRows.length,
       enabled: optionalRows.filter((row) => row.connectable).length,
-      needsUpdate: optionalRows.filter((row) => row.needsUpdate).length,
+      needsUpdate: optionalRows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)).length,
       notEnabled: optionalRows.filter((row) => !row.connectable && !row.packageInstalled).length,
     };
-  }, [filteredRows]);
-  const reinstallableRows = useMemo(() => rows.filter((row) => !row.builtIn && row.needsUpdate), [rows]);
+  }, [filteredRows, optionalUpdateDismissedRevisions]);
+  const reinstallableRows = useMemo(
+    () => rows.filter((row) => isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)),
+    [rows, optionalUpdateDismissedRevisions],
+  );
   const installableRows = useMemo(
     () => rows.filter((row) => !row.builtIn && !row.connectable),
     [rows],
@@ -2247,7 +2283,7 @@ const DriverManagerModal: React.FC<{
     if (progressState?.status === 'error') return 'error';
     if (isDriverDownloadActive(progressState)) return 'checking';
     if (progressState?.status === 'done') return 'ok';
-    if (row.needsUpdate) return 'warning';
+    if (isDriverReinstallTarget(row, optionalUpdateDismissedRevisions)) return 'warning';
     if (row.builtIn || row.connectable) return 'ok';
     if (row.packageInstalled) return 'warning';
     return 'idle';
@@ -2285,7 +2321,7 @@ const DriverManagerModal: React.FC<{
   const renderDriverDetail = (row: DriverStatusRow) => {
     const progressState = progressMap[row.type];
     const progress = resolveDriverProgress(row);
-    const statusMessage = formatDriverCardStatusMessage(row);
+    const statusMessage = formatDriverCardStatusMessage(row, optionalUpdateDismissedRevisions);
     const affectedText = row.affectedConnections && row.affectedConnections > 0
       ? t('driver.modal.card.affectedConnections', { count: row.affectedConnections })
       : '';
@@ -2308,7 +2344,7 @@ const DriverManagerModal: React.FC<{
             {affectedText ? <Text type="secondary">{affectedText}</Text> : null}
           </div>
         ) : null}
-        {row.needsUpdate && statusMessage ? (
+        {(row.needsUpdate || isOptionalUpdateVisible(row, optionalUpdateDismissedRevisions)) && statusMessage ? (
           <div className="driver-manager-update-note">
             <Paragraph
               className="driver-manager-note-text"

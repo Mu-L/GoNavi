@@ -30,7 +30,6 @@ import (
 	"GoNavi-Wails/internal/sqlaudit"
 	syncbackend "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/internal/synccdc"
-	"GoNavi-Wails/internal/syncjob"
 	"GoNavi-Wails/internal/uievents"
 	"GoNavi-Wails/shared/i18n"
 	"github.com/google/uuid"
@@ -200,6 +199,8 @@ type App struct {
 	driverDownloadActiveTaskID    string
 	driverDownloadTaskRunner      driverDownloadTaskRunner
 	driverDownloadTaskControls    map[string]driverDownloadTaskControl
+	exportTaskMu                  sync.Mutex
+	exportTasks                   map[string]*exportTaskRegistration
 	driverInstallMu               sync.Mutex
 	driverMaintenance             map[string]int
 	dataRootApplyMu               sync.Mutex
@@ -267,13 +268,10 @@ type App struct {
 	dataSyncJobApprovalDelay      time.Duration
 	dataSyncFingerprintMu         sync.Mutex
 	dataSyncFingerprintKey        []byte
-	dataSyncJobsMu                sync.Mutex
-	dataSyncJobStore              *syncjob.Store
-	dataSyncJobManager            *syncjob.Manager
-	dataSyncJobLeaseOwner         string
-	dataSyncJobsDraining          bool
-	dataSyncCDCRegistry           *synccdc.Registry
-	dataSyncChangeEventRunner     func(context.Context, syncbackend.ChangeEventRequest) syncbackend.ChangeEventResult
+	dataSyncJobsState
+	dataSyncJobLeaseOwner     string
+	dataSyncCDCRegistry       *synccdc.Registry
+	dataSyncChangeEventRunner func(context.Context, syncbackend.ChangeEventRequest) syncbackend.ChangeEventResult
 }
 
 // NewApp creates a new App application struct
@@ -1384,13 +1382,6 @@ func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, erro
 	instance, err := a.getDatabaseWithPing(config, false)
 	a.bindMetadataDatabase(instance)
 	return instance, err
-}
-
-func (a *App) bindMetadataDatabase(instance db.Database) {
-	if a == nil || a.metadataSession == nil || instance == nil {
-		return
-	}
-	a.metadataSession.bindDatabase(instance)
 }
 
 type databaseWaitResult struct {

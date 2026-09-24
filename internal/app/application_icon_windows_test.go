@@ -204,6 +204,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	application := NewAppWithSecretStore(nil)
 	application.configDir = configDir
 
+	originalDPI := windowsApplicationIconSystemDPI
 	originalLoad := windowsApplicationIconLoad
 	originalDestroy := windowsApplicationIconDestroyCall
 	originalSend := windowsApplicationIconSendMessageCall
@@ -219,6 +220,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	windowsApplicationIconLargeHandle = 0
 	windowsApplicationIconHandleMu.Unlock()
 	t.Cleanup(func() {
+		windowsApplicationIconSystemDPI = originalDPI
 		windowsApplicationIconLoad = originalLoad
 		windowsApplicationIconDestroyCall = originalDestroy
 		windowsApplicationIconSendMessageCall = originalSend
@@ -233,6 +235,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 		windowsApplicationIconHandleMu.Unlock()
 	})
 
+	windowsApplicationIconSystemDPI = func() int { return 96 }
 	var loadedSizes []int
 	windowsApplicationIconLoad = func(actualPath string, size int) (uintptr, error) {
 		if application.ctx != ctx {
@@ -242,7 +245,7 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 			t.Fatalf("loaded icon path = %q, want %q", actualPath, iconPath)
 		}
 		loadedSizes = append(loadedSizes, size)
-		if size == windowsSmallIconPixels {
+		if size == windowsTaskbarIconPixels(96) {
 			return small, nil
 		}
 		return large, nil
@@ -292,8 +295,8 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	if err := InitializePersistedNativeBrandIcon(application, ctx); err != nil {
 		t.Fatalf("initialize persisted native brand icon: %v", err)
 	}
-	if len(loadedSizes) != 2 || loadedSizes[0] != windowsSmallIconPixels || loadedSizes[1] != windowsLargeIconPixels {
-		t.Fatalf("loaded icon sizes = %v, want [%d %d]", loadedSizes, windowsSmallIconPixels, windowsLargeIconPixels)
+	if len(loadedSizes) != 2 || loadedSizes[0] != windowsTaskbarIconPixels(96) || loadedSizes[1] != windowsAltTabIconPixels(96) {
+		t.Fatalf("loaded icon sizes = %v, want [%d %d]", loadedSizes, windowsTaskbarIconPixels(96), windowsAltTabIconPixels(96))
 	}
 	if taskbarIconPath != iconPath {
 		t.Fatalf("taskbar icon path = %q, want %q", taskbarIconPath, iconPath)
@@ -328,27 +331,73 @@ func TestInitializePersistedNativeBrandIconAppliesActiveIcon(t *testing.T) {
 	}
 }
 
-func TestRepairPersistedWindowsApplicationShortcutsOnceSkipsPortable(t *testing.T) {
+func TestRepairPersistedWindowsApplicationShortcutsOnceRepairsPortablePin(t *testing.T) {
 	originalUpdateShortcuts := windowsUpdateCurrentApplicationShortcuts
 	originalResolveInstallTarget := updateResolveInstallTarget
+	originalVersion := AppVersion
 	t.Cleanup(func() {
 		windowsUpdateCurrentApplicationShortcuts = originalUpdateShortcuts
 		updateResolveInstallTarget = originalResolveInstallTarget
+		AppVersion = originalVersion
 	})
 
 	installDir := t.TempDir()
 	updateResolveInstallTarget = func() string {
 		return filepath.Join(installDir, "GoNavi.exe")
 	}
+	AppVersion = "1.2.3"
+	called := 0
 	windowsUpdateCurrentApplicationShortcuts = func(string) error {
-		t.Fatal("portable startup must not migrate MSI taskbar shortcuts")
+		called++
 		return nil
 	}
 	configDir := t.TempDir()
 	repairPersistedWindowsApplicationShortcutsOnce(`C:\icons\gonavi-brand.ico`, configDir)
-	migrationPath := filepath.Join(configDir, windowsApplicationIconDirectoryName, ".taskbar-identity-v1")
-	if _, err := os.Stat(migrationPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("portable migration marker error = %v, want not exist", err)
+	repairPersistedWindowsApplicationShortcutsOnce(`C:\icons\gonavi-brand.ico`, configDir)
+	if called != 1 {
+		t.Fatalf("portable shortcut repair count = %d, want 1", called)
+	}
+}
+
+func TestPackagedIconShortcutMigrationRetriesAndIgnoresOldIconMarker(t *testing.T) {
+	originalUpdate, originalTarget, originalVersion := windowsUpdateCurrentApplicationShortcuts, updateResolveInstallTarget, AppVersion
+	t.Cleanup(func() {
+		windowsUpdateCurrentApplicationShortcuts, updateResolveInstallTarget, AppVersion = originalUpdate, originalTarget, originalVersion
+	})
+	executable := filepath.Join(t.TempDir(), "GoNavi.exe")
+	updateResolveInstallTarget = func() string { return executable }
+	AppVersion = "1.2.3"
+	configDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, windowsApplicationIconDirectoryName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recordCurrentWindowsShortcutIdentityState("old-custom.ico", configDir)
+	calls := 0
+	windowsUpdateCurrentApplicationShortcuts = func(iconPath string) error {
+		calls++
+		if iconPath != executable {
+			t.Fatalf("icon target = %q, want packaged executable", iconPath)
+		}
+		if calls == 1 {
+			return errors.New("temporary failure")
+		}
+		return nil
+	}
+	a := NewApp()
+	a.configDir = configDir
+	if err := MigrateLegacyApplicationShortcuts(a); err == nil {
+		t.Fatal("expected repair failure")
+	}
+	if _, err := os.Stat(filepath.Join(configDir, ".packaged-icon-shortcuts-v1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failure recorded as complete")
+	}
+	for i := 0; i < 2; i++ {
+		if err := MigrateLegacyApplicationShortcuts(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("repair calls = %d, want 2", calls)
 	}
 }
 

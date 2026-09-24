@@ -1,11 +1,17 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useEffect, useState, useContext, useMemo, useRef, useCallback } from 'react';
+import { useTableDesignerHeight } from './useTableDesignerHeight';
 import { flushSync } from 'react-dom';
 import { Table, Tabs, Button, message, Input, Checkbox, AutoComplete, Tooltip, Select, Empty, Space, Tag, Radio, Spin, Dropdown } from 'antd';
 import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined, CopyOutlined, SnippetsOutlined, TableOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import {
+    findDesignerColumnNameInput,
+    isTableDesignerSortCellKey,
+    tableDesignerRowSelector,
+} from './tableDesignerColumnFocus';
 import Editor from './MonacoEditor';
 import { TabData, ColumnDefinition, IndexDefinition, ForeignKeyDefinition, TriggerDefinition } from '../types';
 import { useStore } from '../store';
@@ -407,6 +413,7 @@ const SortableRow = ({ children, ...props }: RowProps) => {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -422,26 +429,38 @@ const SortableRow = ({ children, ...props }: RowProps) => {
   };
 
   return (
-    <tr {...props} ref={setNodeRef} style={style} {...attributes}>
+    <tr {...props} ref={setNodeRef} style={style}>
       {React.Children.map(children, child => {
-        if ((child as React.ReactElement).key === 'sort') {
-          return React.cloneElement(child as React.ReactElement, {
-            children: (
-                <MenuOutlined
-                    style={{ cursor: 'grab', color: '#999' }}
-                    {...listeners}
-                />
-            ),
-          });
+        if (!React.isValidElement(child) || !isTableDesignerSortCellKey(child.key)) {
+          return child;
         }
-        return child;
+        return React.cloneElement(child as React.ReactElement<{ children?: React.ReactNode }>, {
+          children: (
+            <span
+              ref={setActivatorNodeRef}
+              className="table-designer-drag-handle"
+              {...attributes}
+              {...listeners}
+            >
+              <MenuOutlined />
+            </span>
+          ),
+        });
       })}
     </tr>
   );
 };
 
 const renderDesignerCellField = (content: React.ReactNode, className?: string) => (
-  <div className={`table-designer-cell-field${className ? ` ${className}` : ''}`}>
+  <div
+    className={`table-designer-cell-field${className ? ` ${className}` : ''}`}
+    onMouseDown={(event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, .ant-select, button')) return;
+      const input = event.currentTarget.querySelector('input:not([type="checkbox"]):not([type="radio"])') as HTMLInputElement | null;
+      input?.focus();
+    }}
+  >
     {content}
   </div>
 );
@@ -586,8 +605,8 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const panelBodyBg = 'var(--gn-bg-panel-2)';
   const focusRowBg = 'var(--gn-bg-selected)';
 
-  const [tableHeight, setTableHeight] = useState(500);
   const containerRef = useRef<HTMLDivElement>(null);
+  const tableHeight = useTableDesignerHeight(containerRef, activeKey);
   const shellRef = useRef<HTMLDivElement>(null);
   const pendingFocusColumnKeyRef = useRef<string | null>(null);
   const focusHighlightTimerRef = useRef<number | null>(null);
@@ -629,21 +648,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
 
   // 透明 Monaco Editor 主题由 MonacoEditor 包装组件按需注册（含 stickyScroll 不透明背景）
 
-  // 监听字段 Tab 容器高度，为所有 Tab 内表格计算 scroll.y
-  // 当 Tab 切换时，字段 Tab 被 display:none 导致 height=0，跳过该次更新保持有效值
-  useEffect(() => {
-      if (!containerRef.current) return;
-      const resizeObserver = new ResizeObserver(entries => {
-          for (let entry of entries) {
-              const h = entry.contentRect.height;
-              // 跳过零高度观测（Tab 面板被隐藏时）
-              if (h <= 0) return;
-              setTableHeight(Math.max(200, h - 40));
-          }
-      });
-      resizeObserver.observe(containerRef.current);
-      return () => resizeObserver.disconnect();
-  }, []); // 不依赖 activeKey，仅挂载一次，通过零高度守卫避免 Tab 切换异常
 
   // --- Resizable Columns State ---
   const [tableColumns, setTableColumns] = useState<any[]>([]);
@@ -664,7 +668,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   });
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
@@ -697,8 +701,18 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
       if (activeKey !== 'columns' && activeKey !== 'tdengine') return false;
       const tableBody = containerRef.current?.querySelector('.ant-table-body') as HTMLElement | null;
       if (!tableBody) return false;
-      const row = tableBody.querySelector(`tr[data-row-key="${targetKey}"]`) as HTMLTableRowElement | null;
+      const row = tableBody.querySelector(tableDesignerRowSelector(targetKey)) as HTMLTableRowElement | null;
       if (!row) return false;
+
+      const active = document.activeElement;
+      if (
+          active instanceof HTMLInputElement
+          && active.type !== 'checkbox'
+          && active.type !== 'radio'
+          && row.contains(active)
+      ) {
+          return true;
+      }
 
       row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       setFocusColumnKey(targetKey);
@@ -710,10 +724,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
       }, 1600);
 
       if (!readOnly) {
-          const firstInput = row.querySelector('input') as HTMLInputElement | null;
-          if (firstInput) {
-              firstInput.focus();
-              firstInput.select();
+          const nameInput = findDesignerColumnNameInput(row);
+          if (nameInput) {
+              nameInput.focus();
+              nameInput.select();
           }
       }
       return true;
@@ -883,14 +897,6 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                               variant="borderless"
                           />
                       )}
-                      <Tooltip title={t('table_designer.tooltip.edit_column_options', undefined, i18nLanguage)}>
-                          <Button
-                              type="text"
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={() => openCommentEditor(record)}
-                          />
-                      </Tooltip>
                   </div>
               )
           },
@@ -3515,11 +3521,14 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
           }}
       >
         <style>{`
-           .table-designer-wrapper .ant-table-body {
-               max-height: ${tableHeight}px !important;
-            }
             .table-designer-wrapper .table-designer-focus-row > .ant-table-cell {
                 background: ${focusRowBg} !important;
+            }
+            .table-designer-wrapper .table-designer-drag-handle {
+                display: inline-flex;
+                align-items: center;
+                cursor: grab;
+                color: #999;
             }
         `}</style>
         {readOnly ? (

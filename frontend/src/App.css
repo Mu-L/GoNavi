@@ -2019,6 +2019,13 @@ body[data-ui-version="v2"] .gn-conn-dense .gn-conn-mode-extra .ant-form-item {
     background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
 }
 
+/* 「仅只读」总开关（#1325）：与下方分项之间一条分隔线，语义上全覆盖 */
+.gn-conn-prot-opt-all {
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--gn-border, rgba(16, 24, 40, 0.08));
+    padding-bottom: 8px;
+}
+
 .gn-conn-prot-opt .n {
     font-size: 12.5px;
     font-weight: 600;
@@ -2758,6 +2765,12 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot {
     max-width: min(620px, 42vw);
     flex: 0 1 auto;
     margin-left: 10px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-about-slot {
+    margin-left: 0;
+    max-width: max-content;
+    flex: 0 0 auto;
 }
 
 body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions {
@@ -4109,7 +4122,12 @@ body[data-ui-version] .ant-layout-sider[data-sidebar-collapsed='true'] {
   border-right: 0 !important;
 }
 
-body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='true'] [data-sidebar-tree-panel='true'] {
+/*
+ * Only the fixed rail leaves the collapsed explorer reachable. The docked
+ * titlebar mode clips it to zero width and marks the sidebar inert; toggling
+ * visibility there as well makes the virtual tree re-render on every expand.
+ */
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='true'][data-sidebar-actions-placement='fixed-rail'] [data-sidebar-tree-panel='true'] {
   visibility: hidden;
   pointer-events: none;
   transition: visibility 0s linear var(--gonavi-sidebar-collapse-duration);
@@ -4122,6 +4140,30 @@ body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] [da
 
 body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-connection-rail {
   display: none;
+}
+
+/* Non-inherited, so writing them on the explorer does not restyle the tree. */
+@property --gonavi-sidebar-tree-panel-frozen-width {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --gonavi-sidebar-tree-panel-frozen-height {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+/*
+ * The sider clips the explorer while it collapses, stays collapsed and expands.
+ * Keeping the last expanded size means the virtual tree never sees a resize.
+ */
+body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] [data-sidebar-tree-panel-frozen='true'] {
+  flex: 0 0 var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  width: var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  min-width: var(--gonavi-sidebar-tree-panel-frozen-width) !important;
+  height: var(--gonavi-sidebar-tree-panel-frozen-height) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

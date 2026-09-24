@@ -1,5 +1,11 @@
 import React, { type ReactNode } from "react";
 import {
+  allReadOnlyProtectionChecked,
+  readOnlyProtectionFields,
+  toggleAllReadOnlyProtection as toggleAllReadOnlyProtectionState,
+  type ReadOnlyProtectionState,
+} from "./connectionModalReadOnly";
+import {
   Alert,
   Button,
   Checkbox,
@@ -35,6 +41,7 @@ import {
   getDbIconLabel,
 } from "../DatabaseIcons";
 import ConnectionModalMongoSections from "../ConnectionModalMongoSections";
+import ConnectionModalKafkaAuth, { ConnectionModalAdditionalParams, ConnectionModalKafkaCredentials, readKafkaSecurityProtocol, readKafkaAuthMechanism, writeKafkaSecurityProtocol, useKafkaSecuritySync } from "./ConnectionModalKafkaAuth";
 import { t } from "../../i18n";
 import {
   supportsConnectionReadOnlyMode,
@@ -203,6 +210,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     useSSH,
     useSSL,
   } = props;
+  useKafkaSecuritySync(form, isKafka, setUseSSL);
 
   // 默认折叠生产保护，避免默认表单内容溢出触发滚动条；保留用户按需展开的交互。
   const [readOnlyProtectionExpanded, setReadOnlyProtectionExpanded] =
@@ -242,6 +250,26 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     supportsScriptExecutionProtection && restrictScriptExecution,
     restrictDataImport,
   ].filter(Boolean).length;
+  // 「仅只读」总开关（#1325）：派生逻辑与切换规则见 connectionModalReadOnly。
+  const readOnlyProtectionState: ReadOnlyProtectionState = {
+    restrictDataEdit,
+    restrictStructureEdit,
+    restrictScriptExecution,
+    restrictDataImport,
+  };
+  const allReadOnlyChecked = allReadOnlyProtectionChecked(
+    readOnlyProtectionState,
+    supportsScriptExecutionProtection,
+  );
+  const toggleAllReadOnlyProtection = () => {
+    const next = toggleAllReadOnlyProtectionState(
+      readOnlyProtectionState,
+      supportsScriptExecutionProtection,
+    );
+    for (const field of readOnlyProtectionFields(supportsScriptExecutionProtection)) {
+      setChoiceFieldValue(field, next[field]);
+    }
+  };
 
   const uriQuickBlock =
     !isCustom && !isJVM ? (
@@ -1442,8 +1470,9 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
             )}
 
             {/* 认证 · 密排（Demo：认证行 → 库范围 → 勾选 → 模式 → 生产保护） */}
+            {isKafka && <ConnectionModalKafkaAuth onTLSChange={setUseSSL} onChange={() => { setTestResult(null); setTestErrorLogOpen(false); setUriFeedback(null); }} />}
             {!isFileDb && !isRedis && (
-              <>
+              <ConnectionModalKafkaCredentials kafka={isKafka}>
                 <div className="gn-conn-f-row">
                   {denseLabel(
                     t("connection.modal.dense.auth"),
@@ -1509,7 +1538,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                       description: t("connection.modal.secret.saved_password"),
                     })
                   : null}
-              </>
+              </ConnectionModalKafkaCredentials>
             )}
 
             {isRedis && (
@@ -2511,6 +2540,35 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                 </button>
                 {readOnlyProtectionExpanded ? (
                   <div className="gn-conn-prot-body">
+                    <button
+                      type="button"
+                      className="gn-conn-prot-opt gn-conn-prot-opt-all"
+                      aria-pressed={allReadOnlyChecked}
+                      data-connection-config-section="readOnlyAll"
+                      onClick={toggleAllReadOnlyProtection}
+                    >
+                      <span
+                        onClick={(event) => event.stopPropagation()}
+                        style={{ justifySelf: "center", marginTop: 2 }}
+                      >
+                        <Checkbox
+                          checked={allReadOnlyChecked}
+                          onChange={toggleAllReadOnlyProtection}
+                        />
+                      </span>
+                      <div>
+                        <div className="n">
+                          {t(
+                            "connection.modal.field.readOnly.option.all.label",
+                          )}
+                        </div>
+                        <div className="h">
+                          {t(
+                            "connection.modal.field.readOnly.option.all.help",
+                          )}
+                        </div>
+                      </div>
+                    </button>
                     {[
                       {
                         field: "restrictDataEdit",
@@ -2655,21 +2713,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
   const advancedSection = (
     <div style={{ display: "grid", gap: 14 }}>
       {supportsConnectionParams ? (
-        <Form.Item
-          name="connectionParams"
-          label={t("connection.modal.connectionParams.label")}
-          help={t("connection.modal.connectionParams.help")}
-          style={{ marginBottom: 0 }}
-        >
-          <Input.TextArea
-            {...noAutoCapInputProps}
-            rows={3}
-            placeholder={getConnectionParamsPlaceholder(
-              dbType,
-              oceanBaseProtocol,
-            )}
-          />
-        </Form.Item>
+        <ConnectionModalAdditionalParams placeholder={getConnectionParamsPlaceholder(dbType, oceanBaseProtocol)} />
       ) : (
         <div style={{ ...modalMutedTextStyle, padding: "8px 2px" }}>
           {t("connection.modal.config.advanced.empty")}
@@ -2813,6 +2857,12 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
           setUriFeedback(null);
         }
         if (changed.useSSL !== undefined) {
+          if (isKafka) {
+            const params = form.getFieldValue("connectionParams");
+            const uri = form.getFieldValue("uri");
+            const sasl = readKafkaSecurityProtocol(uri, params).startsWith("SASL_");
+            form.setFieldValue("connectionParams", writeKafkaSecurityProtocol(params, `${sasl ? "SASL_" : ""}${changed.useSSL ? "SSL" : "PLAINTEXT"}`, readKafkaAuthMechanism(uri, params)));
+          }
           setUseSSL(changed.useSSL);
           if (changed.useSSL) setActiveNetworkConfig("ssl");
         }

@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"unsafe"
 
 	"GoNavi-Wails/internal/logger"
@@ -28,21 +30,25 @@ const (
 	windowsIconBig                       = 1
 	windowsClassIconLarge                = -14
 	windowsClassIconSmall                = -34
-	windowsSmallIconPixels               = 16
-	windowsLargeIconPixels               = 32
 	windowsShortcutIdentityStateFileName = ".taskbar-identity-v1"
 )
 
 var (
-	windowsApplicationIconUser32          = windows.NewLazySystemDLL("user32.dll")
-	windowsApplicationIconLoadImage       = windowsApplicationIconUser32.NewProc("LoadImageW")
-	windowsApplicationIconSendMessage     = windowsApplicationIconUser32.NewProc("SendMessageW")
-	windowsApplicationIconSetClassLong    = windowsApplicationIconUser32.NewProc("SetClassLongW")
-	windowsApplicationIconSetClassLongPtr = windowsApplicationIconUser32.NewProc("SetClassLongPtrW")
-	windowsApplicationIconDestroy         = windowsApplicationIconUser32.NewProc("DestroyIcon")
-	windowsApplicationIconHandleMu        sync.Mutex
-	windowsApplicationIconSmallHandle     uintptr
-	windowsApplicationIconLargeHandle     uintptr
+	windowsApplicationIconUser32           = windows.NewLazySystemDLL("user32.dll")
+	windowsApplicationIconLoadImage        = windowsApplicationIconUser32.NewProc("LoadImageW")
+	windowsApplicationIconGetDpiForSystem  = windowsApplicationIconUser32.NewProc("GetDpiForSystem")
+	windowsApplicationIconGetWindowLong    = windowsApplicationIconUser32.NewProc("GetWindowLongW")
+	windowsApplicationIconSetWindowLong    = windowsApplicationIconUser32.NewProc("SetWindowLongW")
+	windowsApplicationIconGetWindowLongPtr = windowsApplicationIconUser32.NewProc("GetWindowLongPtrW")
+	windowsApplicationIconSetWindowLongPtr = windowsApplicationIconUser32.NewProc("SetWindowLongPtrW")
+	windowsApplicationIconRtlGetVersion    = windows.NewLazySystemDLL("ntdll.dll").NewProc("RtlGetVersion")
+	windowsApplicationIconSendMessage      = windowsApplicationIconUser32.NewProc("SendMessageW")
+	windowsApplicationIconSetClassLong     = windowsApplicationIconUser32.NewProc("SetClassLongW")
+	windowsApplicationIconSetClassLongPtr  = windowsApplicationIconUser32.NewProc("SetClassLongPtrW")
+	windowsApplicationIconDestroy          = windowsApplicationIconUser32.NewProc("DestroyIcon")
+	windowsApplicationIconHandleMu         sync.Mutex
+	windowsApplicationIconSmallHandle      uintptr
+	windowsApplicationIconLargeHandle      uintptr
 
 	windowsApplicationIconSendMessageCall = func(hwnd, message, wParam, lParam uintptr) uintptr {
 		result, _, _ := windowsApplicationIconSendMessage.Call(hwnd, message, wParam, lParam)
@@ -57,9 +63,106 @@ var (
 	}
 	windowsApplicationIconSetTaskbarProperties = setWindowsTaskbarProperties
 	windowsApplicationIconLoad                 = loadWindowsApplicationIcon
+	windowsApplicationIconSystemDPI            = currentWindowsSystemDPI
+	windowsApplicationBuildNumber              = currentWindowsBuildNumber
+	windowsRefreshLegacyTaskbarButton          = refreshWindows10TaskbarButton
 	windowsApplicationIconDestroyCall          = destroyWindowsApplicationIcon
 	windowsUpdateCurrentApplicationShortcuts   = updateCurrentWindowsApplicationShortcuts
 )
+
+const mainWindowSetPositionIsLocal = true
+const mainWindowPositionIsGlobal = true
+
+type windowsDisplayRect struct {
+	Left, Top, Right, Bottom int32
+}
+
+type windowsDisplayMonitorInfo struct {
+	Size    uint32
+	Monitor windowsDisplayRect
+	Work    windowsDisplayRect
+	Flags   uint32
+}
+
+type windowsDisplayEnumeration struct {
+	current    uintptr
+	currentDPI int
+	areas      []mainWindowDisplayArea
+}
+
+var (
+	windowsDisplayEnumProc            = windowsApplicationIconUser32.NewProc("EnumDisplayMonitors")
+	windowsDisplayGetInfoProc         = windowsApplicationIconUser32.NewProc("GetMonitorInfoW")
+	windowsDisplayFromWindowProc      = windowsApplicationIconUser32.NewProc("MonitorFromWindow")
+	windowsDisplayGetDPIForWindowProc = windowsApplicationIconUser32.NewProc("GetDpiForWindow")
+	windowsDisplayDPIProc             = windows.NewLazySystemDLL("shcore.dll").NewProc("GetDpiForMonitor")
+	windowsDisplayEnumCallback        = syscall.NewCallback(appendWindowsDisplayArea)
+	windowsDisplayStates              sync.Map
+	windowsDisplaySequence            atomic.Uint64
+)
+
+func appendWindowsDisplayArea(monitor, _, _, data uintptr) uintptr {
+	value, ok := windowsDisplayStates.Load(data)
+	if !ok {
+		return 0
+	}
+	state := value.(*windowsDisplayEnumeration)
+	info := windowsDisplayMonitorInfo{Size: uint32(unsafe.Sizeof(windowsDisplayMonitorInfo{}))}
+	success, _, _ := windowsDisplayGetInfoProc.Call(monitor, uintptr(unsafe.Pointer(&info)))
+	if success == 0 {
+		return 1
+	}
+	dpi := currentWindowsSystemDPI()
+	if windowsDisplayDPIProc.Find() == nil {
+		var dpiX, dpiY uint32
+		status, _, _ := windowsDisplayDPIProc.Call(monitor, 0, uintptr(unsafe.Pointer(&dpiX)), uintptr(unsafe.Pointer(&dpiY)))
+		if status == 0 && dpiX > 0 {
+			dpi = int(dpiX)
+		}
+	}
+	if monitor == state.current && state.currentDPI > 0 {
+		dpi = state.currentDPI
+	}
+	work := info.Work
+	state.areas = append(state.areas, mainWindowDisplayArea{
+		X: int(work.Left), Y: int(work.Top),
+		Width: int(work.Right - work.Left), Height: int(work.Bottom - work.Top), DPI: dpi,
+		Primary: info.Flags&1 != 0, Current: monitor == state.current,
+	})
+	return 1
+}
+
+func mainWindowDisplayAreas(ctx context.Context) []mainWindowDisplayArea {
+	var current uintptr
+	var currentDPI int
+	if ctx != nil {
+		if hwnd, err := resolveWailsMainWindowHandle(ctx); err == nil {
+			current, _, _ = windowsDisplayFromWindowProc.Call(hwnd, 2) // MONITOR_DEFAULTTONEAREST
+			if windowsDisplayGetDPIForWindowProc.Find() == nil {
+				if dpi, _, _ := windowsDisplayGetDPIForWindowProc.Call(hwnd); dpi > 0 {
+					currentDPI = int(dpi)
+				}
+			}
+		}
+	}
+	state := &windowsDisplayEnumeration{
+		current: current, currentDPI: currentDPI, areas: make([]mainWindowDisplayArea, 0, 2),
+	}
+	// Keep the callback stable and pass a per-call ID, not a Go pointer, through Win32.
+	id := uintptr(windowsDisplaySequence.Add(1))
+	windowsDisplayStates.Store(id, state)
+	defer windowsDisplayStates.Delete(id)
+	windowsDisplayEnumProc.Call(0, 0, windowsDisplayEnumCallback, id)
+	if current == 0 {
+		for index := range state.areas {
+			if state.areas[index].Primary {
+				state.areas[index].Current = true
+				break
+			}
+		}
+	}
+	return state.areas
+}
 
 // applyPersistedWindowsApplicationIcon binds the last selected ICO before
 // Wails shows the first window. The frontend state is hydrated too late to be
@@ -101,6 +204,10 @@ func repairPersistedWindowsApplicationShortcutsOnce(iconPath, configDir string) 
 		logger.Warnf("检查 Windows 任务栏身份迁移状态失败：%v", err)
 		return
 	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		logger.Warnf("创建 Windows 任务栏身份迁移目录失败：%v", err)
+		return
+	}
 	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
 		logger.Warnf("更新 Windows 应用快捷方式图标失败：%v", err)
 		return
@@ -110,9 +217,41 @@ func repairPersistedWindowsApplicationShortcutsOnce(iconPath, configDir string) 
 	}
 }
 
+func migrateLegacyWindowsApplicationShortcuts(configDir string) error {
+	executablePath := strings.TrimSpace(updateResolveInstallTarget())
+	state, ok := currentWindowsShortcutIdentityState(executablePath)
+	if !ok {
+		return nil
+	}
+	// Separate from the old icon-selection marker: the same version may have
+	// already repaired shortcuts to a custom ICO before this migration.
+	statePath := filepath.Join(configDir, ".packaged-icon-shortcuts-v1")
+	previous, err := os.ReadFile(statePath)
+	if err == nil && string(previous) == state {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read packaged icon migration state: %w", err)
+	}
+	if err := windowsUpdateCurrentApplicationShortcuts(executablePath); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return fmt.Errorf("create shortcut migration directory: %w", err)
+	}
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		return fmt.Errorf("save packaged icon migration state: %w", err)
+	}
+	return nil
+}
+
 func currentWindowsShortcutIdentityState(iconPath string) (string, bool) {
 	executablePath := strings.TrimSpace(updateResolveInstallTarget())
-	if resolveUpdateInstallModeForExecutable("windows", executablePath) != updateInstallModeMSI {
+	// Both installs refresh their own pins once per version. The script only
+	// changes IconLocation, and it rewrites a target when that target is
+	// already missing or points at a brand ICO.
+	mode := resolveUpdateInstallModeForExecutable("windows", executablePath)
+	if mode != updateInstallModeMSI && mode != updateInstallModePortable {
 		return "", false
 	}
 	return strings.Join([]string{
@@ -144,8 +283,9 @@ func setApplicationIconPNG(pngBytes []byte, configDir string, runtimeContext con
 	if err != nil {
 		return err
 	}
-	// Update shortcuts before moving the live window to the new identity.
-	// The update is synchronous so quitting cannot leave a half-written pin.
+	// Update shortcuts before refreshing the live window icon. The update is
+	// synchronous so quitting cannot leave a half-written pin. The taskbar
+	// identity is not changed.
 	if err := windowsUpdateCurrentApplicationShortcuts(iconPath); err != nil {
 		return err
 	}
@@ -191,11 +331,12 @@ func setCurrentWindowsApplicationIcon(runtimeContext context.Context, iconPath s
 	if err := migrateWindowsApplicationIconFile(iconPath); err != nil {
 		return 0, err
 	}
-	small, err := windowsApplicationIconLoad(iconPath, windowsSmallIconPixels)
+	dpi := windowsApplicationIconSystemDPI()
+	small, err := windowsApplicationIconLoad(iconPath, windowsTaskbarIconPixels(dpi))
 	if err != nil {
 		return 0, err
 	}
-	large, err := windowsApplicationIconLoad(iconPath, windowsLargeIconPixels)
+	large, err := windowsApplicationIconLoad(iconPath, windowsAltTabIconPixels(dpi))
 	if err != nil {
 		windowsApplicationIconDestroyCall(small)
 		return 0, err
@@ -288,7 +429,83 @@ func applyWindowsApplicationIcon(hwnd uintptr, iconPath string, small, large uin
 	if err := windowsApplicationIconSetTaskbarProperties(hwnd, iconPath); err != nil {
 		return fmt.Errorf("set Windows taskbar icon properties: %w", err)
 	}
+	// Windows 10 keeps the taskbar button that was created with the original
+	// icon. Rebuilding that button is what makes a logo switch visible there.
+	// Windows 11 already repaints from WM_SETICON, so it must not flicker.
+	windowsRefreshLegacyTaskbarButton(hwnd)
 	return nil
+}
+
+const (
+	windowsGWLExStyle     int32 = -20
+	windowsWSExToolWindow       = uintptr(0x00000080)
+)
+
+func currentWindowsBuildNumber() uint32 {
+	if windowsApplicationIconRtlGetVersion.Find() != nil {
+		return 0
+	}
+	type osVersionInfo struct {
+		size                          uint32
+		major, minor, build, platform uint32
+		servicePack                   [128]uint16
+	}
+	info := osVersionInfo{size: uint32(unsafe.Sizeof(osVersionInfo{}))}
+	if result, _, _ := windowsApplicationIconRtlGetVersion.Call(uintptr(unsafe.Pointer(&info))); result != 0 {
+		return 0
+	}
+	return info.build
+}
+
+func windowsWindowLongProc(ptrProc, fallbackProc *windows.LazyProc) *windows.LazyProc {
+	if unsafe.Sizeof(uintptr(0)) == 4 {
+		return fallbackProc
+	}
+	return ptrProc
+}
+
+// windowsLongIndex converts a signed index such as GWL_EXSTYLE (-20) after it
+// is stored in a variable. A negative constant cannot convert to uintptr.
+func windowsLongIndex(index int32) uintptr {
+	return uintptr(index)
+}
+
+func windowsGetWindowExStyle(hwnd uintptr) uintptr {
+	proc := windowsWindowLongProc(windowsApplicationIconGetWindowLongPtr, windowsApplicationIconGetWindowLong)
+	style, _, _ := proc.Call(hwnd, windowsLongIndex(windowsGWLExStyle))
+	return style
+}
+
+func windowsSetWindowExStyle(hwnd uintptr, style uintptr) {
+	proc := windowsWindowLongProc(windowsApplicationIconSetWindowLongPtr, windowsApplicationIconSetWindowLong)
+	proc.Call(hwnd, windowsLongIndex(windowsGWLExStyle), style)
+}
+
+// refreshWindows10TaskbarButton drops the taskbar button and puts it back so
+// Explorer copies the icon just applied with WM_SETICON. Windows 11 does not
+// need this, and hiding the button there would flicker a working icon.
+func refreshWindows10TaskbarButton(hwnd uintptr) {
+	build := windowsApplicationBuildNumber()
+	if hwnd == 0 || build == 0 || build >= 22000 {
+		return
+	}
+	style := windowsGetWindowExStyle(hwnd)
+	if style == 0 {
+		return
+	}
+	windowsSetWindowExStyle(hwnd, style|windowsWSExToolWindow)
+	windowsSetWindowExStyle(hwnd, style)
+}
+
+func currentWindowsSystemDPI() int {
+	if windowsApplicationIconGetDpiForSystem.Find() != nil {
+		return 96
+	}
+	dpi, _, _ := windowsApplicationIconGetDpiForSystem.Call()
+	if dpi < 96 {
+		return 96
+	}
+	return int(dpi)
 }
 
 func loadWindowsApplicationIcon(iconPath string, size int) (uintptr, error) {
@@ -321,7 +538,8 @@ func updateCurrentWindowsApplicationShortcuts(iconPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolve Windows application executable: %w", err)
 	}
-	scriptDir := filepath.Dir(iconPath)
+	// Installed executables may live under a read-only Program Files directory.
+	scriptDir := os.TempDir()
 	temporary, err := os.CreateTemp(scriptDir, ".gonavi-brand-shortcuts-*.ps1")
 	if err != nil {
 		return fmt.Errorf("create Windows shortcut update script: %w", err)
@@ -355,6 +573,7 @@ $ErrorActionPreference = 'Stop'
 		"GONAVI_BRAND_TARGET="+executablePath,
 		"GONAVI_BRAND_ICON="+iconPath,
 		"GONAVI_BRAND_AUMID="+windowsApplicationUserModelIDForIconPath(iconPath),
+		"GONAVI_BRAND_MATCH_TARGET_ONLY="+windowsBrandShortcutMatchTargetOnlyEnv(executablePath),
 	)
 	configureWindowsUpdateCommand(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {

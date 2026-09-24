@@ -54,6 +54,10 @@ export function CancelDriverPackageDownload(arg1) {
   return window['go']['app']['App']['CancelDriverPackageDownload'](arg1);
 }
 
+export function CancelExportFile(arg1) {
+  return window['go']['app']['App']['CancelExportFile'](arg1);
+}
+
 export function CancelImportJob(arg1) {
   return window['go']['app']['App']['CancelImportJob'](arg1);
 }
@@ -166,12 +170,20 @@ export function DBGetAllColumnsContext(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetAllColumnsContext'](arg1, arg2, arg3);
 }
 
+export function DBGetAllColumnsWithCancel(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DBGetAllColumnsWithCancel'](arg1, arg2, arg3);
+}
+
 export function DBGetColumns(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetColumns'](arg1, arg2, arg3);
 }
 
 export function DBGetColumnsContext(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBGetColumnsContext'](arg1, arg2, arg3, arg4);
+}
+
+export function DBGetColumnsWithCancel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBGetColumnsWithCancel'](arg1, arg2, arg3, arg4);
 }
 
 export function DBGetDatabaseForeignKeys(arg1, arg2) {
@@ -184,6 +196,10 @@ export function DBGetDatabases(arg1) {
 
 export function DBGetDatabasesContext(arg1, arg2) {
   return window['go']['app']['App']['DBGetDatabasesContext'](arg1, arg2);
+}
+
+export function DBGetDatabasesWithCancel(arg1, arg2) {
+  return window['go']['app']['App']['DBGetDatabasesWithCancel'](arg1, arg2);
 }
 
 export function DBGetForeignKeys(arg1, arg2, arg3) {
@@ -226,6 +242,10 @@ export function DBGetTablesContext(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetTablesContext'](arg1, arg2, arg3);
 }
 
+export function DBGetTablesWithCancel(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DBGetTablesWithCancel'](arg1, arg2, arg3);
+}
+
 export function DBGetTriggers(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetTriggers'](arg1, arg2, arg3);
 }
@@ -266,16 +286,32 @@ export function DBQueryMulti(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBQueryMulti'](arg1, arg2, arg3, arg4);
 }
 
+export function DBQueryMultiCompact(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBQueryMultiCompact'](arg1, arg2, arg3, arg4);
+}
+
 export function DBQueryMultiInTransaction(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBQueryMultiInTransaction'](arg1, arg2, arg3);
+}
+
+export function DBQueryMultiInTransactionWithOptions(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBQueryMultiInTransactionWithOptions'](arg1, arg2, arg3, arg4);
 }
 
 export function DBQueryMultiTransactional(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBQueryMultiTransactional'](arg1, arg2, arg3, arg4);
 }
 
+export function DBQueryMultiTransactionalWithOptions(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['DBQueryMultiTransactionalWithOptions'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function DBQueryMultiTransactionalWithParams(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['DBQueryMultiTransactionalWithParams'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function DBQueryMultiWithOptions(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['DBQueryMultiWithOptions'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function DBQueryMultiWithParams(arg1, arg2, arg3, arg4, arg5) {
@@ -312,6 +348,10 @@ export function DBShowCreateTable(arg1, arg2, arg3) {
 
 export function DBShowCreateTableContext(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBShowCreateTableContext'](arg1, arg2, arg3, arg4);
+}
+
+export function DBShowCreateTableWithCancel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBShowCreateTableWithCancel'](arg1, arg2, arg3, arg4);
 }
 
 export function DBTableExists(arg1, arg2, arg3) {
@@ -690,6 +730,10 @@ export function GetImportJob(arg1) {
   return window['go']['app']['App']['GetImportJob'](arg1);
 }
 
+export function GetMainWindowDisplayLayout() {
+  return window['go']['app']['App']['GetMainWindowDisplayLayout']();
+}
+
 export function GetRequestDiagnostic(arg1) {
   return window['go']['app']['App']['GetRequestDiagnostic'](arg1);
 }
@@ -880,6 +924,10 @@ export function ListDatabaseCollations(arg1) {
 
 export function ListDriverDownloadTasks() {
   return window['go']['app']['App']['ListDriverDownloadTasks']();
+}
+
+export function ListDuckDBAttachedDatasources(arg1, arg2) {
+  return window['go']['app']['App']['ListDuckDBAttachedDatasources'](arg1, arg2);
 }
 
 export function ListImportJobs() {
@@ -1096,10 +1144,6 @@ export function OpenSavedQueryDirectory() {
 
 export function PreflightDatabaseSQLImport(arg1, arg2, arg3) {
   return window['go']['app']['App']['PreflightDatabaseSQLImport'](arg1, arg2, arg3);
-}
-
-export function PrepareWindowsBrandIconRestart(arg1) {
-  return window['go']['app']['App']['PrepareWindowsBrandIconRestart'](arg1);
 }
 
 export function PreviewChanges(arg1, arg2, arg3, arg4) {
@@ -1378,6 +1422,10 @@ export function SaveSavedQueryGroup(arg1) {
   return window['go']['app']['App']['SaveSavedQueryGroup'](arg1);
 }
 
+export function SelectBackupDirectory(arg1) {
+  return window['go']['app']['App']['SelectBackupDirectory'](arg1);
+}
+
 export function SelectCertificateFile(arg1, arg2) {
   return window['go']['app']['App']['SelectCertificateFile'](arg1, arg2);
 }
@@ -1424,10 +1472,6 @@ export function SelectSSHKnownHostsFile(arg1) {
 
 export function SelectSavedQueryDirectory(arg1) {
   return window['go']['app']['App']['SelectSavedQueryDirectory'](arg1);
-}
-
-export function SetApplicationBrandIcon(arg1) {
-  return window['go']['app']['App']['SetApplicationBrandIcon'](arg1);
 }
 
 export function SetLanguage(arg1) {

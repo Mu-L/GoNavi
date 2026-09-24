@@ -4,6 +4,7 @@ import { ArrowLeftOutlined, ArrowRightOutlined, BugOutlined, ClearOutlined, Clos
 
 import { useStore } from '../store';
 import type { EditRowLocator } from '../utils/rowLocator';
+import type { FilterCondition } from '../utils/sql';
 import type { GridSortInfoItem } from '../utils/dataGridSort';
 import type { ColumnMeta } from './dataGridColumnMeta';
 import type { QueryResultPaginationState } from '../utils/queryResultPagination';
@@ -22,6 +23,7 @@ import DetachDragPreview, {
   buildDetachDragPreviewState,
   type DetachDragPreviewState,
 } from './DetachDragPreview';
+import QueryEditorResultTruncatedIndicator from './QueryEditorResultTruncatedIndicator';
 import DataGrid from './DataGrid';
 import QueryEditorResultTabContent, {
   isAffectedRowsResult,
@@ -81,7 +83,18 @@ export type QueryEditorResultSet = {
     sortInfo?: GridSortInfoItem[];
     page?: QueryResultPaginationState & { loading?: boolean };
     pinned?: boolean;
+    filterConditions?: FilterCondition[];
+    quickWhereCondition?: string;
+    selectedRowKeys?: React.Key[];
+    selectedCellKeys?: string[];
+    scrollSnapshot?: { top: number; left: number };
+    hasPendingChanges?: boolean;
 };
+
+export type QueryEditorResultViewState = Pick<
+    QueryEditorResultSet,
+    'filterConditions' | 'quickWhereCondition' | 'selectedRowKeys' | 'selectedCellKeys' | 'scrollSnapshot' | 'hasPendingChanges'
+>;
 
 export const resolveEffectiveActiveResultKey = (
     resultSets: Pick<QueryEditorResultSet, 'key'>[],
@@ -115,6 +128,9 @@ interface QueryEditorResultsPanelProps {
     currentConnectionId: string;
     maxRows?: number;
     dataPreviewRequest?: { resultKey: string; requestId: string } | null;
+    /** ES 结果 table/raw 视图模式。状态由调用方持有，结果面板因隐藏/全屏重挂时不丢失。 */
+    elasticsearchViewModes?: Record<string, 'table' | 'raw'>;
+    onElasticsearchViewModeChange?: (key: string, mode: 'table' | 'raw') => void;
     toggleShortcutLabel: string;
     diagnoseShortcutLabel?: string;
     onActiveResultKeyChange: (key: string) => void;
@@ -184,6 +200,8 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     currentConnectionId,
     maxRows,
     dataPreviewRequest,
+    elasticsearchViewModes,
+    onElasticsearchViewModeChange,
     toggleShortcutLabel,
     diagnoseShortcutLabel,
     onActiveResultKeyChange,
@@ -211,7 +229,6 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     const globalHiddenColumns = useGlobalHiddenColumns();
     const [draggingResultKey, setDraggingResultKey] = useState<string | null>(null);
     const [detachDragPreview, setDetachDragPreview] = useState<DetachDragPreviewState | null>(null);
-    const [elasticsearchViewModes, setElasticsearchViewModes] = useState<Record<string, 'table' | 'raw'>>({});
     const resultTabDragRef = useRef<{
         key: string;
         title: string;
@@ -440,8 +457,8 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     };
 
     const handleElasticsearchViewModeChange = useCallback((key: string, mode: 'table' | 'raw') => {
-        setElasticsearchViewModes((current) => ({ ...current, [key]: mode }));
-    }, []);
+        onElasticsearchViewModeChange?.(key, mode);
+    }, [onElasticsearchViewModeChange]);
 
     const handleMessageTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
@@ -628,6 +645,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                             <PushpinOutlined className="query-result-tab-pin" />
                         </Tooltip>
                     ) : null}
+                    {rs.truncated ? <QueryEditorResultTruncatedIndicator /> : null}
                     {(() => {
                         if (rs.resultType === 'message') return <span className="query-result-tab-count" data-query-result-tab-count="true">i</span>;
                         if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count" data-query-result-tab-count="true">✓</span>;
@@ -661,7 +679,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 maxRows={maxRows}
                 globalHiddenColumns={globalHiddenColumns}
                 dataPreviewRequest={dataPreviewRequest}
-                elasticsearchViewMode={elasticsearchViewModes[rs.key]}
+                elasticsearchViewMode={elasticsearchViewModes?.[rs.key]}
                 onElasticsearchViewModeChange={handleElasticsearchViewModeChange}
                 actionsRef={resultTabActionsRef}
             />
