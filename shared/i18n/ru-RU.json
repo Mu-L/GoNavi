@@ -4734,6 +4734,7 @@
   "data_grid.column_settings.show_all": "Показать все",
   "data_grid.column_settings.show_comments": "Показывать комментарии столбцов в заголовке",
   "data_grid.column_settings.show_types": "Показывать типы столбцов в заголовке",
+  "data_grid.column_settings.align_numeric_temporal_right": "Выравнивать числовые значения и дату/время по правому краю",
   "data_grid.context_menu.auto_fit_column": "Подогнать ширину столбца по содержимому",
   "data_grid.context_menu.clear_column_sort": "Сбросить сортировку этого поля",
   "data_grid.context_menu.column_display_section": "Отображение поля",

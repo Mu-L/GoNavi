@@ -4734,6 +4734,7 @@
   "data_grid.column_settings.show_all": "すべて表示",
   "data_grid.column_settings.show_comments": "ヘッダーに列コメントを表示",
   "data_grid.column_settings.show_types": "ヘッダーに列型を表示",
+  "data_grid.column_settings.align_numeric_temporal_right": "数値と日時のデータを右寄せ",
   "data_grid.context_menu.auto_fit_column": "内容に合わせて列幅を自動調整",
   "data_grid.context_menu.clear_column_sort": "このフィールドの並べ替えを解除",
   "data_grid.context_menu.column_display_section": "フィールド表示",

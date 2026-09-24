@@ -4734,6 +4734,7 @@
   "data_grid.column_settings.show_all": "Alle anzeigen",
   "data_grid.column_settings.show_comments": "Spaltenkommentare in der Kopfzeile anzeigen",
   "data_grid.column_settings.show_types": "Spaltentypen in der Kopfzeile anzeigen",
+  "data_grid.column_settings.align_numeric_temporal_right": "Numerische und Datums-/Zeitwerte rechtsbündig",
   "data_grid.context_menu.auto_fit_column": "Spaltenbreite an Inhalt anpassen",
   "data_grid.context_menu.clear_column_sort": "Sortierung für dieses Feld aufheben",
   "data_grid.context_menu.column_display_section": "Feldanzeige",

@@ -1964,6 +1964,7 @@ export interface QueryOptions {
   sidebarTableMetadataFields?: SidebarTableMetadataField[];
   sidebarTableMetadataFieldOrder?: SidebarTableMetadataField[];
   showColumnType: boolean;
+  alignNumericTemporalCellsRight: boolean;
   showQueryResultsPanel: boolean;
   queryEditorEditorHeightRatio: number;
 }
@@ -3140,6 +3141,10 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   const derivedShowSidebarTableComment = orderedSidebarTableMetadataFields.includes("comment");
   const showColumnType =
     typeof raw.showColumnType === "boolean" ? raw.showColumnType : true;
+  const alignNumericTemporalCellsRight =
+    typeof raw.alignNumericTemporalCellsRight === "boolean"
+      ? raw.alignNumericTemporalCellsRight
+      : false;
   const showQueryResultsPanel =
     typeof raw.showQueryResultsPanel === "boolean" ? raw.showQueryResultsPanel : false;
   const queryEditorEditorHeightRatio = sanitizeQueryEditorEditorHeightRatio(
@@ -3155,6 +3160,7 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
       sidebarTableMetadataFields: orderedSidebarTableMetadataFields,
       sidebarTableMetadataFieldOrder,
       showColumnType,
+      alignNumericTemporalCellsRight,
       showQueryResultsPanel,
       queryEditorEditorHeightRatio,
     };
@@ -3168,6 +3174,7 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
     sidebarTableMetadataFields: orderedSidebarTableMetadataFields,
     sidebarTableMetadataFieldOrder,
     showColumnType,
+    alignNumericTemporalCellsRight,
     showQueryResultsPanel,
     queryEditorEditorHeightRatio,
   };
@@ -3853,6 +3860,7 @@ export const useStore = create<AppState>()(
         sidebarTableMetadataFields: ["rows"],
         sidebarTableMetadataFieldOrder: [...DEFAULT_SIDEBAR_TABLE_METADATA_FIELDS],
         showColumnType: true,
+        alignNumericTemporalCellsRight: false,
         showQueryResultsPanel: false,
         queryEditorEditorHeightRatio: DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO,
       },

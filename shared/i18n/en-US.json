@@ -4734,6 +4734,7 @@
   "data_grid.column_settings.show_all": "Show all",
   "data_grid.column_settings.show_comments": "Show column comments in header",
   "data_grid.column_settings.show_types": "Show column types in header",
+  "data_grid.column_settings.align_numeric_temporal_right": "Right-align numeric and date/time values",
   "data_grid.context_menu.auto_fit_column": "Auto-fit column width to content",
   "data_grid.context_menu.clear_column_sort": "Clear sort for this field",
   "data_grid.context_menu.column_display_section": "Field display",

@@ -4734,6 +4734,7 @@
   "data_grid.column_settings.show_all": "全部顯示",
   "data_grid.column_settings.show_comments": "在表頭顯示欄位註解",
   "data_grid.column_settings.show_types": "在表頭顯示欄位型別",
+  "data_grid.column_settings.align_numeric_temporal_right": "數值與日期時間資料靠右",
   "data_grid.context_menu.auto_fit_column": "依內容自動調整欄寬",
   "data_grid.context_menu.clear_column_sort": "取消此欄位排序",
   "data_grid.context_menu.column_display_section": "欄位顯示",
