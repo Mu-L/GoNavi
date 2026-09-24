@@ -21,10 +21,23 @@ import (
 
 func (a *App) usesDataSyncWorker() bool { return false }
 
+// shouldTouchOSScheduler 与旧实现 usesDataSyncWorker 的运行时守卫保持一致：
+// 测试二进制、无 UI 上下文与 headless/web 运行时不触碰真实任务计划程序，
+// 避免测试产生系统副作用或改变迁移路径的错误内容。
+func (a *App) shouldTouchOSScheduler() bool {
+	if a == nil || a.ctx == nil || a.headlessRuntime || a.webRuntime {
+		return false
+	}
+	return !strings.HasSuffix(strings.TrimSuffix(strings.ToLower(os.Args[0]), ".exe"), ".test")
+}
+
 // prepareDataSyncSchedule 在任务保存后按存储中的最新状态对齐全部计划任务
 // 注册（启用、停用与调度变更都在同一条保存路径上生效）。带超时：schtasks
 // 挂起时不能无限阻塞保存动作与退出排空。
 func (a *App) prepareDataSyncSchedule(definition syncjob.JobDefinition) error {
+	if !a.shouldTouchOSScheduler() {
+		return nil
+	}
 	if err := a.beginDataSyncJobsOperation(); err != nil {
 		return err
 	}
@@ -39,6 +52,9 @@ func (a *App) prepareDataSyncSchedule(definition syncjob.JobDefinition) error {
 }
 
 func (a *App) registerExistingDataSyncSchedules(ctx context.Context, manager *syncjob.Manager) error {
+	if !a.shouldTouchOSScheduler() {
+		return nil
+	}
 	reconcileCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if err := a.reconcileDataSyncSchedules(reconcileCtx, manager); err != nil {
@@ -113,6 +129,9 @@ func (a *App) sweepOrphanJobSchedules(ctx context.Context, manager *syncjob.Mana
 
 // unregisterDataSyncJobSchedule 在任务被永久删除后移除其 OS 计划任务注册。
 func (a *App) unregisterDataSyncJobSchedule(jobID string) error {
+	if !a.shouldTouchOSScheduler() {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return syncworker.UnregisterJobSchedule(ctx, a.configDir, jobID)
@@ -121,6 +140,9 @@ func (a *App) unregisterDataSyncJobSchedule(jobID string) error {
 // stopDataSyncWorkerForMaintenance 在数据根迁移前移除旧根上的全部任务注册；
 // 一次性模型没有常驻进程，无需额外停止动作。
 func (a *App) stopDataSyncWorkerForMaintenance() error {
+	if !a.shouldTouchOSScheduler() {
+		return nil
+	}
 	a.dataSyncJobsMu.Lock()
 	manager := a.dataSyncJobManager
 	a.dataSyncJobsMu.Unlock()
