@@ -1964,6 +1964,7 @@ export interface QueryOptions {
   sidebarTableMetadataFields?: SidebarTableMetadataField[];
   sidebarTableMetadataFieldOrder?: SidebarTableMetadataField[];
   showColumnType: boolean;
+  alignNumericTemporalCellsRight: boolean;
   showQueryResultsPanel: boolean;
   queryEditorEditorHeightRatio: number;
 }
@@ -2053,7 +2054,7 @@ interface AppState {
   enableHiddenColumnMemory: boolean;
   pinnedSidebarTables: string[];
   pinnedSidebarDatabases: string[];
-  windowBounds: { width: number; height: number; x: number; y: number } | null;
+  windowBounds: { width: number; height: number; x: number; y: number; dpi?: number } | null;
   windowState: "normal" | "fullscreen" | "maximized";
   sidebarWidth: number;
 
@@ -2309,6 +2310,7 @@ interface AppState {
     height: number;
     x: number;
     y: number;
+    dpi?: number;
   }) => void;
   setWindowState: (state: "normal" | "fullscreen" | "maximized") => void;
   setSidebarWidth: (width: number) => void;
@@ -3140,6 +3142,10 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   const derivedShowSidebarTableComment = orderedSidebarTableMetadataFields.includes("comment");
   const showColumnType =
     typeof raw.showColumnType === "boolean" ? raw.showColumnType : true;
+  const alignNumericTemporalCellsRight =
+    typeof raw.alignNumericTemporalCellsRight === "boolean"
+      ? raw.alignNumericTemporalCellsRight
+      : false;
   const showQueryResultsPanel =
     typeof raw.showQueryResultsPanel === "boolean" ? raw.showQueryResultsPanel : false;
   const queryEditorEditorHeightRatio = sanitizeQueryEditorEditorHeightRatio(
@@ -3155,6 +3161,7 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
       sidebarTableMetadataFields: orderedSidebarTableMetadataFields,
       sidebarTableMetadataFieldOrder,
       showColumnType,
+      alignNumericTemporalCellsRight,
       showQueryResultsPanel,
       queryEditorEditorHeightRatio,
     };
@@ -3168,6 +3175,7 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
     sidebarTableMetadataFields: orderedSidebarTableMetadataFields,
     sidebarTableMetadataFieldOrder,
     showColumnType,
+    alignNumericTemporalCellsRight,
     showQueryResultsPanel,
     queryEditorEditorHeightRatio,
   };
@@ -3530,26 +3538,21 @@ const resolveAIChatDetachPreferred = (
 
 const sanitizeWindowBounds = (
   value: unknown,
-): { width: number; height: number; x: number; y: number } | null => {
+): { width: number; height: number; x: number; y: number; dpi?: number } | null => {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const width = Number(raw.width);
   const height = Number(raw.height);
   const x = Number(raw.x);
   const y = Number(raw.y);
-  if (
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    !Number.isFinite(x) ||
-    !Number.isFinite(y)
-  )
-    return null;
-  if (width < 400 || height < 300) return null;
+  const dpi = Number(raw.dpi);
+  if (![width, height, x, y].every(Number.isFinite) || width < 400 || height < 300) return null;
   return {
     width: Math.trunc(width),
     height: Math.trunc(height),
     x: Math.trunc(x),
     y: Math.trunc(y),
+    ...(Number.isFinite(dpi) && dpi > 0 ? { dpi: Math.trunc(dpi) } : {}),
   };
 };
 
@@ -3853,6 +3856,7 @@ export const useStore = create<AppState>()(
         sidebarTableMetadataFields: ["rows"],
         sidebarTableMetadataFieldOrder: [...DEFAULT_SIDEBAR_TABLE_METADATA_FIELDS],
         showColumnType: true,
+        alignNumericTemporalCellsRight: false,
         showQueryResultsPanel: false,
         queryEditorEditorHeightRatio: DEFAULT_QUERY_EDITOR_EDITOR_HEIGHT_RATIO,
       },
@@ -5846,11 +5850,15 @@ export const useStore = create<AppState>()(
         set({ enableHiddenColumnMemory: !!enabled }),
 
       setWindowBounds: (bounds) => {
+        const dpi = bounds.dpi;
         const nextBounds = {
           width: Math.max(400, Math.trunc(bounds.width)),
           height: Math.max(300, Math.trunc(bounds.height)),
           x: Math.trunc(bounds.x),
           y: Math.trunc(bounds.y),
+          ...(typeof dpi === "number" && Number.isFinite(dpi) && dpi > 0
+            ? { dpi: Math.trunc(dpi) }
+            : {}),
         };
         set({ windowBounds: nextBounds });
         // 与 startupFullscreen 一致：立即落盘，避免 Windows 退出时异步 persist 丢尺寸记忆

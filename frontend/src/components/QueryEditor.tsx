@@ -338,7 +338,6 @@ import {
     resolveQueryEditorHoverTarget,
     resolveQueryEditorNavigationDecorations,
     resolveQueryEditorNavigationTarget,
-    resolveNextQueryEditorTableLocateIndex,
     rankQueryEditorCompletionCandidate,
     resolveQueryLocatorPlan,
     rewriteLeadingSelectTableReference,
@@ -348,6 +347,7 @@ import {
     stripCompletionIdentifierQuotes,
     shouldHandleQueryEditorRunShortcutFallback,
 } from './queryEditor/QueryEditorHelpers';
+import { dispatchSavedQueryLocateFallback, resolveQueryEditorLineTableLocate } from './queryEditor/queryEditorLineTableLocate';
 import { duplicateCurrentLineInEditor } from './queryEditor/queryEditorDuplicateLine';
 import { registerQueryEditorShortcutAction } from './queryEditor/queryEditorShortcutRegistration';
 import { useQueryEditorAIAction } from './queryEditor/useQueryEditorAIAction';
@@ -379,6 +379,7 @@ export {
     resolveQueryEditorNavigationDecorations,
     resolveQueryEditorNavigationTarget,
 } from './queryEditor/QueryEditorHelpers';
+import { canExecuteQueryEditorSQLWithoutDatabase } from './queryEditor/queryEditorDatabaseRequirement';
 import {
     collectOracleCompileTargets,
     formatOracleCompileErrors,
@@ -1356,9 +1357,17 @@ const isConnectionScopedQueryEditorMetadata = (connection: any): boolean => (
     ) === 'sqlite'
 );
 
-const canUseQueryEditorDatabaseContext = (connection: any, dbName: unknown): boolean => (
-    Boolean(String(dbName ?? '').trim()) || isConnectionScopedQueryEditorMetadata(connection)
-);
+const canUseQueryEditorDatabaseContext = (connection: any, dbName: unknown, sql?: string): boolean => {
+    if (Boolean(String(dbName ?? '').trim())) return true;
+    if (isConnectionScopedQueryEditorMetadata(connection)) return true;
+    if (!sql || !sql.trim()) return false;
+    // 未选库时放行整段都免库的 SQL（SHOW DATABASES、SELECT 1、USE 等，见 issue #1355）。
+    return canExecuteQueryEditorSQLWithoutDatabase(sql, resolveSqlDialect(
+        String(connection?.config?.type || ''),
+        String(connection?.config?.driver || ''),
+        { oceanBaseProtocol: connection?.config?.oceanBaseProtocol },
+    ));
+};
 
 // Monaco language providers are registered globally, while each QueryEditor
 // owns a separate model. Ignore callbacks for a non-active model so the active
@@ -9832,7 +9841,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const executionDbName = executionContext?.executionDbName
           ?? currentResult?.executionDbName
           ?? currentDb;
-      if (!sql?.trim() || !canUseQueryEditorDatabaseContext(conn, executionDbName)) return;
+      if (!sql?.trim() || !canUseQueryEditorDatabaseContext(conn, executionDbName, sql)) return;
       const statementResultIndex = Math.max(
           1,
           Number(executionContext?.statementResultIndex ?? currentResult?.statementResultIndex ?? 1),
@@ -9971,7 +9980,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const conn = connections.find(c => c.id === executionConnectionId);
       if (!conn) return;
       const executionDbName = target?.executionDbName ?? currentDb;
-      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName) || resultTotalCountRequestsRef.current[resultKey]) return;
+      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName, target.page.baseSql) || resultTotalCountRequestsRef.current[resultKey]) return;
       const config = {
           ...conn.config,
           port: Number(conn.config.port),
@@ -10145,7 +10154,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const conn = connections.find(c => c.id === executionConnectionId);
       if (!conn) return;
       const executionDbName = target?.executionDbName ?? currentDb;
-      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName)) return;
+      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName, target.page.baseSql)) return;
       const safePageSize = pageSize === 0
           ? 0
           : Math.max(1, Math.floor(Number(pageSize) || target.page.pageSize || 1));
@@ -10649,7 +10658,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
     }
     const executionDbName = currentDbRef.current;
     const executionSchemaName = currentSchemaRef.current;
-    if (!canUseQueryEditorDatabaseContext(currentConnection, executionDbName)) {
+    if (!canUseQueryEditorDatabaseContext(currentConnection, executionDbName, executableSQL)) {
         message.error(translate('query_editor.message.select_database_first'));
         return;
     }
@@ -12258,14 +12267,16 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
   }, [activeShortcutPlatform, languagePreference, toggleQueryResultsPanelShortcutBinding, toggleResultPanelVisibility]);
 
   useEffect(() => {
-      const handleLocateActiveQueryTable = () => {
+      const handleLocateActiveQueryTable = (event: Event) => {
           if (!isActive) return;
+          const fallbackRequest = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
           const editor = editorRef.current;
           const model = editor?.getModel?.();
           const position = normalizeEditorPosition(editor?.getPosition?.() || lastEditorCursorPositionRef.current);
           const connectionId = String(currentConnectionIdRef.current || '').trim();
           const dbName = String(currentDbRef.current || '').trim();
           if (!model || !position || !connectionId || !dbName) {
+              if (dispatchSavedQueryLocateFallback(fallbackRequest)) return;
               void message.warning(translate('query_editor.message.locate_table_unavailable'));
               return;
           }
@@ -12275,38 +12286,33 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
               String(currentConnectionConfig?.driver || ''),
               { oceanBaseProtocol: currentConnectionConfig?.oceanBaseProtocol },
           );
-          const references = collectQueryEditorTableReferences(lineContent, dialect);
-          const targets = references.map((reference) => resolveQueryEditorNavigationTarget(
-              `FROM ${reference.tableIdent}`,
-              6,
-              dbName,
-              visibleDbsRef.current,
-              tablesRef.current,
-              viewsRef.current,
-              materializedViewsRef.current,
-              triggersRef.current,
-              routinesRef.current,
-              sequencesRef.current,
-              packagesRef.current,
-              true,
-              undefined,
-              currentSchemaRef.current,
-              dialect,
-          )).filter((target): target is Extract<QueryEditorNavigationTarget, { type: 'table' }> => target?.type === 'table');
-          if (targets.length === 0) {
+          const located = resolveQueryEditorLineTableLocate({
+              lineContent, lineNumber: position.lineNumber, dialect, previous: queryTableLocateCycleRef.current,
+              resolveTarget: (reference) => resolveQueryEditorNavigationTarget(
+                  `FROM ${reference.tableIdent}`,
+                  6,
+                  dbName,
+                  visibleDbsRef.current,
+                  tablesRef.current,
+                  viewsRef.current,
+                  materializedViewsRef.current,
+                  triggersRef.current,
+                  routinesRef.current,
+                  sequencesRef.current,
+                  packagesRef.current,
+                  true,
+                  undefined,
+                  currentSchemaRef.current,
+                  dialect,
+              ),
+          });
+          if (!located) {
+              if (dispatchSavedQueryLocateFallback(fallbackRequest)) return;
               void message.warning(translate('query_editor.message.locate_table_unavailable'));
               return;
           }
-          const signature = targets.map((target) => `${target.dbName}\u0000${target.schemaName || ''}\u0000${target.tableName}`).join('\u0001');
-          const cycle = queryTableLocateCycleRef.current;
-          const index = resolveNextQueryEditorTableLocateIndex(
-              cycle,
-              position.lineNumber,
-              signature,
-              targets.length,
-          );
-          const target = targets[index];
-          queryTableLocateCycleRef.current = { lineNumber: position.lineNumber, signature, index };
+          const { target } = located;
+          queryTableLocateCycleRef.current = located.cycle;
           dispatchQueryEditorSidebarLocate({
               connectionId,
               dbName: target.dbName,

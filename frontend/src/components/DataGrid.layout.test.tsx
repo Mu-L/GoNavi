@@ -65,6 +65,7 @@ vi.mock('../store', () => ({
     queryOptions: {
       showColumnComment: false,
       showColumnType: false,
+      alignNumericTemporalCellsRight: false,
     },
     setQueryOptions: vi.fn(),
     dataEditTransactionOptions: {
@@ -262,7 +263,7 @@ describe('DataGrid layout', () => {
     expect(markup).not.toContain('当前页查找...');
   });
 
-  it('right-aligns numeric and datetime columns while keeping text columns left-aligned', () => {
+  it('keeps every column header left-aligned regardless of column type', () => {
     const markup = renderDataGridWithI18n(
       <DataGrid
         data={[
@@ -295,21 +296,25 @@ describe('DataGrid layout', () => {
       />,
     );
 
-    const columnHeader = (columnName: string) => markup.match(new RegExp(`<th[^>]*data-col-name="${columnName}"[^>]*>`))?.[0] || '';
-    const columnTitleBlock = (columnName: string) => markup.match(new RegExp(`<div class="gn-v2-column-title[^"]*" data-column-name="${columnName}"[^>]*style="[^"]*"`))?.[0] || '';
+    const columnTitleBlock = (columnName: string) =>
+      markup.match(new RegExp(`<div class="gn-v2-column-title[^"]*" data-column-name="${columnName}"[^>]*style="[^"]*"`))?.[0] || '';
 
-    expect(columnHeader('id')).toContain('is-align-right');
-    expect(columnHeader('id')).toContain('text-align:right');
-    expect(columnHeader('amount')).toContain('is-align-right');
-    expect(columnHeader('created_at')).toContain('is-align-right');
-    expect(columnHeader('name')).not.toContain('is-align-right');
-    expect(columnHeader('name')).not.toContain('text-align:right');
-
-    expect(columnTitleBlock('amount')).toContain('align-items:flex-end');
-    expect(columnTitleBlock('id')).toContain('align-items:flex-end');
-    expect(columnTitleBlock('created_at')).toContain('align-items:flex-end');
+    // 数值/日期时间/字符串列的表头列名一律左对齐，且不引入 #1353 的表头右对齐类。
+    expect(columnTitleBlock('id')).toContain('align-items:flex-start');
+    expect(columnTitleBlock('amount')).toContain('align-items:flex-start');
+    expect(columnTitleBlock('created_at')).toContain('align-items:flex-start');
     expect(columnTitleBlock('name')).toContain('align-items:flex-start');
-    expect(columnTitleBlock('name')).not.toContain('align-items:flex-end');
+    expect(markup).not.toContain('is-align-right');
+  });
+
+  it('right-aligns numeric and datetime body cells through cell props, not the header', () => {
+    const source = readDataGridSource();
+    // 数据格右对齐仅通过 onCell 的 style 作用于 body 单元格（SSR 不渲染 body 行，故校验源码接线）。
+    expect(source).toContain('resolveGridColumnAlign');
+    // 由显示设置开关控制：仅当开启时注入 textAlign:right。
+    expect(source).toContain("gridColumnAlignMap[dataIndex] === 'right' ? { textAlign: 'right' } : undefined");
+    // 默认值与安全兜底均为 false（默认全左对齐）。
+    expect(source).toContain('alignNumericTemporalCellsRight');
   });
 
   it('refreshes DataGrid localized chrome when the language preference changes', () => {
