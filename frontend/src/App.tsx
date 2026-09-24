@@ -262,7 +262,7 @@ import {
   type WindowScaleFixReason,
   type WindowsScaleCheckTrigger,
 } from './utils/windowStateUi';
-import { resolveVisibleStartupWindowBounds } from './utils/windowRestoreBounds';
+import { resolveVisibleStartupWindowBounds, type WindowRestoreBounds } from './utils/windowRestoreBounds';
 import {
   applyRuntimeWindowPlacement,
   loadMainWindowDisplayLayout,
@@ -1982,12 +1982,7 @@ function App() {
       };
 
       const applyRestoredWindowBounds = (
-          bounds: {
-              width: number;
-              height: number;
-              x: number;
-              y: number;
-          },
+          bounds: WindowRestoreBounds,
           displayLayout?: MainWindowDisplayLayout | null,
       ) => {
           const state = useStore.getState();
@@ -2016,12 +2011,7 @@ function App() {
       };
 
       const restoreNormalWindowBounds = async (
-          bounds: {
-              width: number;
-              height: number;
-              x: number;
-              y: number;
-          },
+          bounds: WindowRestoreBounds,
           layout: MainWindowDisplayLayout | null,
       ) => {
           try {
@@ -2179,7 +2169,7 @@ function App() {
                       if (cancelled || isStartupWindowRestorePending()) return;
                       const nextBounds = resolveMaximisedWindowRestoreBounds(store.windowBounds, layout);
                       if (nextBounds) {
-                          lastSaved = `${nextBounds.width},${nextBounds.height},${nextBounds.x},${nextBounds.y}`;
+                          lastSaved = `${nextBounds.width},${nextBounds.height},${nextBounds.x},${nextBounds.y},${nextBounds.dpi || ''}`;
                           store.setWindowBounds(nextBounds);
                       }
                   }
@@ -2205,7 +2195,7 @@ function App() {
                    layout,
                ) ?? { width: w, height: h, x, y };
 
-               const key = `${savedBounds.width},${savedBounds.height},${savedBounds.x},${savedBounds.y}`;
+               const key = `${savedBounds.width},${savedBounds.height},${savedBounds.x},${savedBounds.y},${savedBounds.dpi || ''}`;
                if (key === lastSaved) return;
                lastSaved = key;
                if (Math.abs(savedBounds.x) > 5000 || Math.abs(savedBounds.y) > 5000) {
@@ -2268,12 +2258,15 @@ function App() {
               const placement = resolveRuntimeWindowPlacement(currentBounds, layout, readCurrentVisibleViewport(), isWindowsPlatform());
               if (!placement) return;
               const nextBounds = placement.bounds;
-              const originalGlobal = resolveGlobalWindowBounds(currentBounds, layout) ?? currentBounds;
+              const resolvedOriginal = resolveGlobalWindowBounds(currentBounds, layout);
+              const originalGlobal = resolvedOriginal ?? currentBounds;
+              const originalDpi = resolvedOriginal?.dpi;
               if (
                   nextBounds.x === originalGlobal.x &&
                   nextBounds.y === originalGlobal.y &&
                   nextBounds.width === originalGlobal.width &&
-                  nextBounds.height === originalGlobal.height
+                  nextBounds.height === originalGlobal.height &&
+                  nextBounds.dpi === originalDpi
               ) {
                   return;
               }
@@ -2285,7 +2278,7 @@ function App() {
               // 持久化用全局坐标：macOS 的窗口位置是当前屏局部坐标，直接落盘会丢
               // 失“在哪块显示器上”的信息。换算失败时保留设备侧坐标，行为不回退。
               const persistedBounds = placement.persistedBounds;
-              lastSaved = `${persistedBounds.width},${persistedBounds.height},${persistedBounds.x},${persistedBounds.y}`;
+              lastSaved = `${persistedBounds.width},${persistedBounds.height},${persistedBounds.x},${persistedBounds.y},${persistedBounds.dpi || ''}`;
               useStore.getState().setWindowBounds(persistedBounds);
               window.dispatchEvent(new Event('resize'));
           } catch {

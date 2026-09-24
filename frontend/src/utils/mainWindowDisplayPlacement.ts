@@ -86,8 +86,8 @@ export const resolveCurrentWindowDisplay = (
   layout.displays.find((display) => display.current === true) ?? null
 );
 
-const intersectArea = (left: WindowRestoreBounds, right: WindowDisplayWorkArea): number => {
-  const physical = toPhysicalWindowBounds(left, right);
+const intersectArea = (left: WindowRestoreBounds, right: WindowDisplayWorkArea, dpi: number): number => {
+  const physical = toPhysicalWindowBounds(left, dpi);
   const overlapWidth = Math.min(physical.x + physical.width, right.x + right.width) - Math.max(physical.x, right.x);
   const overlapHeight = Math.min(physical.y + physical.height, right.y + right.height) - Math.max(physical.y, right.y);
   if (overlapWidth <= 0 || overlapHeight <= 0) {
@@ -96,8 +96,8 @@ const intersectArea = (left: WindowRestoreBounds, right: WindowDisplayWorkArea):
   return overlapWidth * overlapHeight;
 };
 
-const distanceSquared = (bounds: WindowRestoreBounds, display: WindowDisplayWorkArea): number => {
-  const physical = toPhysicalWindowBounds(bounds, display);
+const distanceSquared = (bounds: WindowRestoreBounds, display: WindowDisplayWorkArea, dpi: number): number => {
+  const physical = toPhysicalWindowBounds(bounds, dpi);
   const gapX = physical.x + physical.width < display.x
     ? display.x - (physical.x + physical.width)
     : (display.x + display.width < physical.x ? physical.x - (display.x + display.width) : 0);
@@ -107,27 +107,28 @@ const distanceSquared = (bounds: WindowRestoreBounds, display: WindowDisplayWork
   return gapX * gapX + gapY * gapY;
 };
 
-const toPhysicalWindowBounds = (bounds: WindowRestoreBounds, display: WindowDisplayWorkArea): WindowRestoreBounds => {
-  const scale = (display.dpi || 96) / 96;
+const toPhysicalWindowBounds = (bounds: WindowRestoreBounds, dpi: number): WindowRestoreBounds => {
+  const scale = (dpi || 96) / 96;
   return { ...bounds, width: Math.trunc(bounds.width * scale), height: Math.trunc(bounds.height * scale) };
 };
 
 const clampWindowToDisplay = (bounds: WindowRestoreBounds, display: WindowDisplayWorkArea): WindowRestoreBounds => {
-  const physical = resolveVisibleStartupWindowBounds(toPhysicalWindowBounds(bounds, display), {
+  const targetDpi = display.dpi || 96;
+  const physical = resolveVisibleStartupWindowBounds(toPhysicalWindowBounds(bounds, targetDpi), {
     availWidth: display.width,
     availHeight: display.height,
     availLeft: display.x,
     availTop: display.y,
   });
-  const originalPhysical = toPhysicalWindowBounds(bounds, display);
+  const originalPhysical = toPhysicalWindowBounds(bounds, targetDpi);
   if (physical.width === originalPhysical.width && physical.height === originalPhysical.height) {
-    return { ...bounds, x: physical.x, y: physical.y };
+    return { ...bounds, x: physical.x, y: physical.y, ...(display.dpi ? { dpi: display.dpi } : {}) };
   }
-  const dpi = display.dpi || 96;
   return {
     ...physical,
-    width: Math.trunc(physical.width * 96 / dpi),
-    height: Math.trunc(physical.height * 96 / dpi),
+    width: Math.trunc(physical.width * 96 / targetDpi),
+    height: Math.trunc(physical.height * 96 / targetDpi),
+    ...(display.dpi ? { dpi: display.dpi } : {}),
   };
 };
 
@@ -145,9 +146,19 @@ export const resolvePlacementDisplay = (
   }
 
   let target: WindowDisplayWorkArea | null = null;
+  // Candidate overlap must use the window's captured scale consistently.
+  const originDisplay = awareLayout.displays.find((display) => (
+    bounds.x >= display.x && bounds.x < display.x + display.width
+    && bounds.y >= display.y && bounds.y < display.y + display.height
+  ));
+  const sourceDpi = bounds.dpi
+    || originDisplay?.dpi
+    || resolveCurrentWindowDisplay(awareLayout)?.dpi
+    || awareLayout.displays.find((display) => display.primary)?.dpi
+    || 96;
   let bestArea = 0;
   for (const display of awareLayout.displays) {
-    const area = intersectArea(bounds, display);
+    const area = intersectArea(bounds, display, sourceDpi);
     if (area > bestArea) {
       bestArea = area;
       target = display;
@@ -159,7 +170,7 @@ export const resolvePlacementDisplay = (
 
   let closestDistance = Number.POSITIVE_INFINITY;
   for (const display of awareLayout.displays) {
-    const distance = distanceSquared(bounds, display);
+    const distance = distanceSquared(bounds, display, sourceDpi);
     if (distance < closestDistance) {
       closestDistance = distance;
       target = display;
@@ -193,8 +204,8 @@ export const resolveMaximisedWindowRestoreBounds = (
     || resolvePlacementDisplay(bounds, layout) === display) return null;
   const repositioned = {
     ...bounds,
-    x: display.x + Math.max(0, Math.trunc((display.width - toPhysicalWindowBounds(bounds, display).width) / 2)),
-    y: display.y + Math.max(0, Math.trunc((display.height - toPhysicalWindowBounds(bounds, display).height) / 2)),
+    x: display.x + Math.max(0, Math.trunc((display.width - toPhysicalWindowBounds(bounds, display.dpi || bounds.dpi || 96).width) / 2)),
+    y: display.y + Math.max(0, Math.trunc((display.height - toPhysicalWindowBounds(bounds, display.dpi || bounds.dpi || 96).height) / 2)),
   };
   return clampWindowToDisplay(repositioned, display);
 };
@@ -215,7 +226,8 @@ export const resolveGlobalWindowBounds = (
     return null;
   }
   if (awareLayout.positionIsGlobal) {
-    return bounds;
+    const currentDpi = resolveCurrentWindowDisplay(awareLayout)?.dpi;
+    return currentDpi ? { ...bounds, dpi: currentDpi } : bounds;
   }
 
   const current = resolveCurrentWindowDisplay(awareLayout);
@@ -265,12 +277,16 @@ export const resolveRuntimeWindowPlacement = (
   inputIsGlobal = false,
 ): { bounds: WindowRestoreBounds; position: { x: number; y: number }; persistedBounds: WindowRestoreBounds } | null => {
   const aware = resolveDisplayAwareLayout(layout);
-  const globalBounds = aware && !aware.positionIsGlobal && !inputIsGlobal
-    ? resolveGlobalWindowBounds(bounds, aware) ?? bounds
+  const currentDpi = aware ? resolveCurrentWindowDisplay(aware)?.dpi : undefined;
+  const measuredBounds = !inputIsGlobal && !bounds.dpi && currentDpi
+    ? { ...bounds, dpi: currentDpi }
     : bounds;
+  const globalBounds = aware && !aware.positionIsGlobal && !inputIsGlobal
+    ? resolveGlobalWindowBounds(measuredBounds, aware) ?? measuredBounds
+    : measuredBounds;
   const nextBounds = aware
     ? resolveVisibleGlobalWindowBounds(globalBounds, aware)
-    : resolveVisibleStartupWindowBounds(bounds, viewport);
+    : resolveVisibleStartupWindowBounds(measuredBounds, viewport);
   if (!nextBounds) return null;
   const position = aware
     ? resolveWailsWindowPosition(nextBounds, aware)
