@@ -4011,15 +4011,18 @@ describe('store appearance persistence', () => {
     const { useStore } = await importStore();
 
     useStore.getState().setWindowState('maximized');
-    useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40 });
+    useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
     expect(persisted.state.windowState).toBe('maximized');
-    expect(persisted.state.windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40 });
+    expect(persisted.state.windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
 
     vi.resetModules();
     const reloaded = await importStore();
     expect(reloaded.useStore.getState().windowState).toBe('maximized');
+    expect(reloaded.useStore.getState().windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40, dpi: 144 });
+
+    reloaded.useStore.getState().setWindowBounds({ width: 1400, height: 900, x: 80, y: 40, dpi: Number.NaN });
     expect(reloaded.useStore.getState().windowBounds).toEqual({ width: 1400, height: 900, x: 80, y: 40 });
   });
 

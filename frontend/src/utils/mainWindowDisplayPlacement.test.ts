@@ -70,6 +70,44 @@ describe('resolvePlacementDisplay', () => {
       { displays: [], positionIsGlobal: true },
     )).toBeNull();
   });
+
+  it('compares mixed-DPI display overlap using the captured DPI and avoids erroneous shrink', () => {
+    const scaledPrimary = { x: 0, y: 0, width: 1920, height: 1080, dpi: 144, primary: true };
+    const standardSecondary = { x: 1920, y: 0, width: 1920, height: 1080, dpi: 96 };
+    const remembered = { x: 490, y: 0, width: 1910, height: 300, dpi: 144 };
+    const layout = {
+      displays: [scaledPrimary, standardSecondary],
+      positionIsGlobal: true,
+      setPositionIsLocal: true,
+    };
+    expect(resolvePlacementDisplay(remembered, layout)).toMatchObject(standardSecondary);
+    const currentOnSecondary = {
+      ...layout,
+      displays: [
+        { ...scaledPrimary, current: false },
+        { ...standardSecondary, current: true },
+      ],
+    };
+    expect(resolvePlacementDisplay(remembered, currentOnSecondary)).toMatchObject(standardSecondary);
+    expect(resolveVisibleGlobalWindowBounds(remembered, layout)).toEqual({ ...remembered, dpi: 96 });
+    expect(resolvePlacementDisplay({ ...remembered, dpi: 144 }, {
+      ...layout,
+      displays: [
+        { ...scaledPrimary, current: false },
+        { ...standardSecondary, current: true },
+      ],
+    })).toMatchObject(standardSecondary);
+    expect(resolveRuntimeWindowPlacement(remembered, {
+      ...layout,
+      displays: [
+        { ...scaledPrimary, current: false },
+        { ...standardSecondary, current: true },
+      ],
+    }, { availWidth: 1920, availHeight: 1080 }, true, true)?.bounds).toEqual({
+      ...remembered,
+      dpi: 96,
+    });
+  });
 });
 
 describe('resolveGlobalWindowBounds', () => {
@@ -108,6 +146,16 @@ describe('resolveWailsWindowPosition', () => {
     applyRuntimeWindowPlacement(placement, false, setSize, setPosition);
     expect(order).toEqual(['size:1000,700', 'position:180,60']);
   });
+
+  it('captures the current Windows DPI with logical window bounds', () => {
+    const bounds = { width: 1200, height: 800, x: 2000, y: 120 };
+    expect(resolveGlobalWindowBounds(bounds, {
+      displays: [{ ...PRIMARY, dpi: 144 }],
+      positionIsGlobal: true,
+      setPositionIsLocal: true,
+    })).toEqual({ ...bounds, dpi: 144 });
+  });
+
   it('uses the current Windows monitor work-area origin when moving to another monitor', () => {
     const layout = {
       displays: [PRIMARY, SECONDARY],
@@ -158,7 +206,7 @@ describe('resolveWailsWindowPosition', () => {
     const placement = resolveRuntimeWindowPlacement(saved, layout, {
       availWidth: 1920, availHeight: 1040, availLeft: 0, availTop: 0,
     }, true, true);
-    expect(placement?.bounds).toEqual({ x: 0, y: 0, width: 1280, height: 693 });
+    expect(placement?.bounds).toEqual({ x: 0, y: 0, width: 1280, height: 693, dpi: 144 });
     expect(placement?.bounds.width! * 1.5).toBeLessThanOrEqual(1920);
     expect(placement?.bounds.height! * 1.5).toBeLessThanOrEqual(1040);
   });
@@ -169,7 +217,7 @@ describe('resolveWailsWindowPosition', () => {
       setPositionIsLocal: true,
     };
     const saved = { x: 2050, y: 60, width: 801, height: 601 };
-    expect(resolveVisibleGlobalWindowBounds(saved, layout)).toEqual(saved);
+    expect(resolveVisibleGlobalWindowBounds(saved, layout)).toEqual({ ...saved, dpi: 120 });
   });
   it('uses the target screen DPI, not the current screen DPI, when restoring a secondary position', () => {
     const layout: MainWindowDisplayLayout = {
@@ -181,7 +229,7 @@ describe('resolveWailsWindowPosition', () => {
       setPositionIsLocal: true,
     };
     const saved = { x: 2050, y: 60, width: 1200, height: 700 };
-    expect(resolveVisibleGlobalWindowBounds(saved, layout)).toEqual(saved);
+    expect(resolveVisibleGlobalWindowBounds(saved, layout)).toEqual({ ...saved, dpi: 96 });
     expect(resolveWailsWindowPosition(saved, layout)).toEqual({ x: 2050, y: 60 });
   });
   it('converts a global target back to macOS monitor-local input', () => {
@@ -248,7 +296,7 @@ describe('resolveVisibleGlobalWindowBounds', () => {
     };
     expect(resolveMaximisedWindowRestoreBounds(
       { x: -1500, y: 0, width: 1600, height: 900 }, layout,
-    )).toEqual({ x: 0, y: 0, width: 1280, height: 693 });
+    )).toEqual({ x: 0, y: 0, width: 1280, height: 693, dpi: 144 });
   });
   it('keeps a remembered secondary-display position instead of pulling it back to the primary screen', () => {
     expect(resolveVisibleGlobalWindowBounds(
