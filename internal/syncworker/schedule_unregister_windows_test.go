@@ -75,4 +75,25 @@ func TestUnregisterJobScheduleTaskNameBranches(t *testing.T) {
 			t.Fatalf("marker 应保留供重试, stat err = %v", err)
 		}
 	})
+
+	t.Run("Query 瞬时失败时保留 marker 供清扫重试", func(t *testing.T) {
+		taskName := "GoNaviSync-Job-query-flaky"
+		marker := jobScheduleMarkerPath(root, taskName)
+		if err := os.WriteFile(marker, []byte("stub"), 0o600); err != nil {
+			t.Fatalf("写入 marker: %v", err)
+		}
+		runSchtasksFn = func(ctx context.Context, args ...string) error {
+			if len(args) > 0 && args[0] == "/Query" {
+				return errors.New("schtasks /Query /TN x: exit status 1: ERROR: The scheduled task is currently busy")
+			}
+			t.Fatal("Query 失败后不应执行 Delete")
+			return nil
+		}
+		if err := UnregisterJobScheduleTaskName(ctx, root, taskName); err != nil {
+			t.Fatalf("瞬时失败应静默返回并保留 marker: %v", err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("marker 应保留供清扫重试, stat err = %v", err)
+		}
+	})
 }

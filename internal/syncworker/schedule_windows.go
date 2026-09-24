@@ -16,8 +16,6 @@ import (
 	"GoNavi-Wails/internal/syncjob"
 )
 
-// RunningOSSupportsJobSchedules 报告当前平台是否支持按任务的 OS 计划注册。
-func RunningOSSupportsJobSchedules() bool { return true }
 
 func jobScheduleMarkerPath(root, taskName string) string {
 	return filepath.Join(root, "data_sync", "schedules", taskName+".xml")
@@ -142,6 +140,18 @@ func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, sp
 // 真实任务计划程序。
 var runSchtasksFn = runSchtasks
 
+// isTaskMissingError 判断 schtasks /Query 的失败是否为「任务不存在」。
+// 其它失败（权限、任务计划服务瞬时不可达等）不能当作注销成功处理。
+func isTaskMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "cannot find") ||
+		strings.Contains(message, "does not exist") ||
+		strings.Contains(message, "is not a valid")
+}
+
 // UnregisterJobSchedule 移除单个任务的计划任务；任务不存在时视为成功，
 // 方便删除任务的路径无条件调用。
 func UnregisterJobSchedule(ctx context.Context, root, jobID string) error {
@@ -150,14 +160,20 @@ func UnregisterJobSchedule(ctx context.Context, root, jobID string) error {
 
 // UnregisterJobScheduleTaskName 按任务名移除计划任务；任务不存在时视为成功。
 // marker 缺失时也尝试查询并删除，兜住「marker 丢失但 schtasks 任务残留」
-// 的孤儿场景。
+// 的孤儿场景。Query 因瞬时原因失败时保留 marker 并静默返回，交给下一轮
+// reconcile 的孤儿清扫重试，避免误删后孤儿任务永久不可见。
 func UnregisterJobScheduleTaskName(ctx context.Context, root, taskName string) error {
 	marker := jobScheduleMarkerPath(root, taskName)
 	_, markerErr := os.Stat(marker)
 	if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
 		return markerErr
 	}
-	if err := runSchtasksFn(ctx, "/Query", "/TN", taskName); err == nil {
+	queryErr := runSchtasksFn(ctx, "/Query", "/TN", taskName)
+	if queryErr != nil && !isTaskMissingError(queryErr) && markerErr == nil {
+		// 任务在册但暂时无法确认：保留 marker，下轮清扫重试。
+		return nil
+	}
+	if queryErr == nil {
 		if err := runSchtasksFn(ctx, "/Delete", "/TN", taskName, "/F"); err != nil {
 			return fmt.Errorf("remove job schedule task: %w", err)
 		}
