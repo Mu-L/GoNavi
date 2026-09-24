@@ -92,7 +92,8 @@ func formatISO8601DurationSeconds(seconds int64) string {
 
 // RegisterJobSchedule 把单个任务的 OS 计划任务注册（或更新）为与当前调度
 // 一致的定义；marker 里保存上次注册成功的编码，内容未变且任务仍在时直接
-// 跳过，避免每次启动都重写 schtasks。
+// 跳过，避免每次启动都重写 schtasks。用户标识与编码候选的回退顺序与旧
+// 登录任务注册保持一致（SID 优先、UTF-16 优先）。
 func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, spec syncjob.ScheduleSpec) error {
 	account, err := user.Current()
 	if err != nil {
@@ -102,15 +103,23 @@ func RegisterJobSchedule(ctx context.Context, root, executable, jobID string, sp
 	if err != nil {
 		return fmt.Errorf("translate job schedule: %w", err)
 	}
-	definition, err := jobScheduleTaskXML(executable, root, jobID, account.Username, triggers)
-	if err != nil {
-		return fmt.Errorf("render job schedule task: %w", err)
-	}
-	candidates, err := taskXMLCandidates(definition)
-	if err != nil {
-		return err
+	identifiers := taskUserIdentifiers(account)
+	if len(identifiers) == 0 {
+		return errors.New("current Windows user has no Task Scheduler identifier")
 	}
 	taskName := JobScheduleTaskName(root, jobID)
+	var candidates [][]byte
+	for _, identifier := range identifiers {
+		definition, err := jobScheduleTaskXML(executable, root, jobID, identifier, triggers)
+		if err != nil {
+			return fmt.Errorf("render job schedule task: %w", err)
+		}
+		encoded, err := taskXMLCandidates(definition)
+		if err != nil {
+			return err
+		}
+		candidates = append(candidates, encoded...)
+	}
 	marker := jobScheduleMarkerPath(root, taskName)
 	if previous, err := os.ReadFile(marker); err == nil && matchesAnyCandidate(previous, candidates) {
 		if err := runSchtasks(ctx, "/Query", "/TN", taskName); err == nil {
