@@ -2906,13 +2906,13 @@ describe('QueryEditor external SQL save', () => {
     expect(dataGridState.latestProps?.data).toEqual(expect.arrayContaining([expect.objectContaining({ a: 1 })]));
   });
 
-  it('shows "Select a database first." in English before running without a database', async () => {
+  it('shows "Select a database first." in English before running database-dependent SQL without a database', async () => {
     storeState.languagePreference = 'en-US';
     setCurrentLanguage('en-US');
 
     let renderer!: ReactTestRenderer;
     await act(async () => {
-      renderer = create(<QueryEditor tab={createTab({ dbName: '', query: 'select 1;' })} />);
+      renderer = create(<QueryEditor tab={createTab({ dbName: '', query: 'select * from orders;' })} />);
     });
 
     await act(async () => {

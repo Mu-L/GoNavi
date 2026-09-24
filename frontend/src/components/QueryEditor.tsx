@@ -379,6 +379,7 @@ export {
     resolveQueryEditorNavigationDecorations,
     resolveQueryEditorNavigationTarget,
 } from './queryEditor/QueryEditorHelpers';
+import { canExecuteQueryEditorSQLWithoutDatabase } from './queryEditor/queryEditorDatabaseRequirement';
 import {
     collectOracleCompileTargets,
     formatOracleCompileErrors,
@@ -1356,9 +1357,17 @@ const isConnectionScopedQueryEditorMetadata = (connection: any): boolean => (
     ) === 'sqlite'
 );
 
-const canUseQueryEditorDatabaseContext = (connection: any, dbName: unknown): boolean => (
-    Boolean(String(dbName ?? '').trim()) || isConnectionScopedQueryEditorMetadata(connection)
-);
+const canUseQueryEditorDatabaseContext = (connection: any, dbName: unknown, sql?: string): boolean => {
+    if (Boolean(String(dbName ?? '').trim())) return true;
+    if (isConnectionScopedQueryEditorMetadata(connection)) return true;
+    if (!sql || !sql.trim()) return false;
+    // 未选库时放行整段都免库的 SQL（SHOW DATABASES、SELECT 1、USE 等，见 issue #1355）。
+    return canExecuteQueryEditorSQLWithoutDatabase(sql, resolveSqlDialect(
+        String(connection?.config?.type || ''),
+        String(connection?.config?.driver || ''),
+        { oceanBaseProtocol: connection?.config?.oceanBaseProtocol },
+    ));
+};
 
 // Monaco language providers are registered globally, while each QueryEditor
 // owns a separate model. Ignore callbacks for a non-active model so the active
@@ -9832,7 +9841,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const executionDbName = executionContext?.executionDbName
           ?? currentResult?.executionDbName
           ?? currentDb;
-      if (!sql?.trim() || !canUseQueryEditorDatabaseContext(conn, executionDbName)) return;
+      if (!sql?.trim() || !canUseQueryEditorDatabaseContext(conn, executionDbName, sql)) return;
       const statementResultIndex = Math.max(
           1,
           Number(executionContext?.statementResultIndex ?? currentResult?.statementResultIndex ?? 1),
@@ -9971,7 +9980,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const conn = connections.find(c => c.id === executionConnectionId);
       if (!conn) return;
       const executionDbName = target?.executionDbName ?? currentDb;
-      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName) || resultTotalCountRequestsRef.current[resultKey]) return;
+      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName, target.page.baseSql) || resultTotalCountRequestsRef.current[resultKey]) return;
       const config = {
           ...conn.config,
           port: Number(conn.config.port),
@@ -10145,7 +10154,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       const conn = connections.find(c => c.id === executionConnectionId);
       if (!conn) return;
       const executionDbName = target?.executionDbName ?? currentDb;
-      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName)) return;
+      if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName, target.page.baseSql)) return;
       const safePageSize = pageSize === 0
           ? 0
           : Math.max(1, Math.floor(Number(pageSize) || target.page.pageSize || 1));
@@ -10649,7 +10658,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
     }
     const executionDbName = currentDbRef.current;
     const executionSchemaName = currentSchemaRef.current;
-    if (!canUseQueryEditorDatabaseContext(currentConnection, executionDbName)) {
+    if (!canUseQueryEditorDatabaseContext(currentConnection, executionDbName, executableSQL)) {
         message.error(translate('query_editor.message.select_database_first'));
         return;
     }
