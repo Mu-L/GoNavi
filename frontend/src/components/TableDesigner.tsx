@@ -51,8 +51,8 @@ import { dispatchSidebarDatabaseRefresh } from '../utils/sidebarDatabaseRefresh'
 import { getCurrentLanguage, t } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import {
-    COMMON_COLUMN_DEFAULT_OPTIONS, getColumnDefinitionExtra, isMySQLCharacterColumnType, normalizeColumnDefinition,
-    normalizeMySQLUnsignedColumnType, setMySQLUnsignedColumnType, supportsMySQLUnsignedColumnType, supportsMySQLUnsignedDialect,
+    getColumnDefinitionExtra, isMySQLCharacterColumnType, normalizeColumnDefinition,
+    normalizeMySQLUnsignedColumnType, resolveColumnDefaultOptions, setMySQLUnsignedColumnType, supportsMySQLUnsignedColumnType, supportsMySQLUnsignedDialect,
 } from '../utils/columnDefinition';
 import { resolveDataTableVerticalBorderRule } from '../utils/dataGridDisplay';
 import { buildEditableTriggerSql } from '../utils/triggerEditSql';
@@ -854,7 +854,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   if (readOnly) return value;
                   return renderDesignerCellField(
                       <AutoComplete
-                          options={COMMON_COLUMN_DEFAULT_OPTIONS}
+                          options={resolveColumnDefaultOptions(dbType, record.type)}
                           value={value}
                           onChange={val => {
                               const hasDefault = val.length > 0;
@@ -4363,7 +4363,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                         {t('table_designer.column.enable_default', undefined, i18nLanguage)}
                     </Checkbox>
                     <AutoComplete
-                        options={COMMON_COLUMN_DEFAULT_OPTIONS}
+                        options={resolveColumnDefaultOptions(getDbType(), commentEditorColumnType)}
                         value={columnDefaultValue}
                         onChange={setColumnDefaultValue}
                         disabled={!columnDefaultEnabled}
