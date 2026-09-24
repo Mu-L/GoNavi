@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   normalizeTitlebarRuntimePlatform,
+  resolveDockedTitleBarBandOffset,
   resolveDocumentPlatform,
   resolveTitleBarLayout,
   resolveTitlebarRuntimePlatform,
@@ -203,6 +204,19 @@ describe('titlebarLayout', () => {
       const collapsedBandTop = layout.height - 1 - (26 * scale * sidebarScale);
 
       expect(collapsedBandTop - upperBandBottom).toBeGreaterThanOrEqual(1);
+    },
+  );
+
+  it.each([
+    [0.8, 1],
+    [1, 1],
+    [1.25, 1.8],
+  ])(
+    'resolves the docked band offset independent of the collapsed state at UI scale %s and sidebar scale %s',
+    (scale, sidebarScale) => {
+      expect(resolveDockedTitleBarBandOffset(scale, sidebarScale))
+        .toBe(resolveTitleBarLayout(scale, true, sidebarScale).emptyWorkbenchTopOffset);
+      expect(resolveDockedTitleBarBandOffset(scale, sidebarScale)).toBeGreaterThan(0);
     },
   );
 

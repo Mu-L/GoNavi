@@ -3300,6 +3300,13 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .antico
   transition: color 80ms ease;
 }
 
+/* Ant Design transitions `all` here. Collapsing the sidebar hides the explorer
+   through inherited visibility, which must not animate on every visible row. */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher::before {
+  transition: color 0.3s, background-color 0.3s;
+}
+
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:hover > .ant-tree-switcher,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher_open {
   color: var(--gn-fg-3);
@@ -3326,6 +3333,7 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wra
   align-items: center;
   border-radius: 6px !important;
   color: var(--gn-fg-3) !important;
+  transition: color 0.2s, background-color 0.2s;
   cursor: default !important;
 }
 

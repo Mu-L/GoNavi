@@ -1205,7 +1205,7 @@ const Sidebar: React.FC<{
           const target = treeContainerRef.current;
           if (!target) return;
           const rect = target.getBoundingClientRect();
-          setTreeHeight((current) => current === rect.height ? current : rect.height);
+          setTreeHeight((current) => (Math.abs(current - rect.height) < 1 ? current : rect.height));
       });
       const resizeObserver = new ResizeObserver(() => scheduler.schedule());
       resizeObserver.observe(treeContainerRef.current);
