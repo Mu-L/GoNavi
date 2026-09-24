@@ -42,6 +42,14 @@ export const canLocateSidebarActiveTab = (
   action: SidebarActiveTabLocateAction,
 ): boolean => action.kind !== 'unavailable';
 
+export const dispatchSidebarActiveQueryTableLocate = (
+  action: Extract<SidebarActiveTabLocateAction, { kind: 'query-line-table' }>,
+): void => {
+  window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT, {
+    detail: action.fallbackRequest,
+  }));
+};
+
 /** Short, user-safe description of an unexpected locate failure (never a stack trace). */
 export const describeSidebarLocateFailure = (error: unknown): string => {
   const raw = error instanceof Error

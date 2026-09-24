@@ -191,8 +191,8 @@ import {
 import {
   canLocateSidebarActiveTab,
   describeSidebarLocateFailure,
+  dispatchSidebarActiveQueryTableLocate,
   resolveSidebarActiveTabLocateAction,
-  SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT,
 } from './sidebar/sidebarLocateActiveTab';
 import {
   runSidebarTreeScrollRequest,
@@ -2100,9 +2100,7 @@ const Sidebar: React.FC<{
           return;
       }
       if (activeTabLocateAction.kind === 'query-line-table') {
-          window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT, {
-              detail: activeTabLocateAction.fallbackRequest,
-          }));
+          dispatchSidebarActiveQueryTableLocate(activeTabLocateAction);
           return;
       }
       message.warning(t('sidebar.message.locate_current_table_unavailable'));

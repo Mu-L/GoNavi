@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { dispatchQueryEditorSidebarLocate } from '../queryEditor/QueryEditorHelpers';
-import { resolveSidebarActiveTabLocateAction } from './sidebarLocateActiveTab';
+import { dispatchSavedQueryLocateFallback } from '../queryEditor/queryEditorLineTableLocate';
+import { dispatchSidebarActiveQueryTableLocate, resolveSidebarActiveTabLocateAction } from './sidebarLocateActiveTab';
 
 describe('resolveSidebarActiveTabLocateAction', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -11,6 +11,9 @@ describe('resolveSidebarActiveTabLocateAction', () => {
     const events: unknown[] = [];
     target.addEventListener('gonavi:locate-sidebar-object', (event) => {
       events.push((event as CustomEvent).detail);
+    });
+    target.addEventListener('gonavi:locate-active-query-table', (event) => {
+      dispatchSavedQueryLocateFallback((event as CustomEvent).detail);
     });
     vi.stubGlobal('window', target);
     vi.stubGlobal('CustomEvent', class extends Event {
@@ -26,8 +29,8 @@ describe('resolveSidebarActiveTabLocateAction', () => {
       hasConnection: true,
     });
     expect(action.kind).toBe('query-line-table');
-    if (action.kind === 'query-line-table' && action.fallbackRequest) {
-      dispatchQueryEditorSidebarLocate({ ...action.fallbackRequest });
+    if (action.kind === 'query-line-table') {
+      dispatchSidebarActiveQueryTableLocate(action);
     }
     expect(events).toEqual([expect.objectContaining({ savedQueryId: 'saved-1', objectGroup: 'savedQueries' })]);
   });
