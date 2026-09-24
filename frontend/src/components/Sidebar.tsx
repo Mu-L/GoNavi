@@ -2100,7 +2100,9 @@ const Sidebar: React.FC<{
           return;
       }
       if (activeTabLocateAction.kind === 'query-line-table') {
-          window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT));
+          window.dispatchEvent(new CustomEvent(SIDEBAR_LOCATE_ACTIVE_QUERY_TABLE_EVENT, {
+              detail: activeTabLocateAction.fallbackRequest,
+          }));
           return;
       }
       message.warning(t('sidebar.message.locate_current_table_unavailable'));

@@ -1,9 +1,38 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { dispatchQueryEditorSidebarLocate } from '../queryEditor/QueryEditorHelpers';
 import { resolveSidebarActiveTabLocateAction } from './sidebarLocateActiveTab';
 
 describe('resolveSidebarActiveTabLocateAction', () => {
-  it('locates the saved query itself instead of the current SQL line', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('dispatches saved-query fallback when the cursor line has no table', () => {
+    const target = new EventTarget();
+    const events: unknown[] = [];
+    target.addEventListener('gonavi:locate-sidebar-object', (event) => {
+      events.push((event as CustomEvent).detail);
+    });
+    vi.stubGlobal('window', target);
+    vi.stubGlobal('CustomEvent', class extends Event {
+      detail: unknown;
+      constructor(type: string, init: { detail: unknown }) {
+        super(type);
+        this.detail = init.detail;
+      }
+    });
+
+    const action = resolveSidebarActiveTabLocateAction({
+      tab: { id: 'saved-1', type: 'query', savedQueryId: 'saved-1', connectionId: 'conn-1', dbName: 'main' },
+      hasConnection: true,
+    });
+    expect(action.kind).toBe('query-line-table');
+    if (action.kind === 'query-line-table' && action.fallbackRequest) {
+      dispatchQueryEditorSidebarLocate({ ...action.fallbackRequest });
+    }
+    expect(events).toEqual([expect.objectContaining({ savedQueryId: 'saved-1', objectGroup: 'savedQueries' })]);
+  });
+
+  it('routes saved-query locate through the editor cursor with a saved-query fallback', () => {
     expect(resolveSidebarActiveTabLocateAction({
       tab: {
         id: 'sq-rfm',
@@ -15,8 +44,8 @@ describe('resolveSidebarActiveTabLocateAction', () => {
       },
       hasConnection: true,
     })).toMatchObject({
-      kind: 'object',
-      request: {
+      kind: 'query-line-table',
+      fallbackRequest: {
         objectGroup: 'savedQueries',
         savedQueryId: 'sq-rfm',
         savedQueryName: 'RFM 三维客户分析',

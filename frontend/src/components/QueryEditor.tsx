@@ -12267,14 +12267,23 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
   }, [activeShortcutPlatform, languagePreference, toggleQueryResultsPanelShortcutBinding, toggleResultPanelVisibility]);
 
   useEffect(() => {
-      const handleLocateActiveQueryTable = () => {
+      const handleLocateActiveQueryTable = (event: Event) => {
           if (!isActive) return;
+          const fallbackRequest = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
+          const locateSavedQueryFallback = () => {
+              if (fallbackRequest?.savedQueryId) {
+                  dispatchQueryEditorSidebarLocate(fallbackRequest);
+                  return true;
+              }
+              return false;
+          };
           const editor = editorRef.current;
           const model = editor?.getModel?.();
           const position = normalizeEditorPosition(editor?.getPosition?.() || lastEditorCursorPositionRef.current);
           const connectionId = String(currentConnectionIdRef.current || '').trim();
           const dbName = String(currentDbRef.current || '').trim();
           if (!model || !position || !connectionId || !dbName) {
+              if (locateSavedQueryFallback()) return;
               void message.warning(translate('query_editor.message.locate_table_unavailable'));
               return;
           }
@@ -12303,6 +12312,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
               dialect,
           )).filter((target): target is Extract<QueryEditorNavigationTarget, { type: 'table' }> => target?.type === 'table');
           if (targets.length === 0) {
+              if (locateSavedQueryFallback()) return;
               void message.warning(translate('query_editor.message.locate_table_unavailable'));
               return;
           }
