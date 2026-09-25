@@ -20,6 +20,7 @@ func TestImportDatabaseSQLExecutesDamengFileOnPinnedSession(t *testing.T) {
 		t.Fatalf("write SQL import fixture: %v", err)
 	}
 
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
 	fakeDB := &fakeSQLFileBatchDB{}
@@ -52,6 +53,7 @@ func TestImportDatabaseSQLFailsClosedForDamengWithoutPinnedSession(t *testing.T)
 	if err := os.WriteFile(filePath, []byte("CREATE TABLE demo(id INT);"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
 	database := &fakeSQLFileUnpinnedDB{}
