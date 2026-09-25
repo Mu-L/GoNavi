@@ -5164,7 +5164,7 @@
   "data_import.capability.reason.data_import_restricted": "Импорт данных отключён политикой защиты этого подключения.",
   "data_import.capability.reason.database_runtime_unavailable": "Среда выполнения базы данных недоступна, поэтому поддержку импорта проверить нельзя.",
   "data_import.capability.reason.database_type_unsupported": "Этот тип базы данных не поддерживается в текущем режиме импорта.",
-  "data_import.capability.reason.pinned_session_unavailable": "Импорт SQL-файла отключён: драйвер не может предоставить проверенный закреплённый сеанс.",
+  "data_import.capability.reason.pinned_session_unavailable": "Импорт SQL-файла отключён: это подключение не может выполнить весь файл в одном сеансе базы данных. Импортируйте данные таблицы (CSV / Excel) или откройте SQL-файл в редакторе запросов.",
   "data_import.capability.reason.sql_file_import_restricted": "Импорт SQL-файла отключён защитой скриптов или структуры.",
   "data_import.capability.reason.table_import_runtime_unavailable": "Среда выполнения этого драйвера не предоставляет интерфейс импорта таблиц.",
   "data_import.capability.reason.unsupported": "Текущий режим импорта недоступен для выбранного подключения.",

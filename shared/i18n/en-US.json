@@ -5164,7 +5164,7 @@
   "data_import.capability.reason.data_import_restricted": "Data import is disabled by this connection's protection policy.",
   "data_import.capability.reason.database_runtime_unavailable": "The database runtime is unavailable, so import support cannot be verified.",
   "data_import.capability.reason.database_type_unsupported": "This database type is not supported for this import mode.",
-  "data_import.capability.reason.pinned_session_unavailable": "SQL file import is disabled because this driver cannot provide a verified pinned session.",
+  "data_import.capability.reason.pinned_session_unavailable": "SQL file import is disabled because this connection cannot run the entire SQL file on a single database session. Import table data (CSV / Excel) instead, or open the SQL file in the query editor.",
   "data_import.capability.reason.sql_file_import_restricted": "SQL file import is disabled by script or structure protection.",
   "data_import.capability.reason.table_import_runtime_unavailable": "This driver runtime does not provide the table import interface.",
   "data_import.capability.reason.unsupported": "This import mode is unavailable for the selected connection.",

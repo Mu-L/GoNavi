@@ -5164,7 +5164,7 @@
   "data_import.capability.reason.data_import_restricted": "この接続の保護ポリシーにより、データインポートは無効です。",
   "data_import.capability.reason.database_runtime_unavailable": "データベースランタイムを利用できないため、インポート対応状況を確認できません。",
   "data_import.capability.reason.database_type_unsupported": "現在のインポートモードでは、このデータベース種別をサポートしていません。",
-  "data_import.capability.reason.pinned_session_unavailable": "このドライバーでは固定セッションを検証できないため、SQL ファイルのインポートは無効です。",
+  "data_import.capability.reason.pinned_session_unavailable": "この接続では SQL ファイル全体を同一のデータベースセッションで連続実行できないため、SQL ファイルのインポートは無効です。代わりにテーブルデータのインポート（CSV / Excel）を使うか、クエリエディターで SQL ファイルを開いて実行してください。",
   "data_import.capability.reason.sql_file_import_restricted": "スクリプトまたは構造保護により、SQL ファイルのインポートは無効です。",
   "data_import.capability.reason.table_import_runtime_unavailable": "このドライバーランタイムにはテーブルインポート用インターフェースがありません。",
   "data_import.capability.reason.unsupported": "選択した接続では、現在のインポートモードを利用できません。",

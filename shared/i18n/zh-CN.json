@@ -5164,7 +5164,7 @@
   "data_import.capability.reason.data_import_restricted": "该连接的保护策略已禁用数据导入。",
   "data_import.capability.reason.database_runtime_unavailable": "数据库运行时不可用，无法验证导入能力。",
   "data_import.capability.reason.database_type_unsupported": "当前导入模式不支持此数据库类型。",
-  "data_import.capability.reason.pinned_session_unavailable": "该驱动无法提供已验证的固定会话，已禁用 SQL 文件导入。",
+  "data_import.capability.reason.pinned_session_unavailable": "当前连接无法用同一条数据库会话连续执行整个 SQL 文件，已禁用 SQL 文件导入。请改用表数据导入（CSV / Excel），或在查询编辑器中打开该 SQL 文件执行。",
   "data_import.capability.reason.sql_file_import_restricted": "脚本或结构保护策略已禁用 SQL 文件导入。",
   "data_import.capability.reason.table_import_runtime_unavailable": "该驱动运行时未提供表导入接口。",
   "data_import.capability.reason.unsupported": "所选连接不支持当前导入模式。",

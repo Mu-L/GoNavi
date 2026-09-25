@@ -5164,7 +5164,7 @@
   "data_import.capability.reason.data_import_restricted": "此連線的保護原則已停用資料匯入。",
   "data_import.capability.reason.database_runtime_unavailable": "資料庫執行階段無法使用，無法驗證匯入能力。",
   "data_import.capability.reason.database_type_unsupported": "目前匯入模式不支援此資料庫類型。",
-  "data_import.capability.reason.pinned_session_unavailable": "此驅動程式無法提供已驗證的固定工作階段，已停用 SQL 檔案匯入。",
+  "data_import.capability.reason.pinned_session_unavailable": "目前連線無法以同一資料庫工作階段連續執行整個 SQL 檔案，已停用 SQL 檔案匯入。請改用資料表匯入（CSV / Excel），或在查詢編輯器中開啟該 SQL 檔案執行。",
   "data_import.capability.reason.sql_file_import_restricted": "指令碼或結構保護原則已停用 SQL 檔案匯入。",
   "data_import.capability.reason.table_import_runtime_unavailable": "此驅動程式執行階段未提供資料表匯入介面。",
   "data_import.capability.reason.unsupported": "所選連線不支援目前匯入模式。",
